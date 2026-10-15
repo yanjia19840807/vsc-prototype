@@ -40,7 +40,6 @@ import {
   normalizeFilterPrefs,
   portsForRegions,
   retainPointCodes,
-  scheduleValueOptions,
   staticFilterOptions,
   type FilterFieldDef,
   type FilterState,
@@ -52,11 +51,9 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { DIALOG_CONFIRM_DESCRIPTION } from '@/lib/dialog-copy'
 import { useListSettingsStore } from '@/stores/list-settings'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
-import { useVesselStore } from '@/stores/vessels'
 
 const coverage = useTerminalCoverageStore()
 const store = useListSettingsStore()
-const vessels = useVesselStore()
 
 const selectedId = ref(store.activeId)
 const draft = ref<ListSetting>(cloneSelected())
@@ -114,9 +111,6 @@ function optionsFor(field: FilterFieldDef) {
   if (field.optionSource === 'pointCode') return portOptions.value
   if (field.optionSource === 'terminal9code') return terminalCodes.value
   if (field.optionSource === 'terminalName') return terminalNames.value
-  if (field.optionSource === 'vesselName' || field.optionSource === 'laraVoyage') {
-    return scheduleValueOptions(vessels.vessels, field.optionSource)
-  }
   return staticFilterOptions(field.optionSource)
 }
 

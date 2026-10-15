@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { DateRangePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { MultiSelect } from '@/components/ui/multi-select'
+import LineListField from '@/features/vessel-search/LineListField.vue'
 import {
   Select,
   SelectContent,
@@ -110,6 +111,13 @@ const preview = computed(() => relativeDateLabel(props.state.fromDays ?? null, p
     :to="state.to"
     :aria-label="field.label"
     @change="patch"
+  />
+  <LineListField
+    v-else-if="field.kind === 'lines'"
+    :label="field.label"
+    :values="state.values"
+    :placeholder="allPlaceholder(field.label)"
+    @update:values="patch({ values: $event })"
   />
   <MultiSelect
     v-else-if="field.kind === 'multi'"

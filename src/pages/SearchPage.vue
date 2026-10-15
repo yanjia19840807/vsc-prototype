@@ -49,7 +49,6 @@ import {
   isFilterFilled,
   portsForRegions,
   retainPointCodes,
-  scheduleValueOptions,
   sessionFromSetting,
   staticFilterOptions,
   vesselMatchesFilters,
@@ -130,9 +129,6 @@ function optionsFor(field: FilterFieldDef) {
   if (field.optionSource === 'pointCode') return portOptions.value
   if (field.optionSource === 'terminal9code') return terminalCodes.value
   if (field.optionSource === 'terminalName') return terminalNames.value
-  if (field.optionSource === 'vesselName' || field.optionSource === 'laraVoyage') {
-    return scheduleValueOptions(store.vessels, field.optionSource)
-  }
   return staticFilterOptions(field.optionSource)
 }
 

@@ -37,7 +37,6 @@ import {
   filterFieldById,
   portsForRegions,
   retainPointCodes,
-  scheduleValueOptions,
   staticFilterOptions,
   vesselMatchesFilters,
   type FilterFieldDef,
@@ -111,9 +110,6 @@ watch(rows, (list) => {
 function optionsFor(field: FilterFieldDef) {
   if (field.optionSource === 'region') return regionOptions.value
   if (field.optionSource === 'pointCode') return portOptions.value
-  if (field.optionSource === 'vesselName' || field.optionSource === 'laraVoyage') {
-    return scheduleValueOptions(store.vessels, field.optionSource)
-  }
   return staticFilterOptions(field.optionSource)
 }
 

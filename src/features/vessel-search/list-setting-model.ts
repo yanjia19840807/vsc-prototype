@@ -27,7 +27,7 @@ import {
   type TimeWindow,
 } from '@/features/vessel-search/schedule-prefs'
 
-export type FilterControlKind = 'text' | 'datetime' | 'multi'
+export type FilterControlKind = 'text' | 'datetime' | 'multi' | 'lines'
 
 export type FilterOptionSource =
   | 'region'
@@ -39,8 +39,6 @@ export type FilterOptionSource =
   | 'tmlVslStatus'
   | 'terminal9code'
   | 'terminalName'
-  | 'vesselName'
-  | 'laraVoyage'
 
 export type FilterFieldDef = {
   id: string
@@ -91,7 +89,17 @@ export const DEFAULT_VISIBLE_FILTERS = [
   'mappingStatus',
 ] as const
 
-const CATALOG_REV = 2
+const CATALOG_REV = 3
+
+const LINE_FIELDS = new Set([
+  'vesselName',
+  'laraVoyage',
+  'vesselNameEn',
+  'vesselNameCn',
+  'shipName',
+  'localVoyageExport',
+  'localVoyageImport',
+])
 
 const MULTI_FIELDS: Record<string, FilterOptionSource> = {
   region: 'region',
@@ -103,8 +111,6 @@ const MULTI_FIELDS: Record<string, FilterOptionSource> = {
   tmlVslStatus: 'tmlVslStatus',
   terminal9code: 'terminal9code',
   terminalName: 'terminalName',
-  vesselName: 'vesselName',
-  laraVoyage: 'laraVoyage',
 }
 
 const MAPPING_STATUSES: MatchingStatus[] = [
@@ -124,28 +130,30 @@ const EXTRA_FIELDS: FilterFieldDef[] = [
   { id: 'region', label: 'LARA Region', kind: 'multi', optionSource: 'region' },
 ]
 
-const SEARCHABLE_SOURCES = new Set<FilterOptionSource>([
-  'pointCode',
-  'terminal9code',
-  'terminalName',
-  'vesselName',
-  'laraVoyage',
-])
+const SEARCHABLE_SOURCES = new Set<FilterOptionSource>(['pointCode', 'terminal9code', 'terminalName'])
 
 export function filterIsSearchable(field: FilterFieldDef) {
   return Boolean(field.optionSource && SEARCHABLE_SOURCES.has(field.optionSource))
 }
 
-export function scheduleValueOptions(
-  vessels: readonly { vesselName: string; laraVoyage: string }[],
-  source: 'vesselName' | 'laraVoyage',
-) {
-  const values = new Set<string>()
-  for (const vessel of vessels) {
-    const value = (source === 'vesselName' ? vessel.vesselName : vessel.laraVoyage).trim()
-    if (value) values.add(value)
+export function parseLineList(raw: string): string[] {
+  const seen = new Set<string>()
+  const values: string[] = []
+  for (const line of raw.split(/\r?\n/)) {
+    const value = line.trim()
+    if (!value) continue
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    values.push(value)
   }
-  return [...values].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+  return values
+}
+
+export function lineListSummary(values: readonly string[], placeholder: string) {
+  if (!values.length) return placeholder
+  if (values.length <= 2) return values.join(', ')
+  return `${values[0]} +${values.length - 1}`
 }
 
 export function portsForRegions<T extends { portCode: string; regionCode: string }>(
@@ -221,10 +229,12 @@ export function resolveFilterDefault(field: FilterFieldDef, state: FilterState, 
 function normalizeStoredFilter(field: FilterFieldDef, raw: Partial<FilterState> | undefined): FilterState {
   const source = raw ?? {}
   const base = emptyFilterState(field.kind, source.on ?? true)
-  base.text = field.kind === 'multi' ? '' : (source.text ?? '')
+  base.text = field.kind === 'multi' || field.kind === 'lines' ? '' : (source.text ?? '')
   base.from = source.from ?? ''
   base.to = source.to ?? ''
-  base.values = [...(source.values ?? [])]
+  base.values = field.kind === 'lines'
+    ? parseLineList((source.values ?? []).join('\n'))
+    : [...(source.values ?? [])]
   if (field.kind !== 'datetime' || source.dateMode !== 'relative') return base
   return {
     ...base,
@@ -240,6 +250,7 @@ export function allPlaceholder(label: string) {
 
 function defFromColumn(column: SearchColumn): FilterFieldDef {
   const label = columnHeaderLabel(column)
+  if (LINE_FIELDS.has(column.id)) return { id: column.id, label, kind: 'lines' }
   const optionSource = MULTI_FIELDS[column.id]
   if (optionSource) return { id: column.id, label, kind: 'multi', optionSource }
   if (column.kind === 'datetime') return { id: column.id, label, kind: 'datetime' }
@@ -439,7 +450,7 @@ export function isFilterFilled(field: FilterFieldDef, state: FilterState | undef
   if (!state) return false
   if (field.kind === 'text') return Boolean(state.text.trim())
   if (field.kind === 'datetime') return Boolean(state.from || state.to)
-  if (field.kind === 'multi') return state.values.length > 0
+  if (field.kind === 'multi' || field.kind === 'lines') return state.values.length > 0
   return false
 }
 
@@ -476,6 +487,12 @@ function filterMatches(vessel: VesselRecord, field: FilterFieldDef, state: Filte
   }
   if (field.kind === 'datetime') {
     return inDateRange(searchSortValue(vessel, field.id), state.from, state.to)
+  }
+  if (field.kind === 'lines') {
+    if (!state.values.length) return true
+    const raw = String(searchSortValue(vessel, field.id) ?? '').trim().toLowerCase()
+    if (!raw) return false
+    return state.values.some((value) => value.trim().toLowerCase() === raw)
   }
   if (field.kind === 'multi') {
     if (!state.values.length) return true
@@ -568,6 +585,13 @@ function settingFromLegacy(): ListSetting {
   return setting
 }
 
+function clearSavedLineLists(filters: FilterPref[]): FilterPref[] {
+  return filters.map((pref) => {
+    if (!LINE_FIELDS.has(pref.id)) return pref
+    return { ...pref, default: { ...pref.default, text: '', values: [] } }
+  })
+}
+
 function promoteMappingStatus(filters: FilterPref[]): FilterPref[] {
   const mapping = filters.find((pref) => pref.id === 'mappingStatus')
   if (!mapping) return filters
@@ -587,7 +611,10 @@ export function loadUserSettings(username: string): UserListSettings {
     )
     const catalogRev = saved.catalogRev ?? 1
     if (catalogRev < CATALOG_REV) {
-      items = items.map((item) => ({ ...item, filters: promoteMappingStatus(item.filters) }))
+      items = items.map((item) => ({
+        ...item,
+        filters: clearSavedLineLists(catalogRev < 2 ? promoteMappingStatus(item.filters) : item.filters),
+      }))
     }
     const activeId = items.some((item) => item.id === saved.activeId) ? saved.activeId : items[0]!.id
     const next = { activeId, items, catalogRev: CATALOG_REV }
