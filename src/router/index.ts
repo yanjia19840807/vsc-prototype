@@ -23,7 +23,7 @@ const router = createRouter({
       path: '/coverage',
       name: 'terminal-coverage',
       component: () => import('@/pages/TerminalCoveragePage.vue'),
-      meta: { title: 'Terminal coverage', flush: true },
+      meta: { title: 'Port terminal setting', flush: true },
     },
     {
       path: '/vessels/:id/view',

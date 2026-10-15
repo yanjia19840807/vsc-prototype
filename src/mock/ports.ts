@@ -1,42 +1,4 @@
-import type { ApiCoveredField, PortDef } from '@/types/vsp'
-
-/** Full Feituo schedule field set (terminal vessel plan). */
-export const FEITUO_FULL_FIELDS: ApiCoveredField[] = [
-  'terminal',
-  'ivoyage',
-  'evoyage',
-  'vesselNameEn',
-  'vesselNameCn',
-  'shipCode',
-  'shipName',
-  'agentCode',
-  'agentName',
-  'lineCode',
-  'portsEn',
-  'portsCn',
-  'eta',
-  'ata',
-  'etb',
-  'atb',
-  'etd',
-  'atd',
-  'cyOpen',
-  'cyClosing',
-  'portCloseDate',
-  'customsCloseDate',
-  'updateTime',
-  'status',
-]
-
-const CORE_FIELDS: ApiCoveredField[] = [
-  'terminal',
-  'ivoyage',
-  'evoyage',
-  'eta',
-  'etb',
-  'etd',
-  'atd',
-]
+import type { PortDef } from '@/types/vsp'
 
 function port(
   code: string,
@@ -44,16 +6,15 @@ function port(
   region: PortDef['region'],
   apiCovered: boolean,
   feituoAvailable: boolean,
-  coveredFields: ApiCoveredField[] = apiCovered ? FEITUO_FULL_FIELDS : [],
 ): PortDef {
-  return { code, name, region, apiCovered, feituoAvailable, coveredFields }
+  return { code, name, region, apiCovered, feituoAvailable }
 }
 
-/** Vendor API Coverage Matrix (demo): API Covered ports list covered data fields. */
+/** Ports and whether the terminal schedule API covers them. */
 export const PORTS: PortDef[] = [
   port('CNTAO', 'Qingdao', 'NC', true, true),
   port('CNTXG', 'Tianjin', 'NC', true, true),
-  port('CNDLC', 'Dalian', 'NC', true, true, CORE_FIELDS),
+  port('CNDLC', 'Dalian', 'NC', true, true),
   port('CNLYG', 'Lianyungang', 'NC', false, true),
   port('CNRZH', 'Rizhao', 'NC', false, false),
   port('CNNGB', 'Ningbo', 'CC', true, true),
@@ -61,23 +22,18 @@ export const PORTS: PortDef[] = [
   port('CNYTN', 'Yantian', 'SC', true, true),
   port('CNNSA', 'Nansha', 'SC', true, true),
   port('CNSHK', 'Shekou', 'SC', true, true),
-  port('CNXMN', 'Xiamen', 'SC', true, true, CORE_FIELDS),
+  port('CNXMN', 'Xiamen', 'SC', true, true),
   port('CNSWA', 'Shantou', 'SC', false, true),
   port('CNQZJ', 'Qinzhou', 'SC', false, false),
   port('CNYPG', 'Yangpu', 'SC', false, true),
   port('CNFUG', 'Fuzhou', 'SC', false, true),
-  port('CNDCB', 'Da Chan Bay', 'SC', true, true, CORE_FIELDS),
+  port('CNDCB', 'Da Chan Bay', 'SC', true, true),
   port('CNQZH', 'Quanzhou', 'SC', false, false),
   port('HKHKG', 'Hong Kong', 'HK', true, true),
 ]
 
 export function portByCode(code: string): PortDef | undefined {
   return PORTS.find((p) => p.code === code)
-}
-
-export function formatCoveredFields(fields: ApiCoveredField[]): string {
-  if (!fields.length) return '—'
-  return fields.join(', ')
 }
 
 export const PORTLINK_PORTS = [

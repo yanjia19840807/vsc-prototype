@@ -223,7 +223,7 @@ function seedActivity(
     ))
   }
 
-  const portCovered = vessel.apiCovered && seed.matchingStatus !== 'Port not covered'
+  const portCovered = vessel.apiCovered
   const pushTerminal = (id: string, at: string, details: HistoryEntry['details']) => {
     history.push(historyEntry(id, at, 'Terminal sync', 'System', details))
     for (const detail of details) {
@@ -392,7 +392,7 @@ function build(seed: Seed): VesselRecord {
   const atd = seed.tmlAtd ?? ''
   const cyOpen = seed.cyOpen ?? daysFromNow(etbOff - 3, 0)
   const cyClosing = seed.cyCutoff ?? daysFromNow(etbOff - 1, 12)
-  const noTerminalStatuses = new Set(['No terminal record', 'Port not covered', 'Pending match'])
+  const noTerminalStatuses = new Set(['No terminal record', 'Pending match'])
   const hasTerminal =
     !seed.createdManually &&
     !seed.rowNotFound &&
@@ -595,7 +595,7 @@ export function createInitialVessels(): VesselRecord[] {
       vesselName: 'COSCO SHIPPING ARGENTINA',
       pointCode: 'CNSHK',
       region: 'SC',
-      matchingStatus: 'Terminal time gap',
+      matchingStatus: 'ETD gap > 5 days',
       workflowStatus: 'Pending',
       externalVoyage: '011W',
       externalImportVoyage: 'E011',
@@ -738,7 +738,7 @@ export function createInitialVessels(): VesselRecord[] {
       vesselName: 'YM WELLNESS',
       pointCode: 'CNSWA',
       region: 'SC',
-      matchingStatus: 'Port not covered',
+      matchingStatus: 'No terminal record',
       workflowStatus: 'New',
     }),
     build({
@@ -747,7 +747,7 @@ export function createInitialVessels(): VesselRecord[] {
       pointCode: 'CNLYG',
       region: 'NC',
       vesselType: 'Feeder',
-      matchingStatus: 'Port not covered',
+      matchingStatus: 'No terminal record',
       workflowStatus: 'New',
     }),
     build({
@@ -767,7 +767,7 @@ export function createInitialVessels(): VesselRecord[] {
       vesselName: 'MAERSK ESMERALDAS',
       pointCode: 'CNQZJ',
       region: 'SC',
-      matchingStatus: 'Port not covered',
+      matchingStatus: 'No terminal record',
       workflowStatus: 'New',
     }),
     build({
@@ -796,7 +796,7 @@ export function createInitialVessels(): VesselRecord[] {
       vesselName: 'PIL SINGAPORE',
       pointCode: 'HKHKG',
       region: 'HK',
-      matchingStatus: 'Terminal time gap',
+      matchingStatus: 'ETD gap > 5 days',
       workflowStatus: 'Pending',
       externalVoyage: '088W',
       unbound: true,
@@ -877,7 +877,7 @@ export function createInitialVessels(): VesselRecord[] {
       region: 'SC',
       vesselType: 'Feeder',
       service: '3FCMA',
-      matchingStatus: 'Port not covered',
+      matchingStatus: 'No terminal record',
       workflowStatus: 'New',
       inPostSailingScope: false,
       inCargoOpsScope: false,

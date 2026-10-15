@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 
+import DataTablePagination from '@/components/DataTablePagination.vue'
 import FilterField from '@/components/FilterField.vue'
 import QueryPanel from '@/components/QueryPanel.vue'
 import { Button } from '@/components/ui/button'
@@ -27,7 +28,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { DIALOG_CONFIRM_DESCRIPTION } from '@/lib/dialog-copy'
 import { isLaraLinkTarget } from '@/features/vessel-schedule/lara-link'
-import { regionLabel } from '@/features/terminal-coverage/model'
+import { regionLabel, selectablePorts, selectableRegions } from '@/features/terminal-coverage/model'
 import SearchFilterControl from '@/features/vessel-search/SearchFilterControl.vue'
 import {
   copyFilterSession,
@@ -36,6 +37,7 @@ import {
   filterFieldById,
   portsForRegions,
   retainPointCodes,
+  scheduleValueOptions,
   staticFilterOptions,
   vesselMatchesFilters,
   type FilterFieldDef,
@@ -65,19 +67,28 @@ const defaultFields = DEFAULT_VISIBLE_FILTERS
 
 const draft = ref(emptyFilterSession(DEFAULT_VISIBLE_FILTERS))
 const applied = ref(emptyFilterSession(DEFAULT_VISIBLE_FILTERS))
+const searched = ref(false)
+const pageIndex = ref(0)
+const pageSize = ref(10)
 const selectedId = ref('')
 const remark = ref('')
 
-const regionOptions = computed(() => coverage.regions.map((region) => regionLabel(region)))
-const portOptions = computed(() => portsForRegions(draft.value.region?.values ?? [], coverage.ports))
+const regionOptions = computed(() => selectableRegions(coverage.regions).map((region) => regionLabel(region)))
+const portOptions = computed(() => portsForRegions(draft.value.region?.values ?? [], selectablePorts(coverage.ports)))
 
 const rows = computed(() => {
   const vessel = props.vessel
-  if (!vessel) return [] as VesselRecord[]
+  if (!searched.value || !vessel) return [] as VesselRecord[]
   return store.vessels.filter((row) => {
     if (row.id === vessel.id || row.createdManually || isLaraLinkTarget(row)) return false
     return vesselMatchesFilters(row, applied.value)
   })
+})
+
+const pageCount = computed(() => (rows.value.length ? Math.ceil(rows.value.length / pageSize.value) : 0))
+const pageRows = computed(() => {
+  const start = pageIndex.value * pageSize.value
+  return rows.value.slice(start, start + pageSize.value)
 })
 
 watch(
@@ -86,6 +97,8 @@ watch(
     if (!open) return
     draft.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
     applied.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
+    searched.value = false
+    pageIndex.value = 0
     selectedId.value = ''
     remark.value = ''
   },
@@ -98,6 +111,9 @@ watch(rows, (list) => {
 function optionsFor(field: FilterFieldDef) {
   if (field.optionSource === 'region') return regionOptions.value
   if (field.optionSource === 'pointCode') return portOptions.value
+  if (field.optionSource === 'vesselName' || field.optionSource === 'laraVoyage') {
+    return scheduleValueOptions(store.vessels, field.optionSource)
+  }
   return staticFilterOptions(field.optionSource)
 }
 
@@ -138,11 +154,15 @@ function setDraft(id: string, state: FilterState) {
 
 function search() {
   applied.value = copyFilterSession(draft.value)
+  searched.value = true
+  pageIndex.value = 0
 }
 
 function clearFilters() {
   draft.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
   applied.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
+  searched.value = false
+  pageIndex.value = 0
   selectedId.value = ''
 }
 
@@ -204,9 +224,11 @@ function close() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableEmpty v-if="!rows.length" :colspan="laraColumns.length + 1" />
+            <TableEmpty v-if="!pageRows.length" :colspan="laraColumns.length + 1">
+              {{ searched ? 'No results.' : 'Search to find a LARA record.' }}
+            </TableEmpty>
             <TableRow
-              v-for="row in rows"
+              v-for="row in pageRows"
               :key="row.id"
               class="cursor-pointer"
               :data-state="selectedId === row.id ? 'selected' : undefined"
@@ -231,6 +253,15 @@ function close() {
           </TableBody>
         </Table>
       </div>
+      <DataTablePagination
+        v-if="searched"
+        :total="rows.length"
+        :page-index="pageIndex"
+        :page-size="pageSize"
+        :page-count="pageCount"
+        @update:page-index="pageIndex = $event"
+        @update:page-size="(size) => { pageSize = size; pageIndex = 0 }"
+      />
 
       <Field>
         <FieldLabel>Remark</FieldLabel>

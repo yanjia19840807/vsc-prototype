@@ -11,10 +11,9 @@ export type MatchingStatus =
   | 'Auto matched'
   | 'Manual matched'
   | 'Multiple terminal records'
-  | 'Terminal time gap'
+  | 'ETD gap > 5 days'
   | 'No external voyage'
   | 'No terminal record'
-  | 'Port not covered'
   | 'Pending match'
   | 'Linked'
 
@@ -309,41 +308,12 @@ export type VesselRecord = {
   laraLinkPreviousStatus?: MatchingStatus
 }
 
-/** Fields Feituo /terminal/selectScheduleInfo can return when a port is API-covered. */
-export type ApiCoveredField =
-  | 'terminal'
-  | 'ivoyage'
-  | 'evoyage'
-  | 'vesselNameEn'
-  | 'vesselNameCn'
-  | 'shipCode'
-  | 'shipName'
-  | 'agentCode'
-  | 'agentName'
-  | 'lineCode'
-  | 'portsEn'
-  | 'portsCn'
-  | 'eta'
-  | 'ata'
-  | 'etb'
-  | 'atb'
-  | 'etd'
-  | 'atd'
-  | 'cyOpen'
-  | 'cyClosing'
-  | 'portCloseDate'
-  | 'customsCloseDate'
-  | 'updateTime'
-  | 'status'
-
 export type PortDef = {
   code: string
   name: string
   region: Region
   apiCovered: boolean
   feituoAvailable: boolean
-  /** Vendor API Coverage Matrix: which terminal fields are available for this port. */
-  coveredFields: ApiCoveredField[]
 }
 
 export type UserAccount = {

@@ -21,6 +21,8 @@ export type SortRule = { id: string; desc: boolean }
 export type ColumnPrefs = {
   order: string[]
   hidden: string[]
+  /** Column id of the left-freeze boundary, or null when nothing is frozen. */
+  freezeThrough: string | null
 }
 
 const FILTER_KEY = 'vsp-schedule-filters'
@@ -43,7 +45,21 @@ export function emptyFilters(): ScheduleFilters {
 }
 
 export function defaultColumnPrefs(): ColumnPrefs {
-  return { order: SEARCH_COLUMNS.map((column) => column.id), hidden: [] }
+  return { order: SEARCH_COLUMNS.map((column) => column.id), hidden: [], freezeThrough: null }
+}
+
+/** Keep a saved boundary only when that column still exists in the current order. */
+export function normalizeFreezeThrough(order: readonly string[], id: unknown): string | null {
+  return typeof id === 'string' && order.includes(id) ? id : null
+}
+
+/** Visible columns from the left through the freeze boundary, inclusive. */
+export function frozenColumnIds(columns: Pick<ColumnPrefs, 'order' | 'hidden' | 'freezeThrough'>): string[] {
+  const boundary = normalizeFreezeThrough(columns.order, columns.freezeThrough)
+  if (!boundary) return []
+  const end = columns.order.indexOf(boundary)
+  const hidden = new Set(columns.hidden)
+  return columns.order.slice(0, end + 1).filter((id) => id === 'vesselName' || !hidden.has(id))
 }
 
 export function defaultTimeWindow(): TimeWindow {
@@ -87,16 +103,16 @@ export function loadTime(): TimeWindow {
 }
 
 export function loadColumns(): ColumnPrefs {
-  const saved = readJson<ColumnPrefs>(COLUMN_KEY)
+  const saved = readJson<Partial<ColumnPrefs>>(COLUMN_KEY)
   const defaults = defaultColumnPrefs()
-  if (!saved) return defaults
+  if (!saved?.order) return defaults
   const known = new Set(defaults.order)
   const order = saved.order.filter((id) => known.has(id))
   for (const id of defaults.order) {
     if (!order.includes(id)) order.push(id)
   }
-  const hidden = saved.hidden.filter((id) => id !== 'vesselName' && known.has(id))
-  return { order, hidden }
+  const hidden = (saved.hidden ?? []).filter((id) => id !== 'vesselName' && known.has(id))
+  return { order, hidden, freezeThrough: normalizeFreezeThrough(order, saved.freezeThrough) }
 }
 
 export function saveColumns(columns: ColumnPrefs) {
@@ -105,6 +121,7 @@ export function saveColumns(columns: ColumnPrefs) {
     JSON.stringify({
       order: columns.order,
       hidden: columns.hidden.filter((id) => id !== 'vesselName'),
+      freezeThrough: normalizeFreezeThrough(columns.order, columns.freezeThrough),
     }),
   )
 }

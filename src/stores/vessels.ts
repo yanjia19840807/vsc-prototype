@@ -32,7 +32,7 @@ function maintainedRegion(pointCode: string) {
 function matchingStatusForManualAdd(pointCode: string): MatchingStatus {
   return portCanCallFeituo(useTerminalCoverageStore().ports, pointCode)
     ? 'Pending match'
-    : 'Port not covered'
+    : 'No terminal record'
 }
 
 function laraVesselTypeOf(v: VesselRecord): ManualVesselInput['vesselType'] {
@@ -628,8 +628,7 @@ export const useVesselStore = defineStore('vessels', () => {
       const etdLocked = Boolean(vessel.manualOverrides.etd || vessel.manualOverrides.tmlEtd || vessel.manualOverrides.terminalEtd)
       const selectionLocked = vessel.matchingStatus === 'Manual matched' || (vessel.matchHistory?.length ?? 0) > 0
       if (
-        vessel.matchingStatus === 'Port not covered'
-        || !vessel.apiCovered
+        !useTerminalCoverageStore().canCallFeituo(vessel.pointCode)
         || vessel.rowNotFound
         || !schedule?.etd
         || etdLocked
@@ -702,7 +701,6 @@ export const useVesselStore = defineStore('vessels', () => {
   }
 
   function addManualVessel(input: ManualVesselInput) {
-    const port = PORTS.find((p) => p.code === input.pointCode)
     const id = `manual-${Date.now()}`
     const remark =
       input.remark?.trim() || 'Manually added — pending link to LARA'
@@ -757,7 +755,7 @@ export const useVesselStore = defineStore('vessels', () => {
       takeTime: undefined,
       completedDate: undefined,
       omit: input.voyageStatus === 'Omit',
-      apiCovered: port?.apiCovered ?? false,
+      apiCovered: useTerminalCoverageStore().ports.find((row) => row.portCode === input.pointCode)?.apiCovered ?? false,
       createdManually: true,
       laraLinked: false,
       activityLog: [
@@ -810,7 +808,6 @@ export const useVesselStore = defineStore('vessels', () => {
   function updateManualVessel(id: string, input: ManualVesselInput) {
     const v = byId(id)
     if (!v?.createdManually) return
-    const port = PORTS.find((p) => p.code === input.pointCode)
     const details: HistoryDetail[] = []
     const assign = (field: string, from: string, to: string) => {
       if (from === to) return
@@ -834,8 +831,8 @@ export const useVesselStore = defineStore('vessels', () => {
     v.service = input.service.trim()
     v.pointCode = input.pointCode
     v.region = maintainedRegion(input.pointCode)
-    v.apiCovered = port?.apiCovered ?? v.apiCovered
-    if (v.createdManually && (v.matchingStatus === 'Pending match' || v.matchingStatus === 'Port not covered')) {
+    v.apiCovered = useTerminalCoverageStore().ports.find((row) => row.portCode === input.pointCode)?.apiCovered ?? v.apiCovered
+    if (v.createdManually && (v.matchingStatus === 'Pending match' || v.matchingStatus === 'No terminal record')) {
       v.matchingStatus = matchingStatusForManualAdd(input.pointCode)
     }
     v.poolLocation = input.poolLocation.trim()

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, h, ref, watch } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ChevronDown, Download, Plus, Settings } from '@lucide/vue'
 import { toast } from 'vue-sonner'
@@ -49,6 +49,7 @@ import {
   isFilterFilled,
   portsForRegions,
   retainPointCodes,
+  scheduleValueOptions,
   sessionFromSetting,
   staticFilterOptions,
   vesselMatchesFilters,
@@ -56,8 +57,8 @@ import {
   type FilterFieldDef,
   type FilterState,
 } from '@/features/vessel-search/list-setting-model'
-import { DEFAULT_SORT, type SortRule } from '@/features/vessel-search/schedule-prefs'
-import { regionLabel } from '@/features/terminal-coverage/model'
+import { DEFAULT_SORT, frozenColumnIds, type SortRule } from '@/features/vessel-search/schedule-prefs'
+import { regionLabel, selectablePorts, selectableRegions } from '@/features/terminal-coverage/model'
 import { downloadText, formatFileStamp, toCsv } from '@/lib/vessel-utils'
 import { useListSettingsStore } from '@/stores/list-settings'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
@@ -77,6 +78,9 @@ const query = ref<Record<string, FilterState>>({})
 const applied = ref<Record<string, FilterState>>({})
 const columnOrder = ref<string[]>(SEARCH_COLUMNS.map((column) => column.id))
 const hidden = ref<string[]>([])
+const freezeThrough = ref<string | null>(null)
+const freezeOffsets = ref<Record<string, number>>({})
+const tableWrap = ref<HTMLElement | null>(null)
 const savedSort = ref<SortRule[]>(DEFAULT_SORT.map((rule) => ({ ...rule })))
 const columnVisibility = ref<ColumnVisibilityState>(visibilityFrom([]))
 
@@ -112,13 +116,13 @@ const appliedCount = computed(() =>
   visibleFilters.value.filter(({ field }) => isFilterFilled(field, query.value[field.id])).length,
 )
 
-const regionOptions = computed(() => coverage.regions.map((region) => regionLabel(region)))
-const portOptions = computed(() => portsForRegions(query.value.region?.values ?? [], coverage.ports))
+const regionOptions = computed(() => selectableRegions(coverage.regions).map((region) => regionLabel(region)))
+const portOptions = computed(() => portsForRegions(query.value.region?.values ?? [], selectablePorts(coverage.ports)))
 const terminalCodes = computed(() =>
-  [...new Set(coverage.ports.flatMap((port) => port.terminals.map((terminal) => terminal.pool).filter(Boolean)))],
+  [...new Set(selectablePorts(coverage.ports).flatMap((port) => port.terminals.map((terminal) => terminal.pool).filter(Boolean)))],
 )
 const terminalNames = computed(() =>
-  [...new Set(coverage.ports.flatMap((port) => port.terminals.map((terminal) => terminal.nameZh || terminal.abbr || terminal.pool).filter(Boolean)))],
+  [...new Set(selectablePorts(coverage.ports).flatMap((port) => port.terminals.map((terminal) => terminal.nameZh || terminal.abbr || terminal.pool).filter(Boolean)))],
 )
 
 function optionsFor(field: FilterFieldDef) {
@@ -126,6 +130,9 @@ function optionsFor(field: FilterFieldDef) {
   if (field.optionSource === 'pointCode') return portOptions.value
   if (field.optionSource === 'terminal9code') return terminalCodes.value
   if (field.optionSource === 'terminalName') return terminalNames.value
+  if (field.optionSource === 'vesselName' || field.optionSource === 'laraVoyage') {
+    return scheduleValueOptions(store.vessels, field.optionSource)
+  }
   return staticFilterOptions(field.optionSource)
 }
 
@@ -195,6 +202,7 @@ function applyActiveSetting() {
   query.value = sessionFromSetting(setting)
   applied.value = copyFilterSession(query.value)
   hidden.value = setting.columns.hidden
+  freezeThrough.value = setting.columns.freezeThrough ?? null
   columnOrder.value = groupColumnOrder(setting.columns.order)
   table.setColumnOrder(columnOrder.value)
   table.setColumnVisibility(visibilityFrom(setting.columns.hidden))
@@ -228,8 +236,79 @@ function exportCsv() {
   toast.success(`Exported ${rows.length} row(s)`)
 }
 
-const ACTIONS_STICKY = 'sticky right-0 z-10 border-l-2 border-l-[#8aa0bb] shadow-[-8px_0_8px_-6px_rgba(20,35,58,0.18)]'
-const ACTIONS_HEAD = 'sticky right-0 z-20 h-auto border-l-2 border-l-[#8aa0bb] bg-card text-left align-middle shadow-[-8px_0_8px_-6px_rgba(20,35,58,0.18)]'
+const ACTIONS_STICKY = 'sticky right-0 z-20 border-l-2 border-l-[#8aa0bb] shadow-[-8px_0_8px_-6px_rgba(20,35,58,0.18)]'
+const ACTIONS_HEAD = 'sticky right-0 z-30 h-auto border-l-2 border-l-[#8aa0bb] bg-card text-left align-middle shadow-[-8px_0_8px_-6px_rgba(20,35,58,0.18)]'
+const FREEZE_SHADOW = 'shadow-[8px_0_8px_-6px_rgba(20,35,58,0.18)]'
+
+const frozenIds = computed(() =>
+  frozenColumnIds({
+    order: columnOrder.value,
+    hidden: hidden.value,
+    freezeThrough: freezeThrough.value,
+  }),
+)
+
+function measureFreeze() {
+  const root = tableWrap.value
+  const ids = frozenIds.value
+  if (!root || !ids.length) {
+    if (Object.keys(freezeOffsets.value).length) freezeOffsets.value = {}
+    return
+  }
+  const next: Record<string, number> = {}
+  let left = 0
+  for (const id of ids) {
+    next[id] = left
+    const cell = root.querySelector<HTMLElement>(`[data-freeze-id="${id}"]`)
+    left += cell?.offsetWidth ?? 0
+  }
+  const prev = freezeOffsets.value
+  const unchanged = Object.keys(prev).length === ids.length && ids.every((id) => prev[id] === next[id])
+  if (!unchanged) freezeOffsets.value = next
+}
+
+let resizeObserver: ResizeObserver | null = null
+
+function observeTable() {
+  resizeObserver?.disconnect()
+  const table = tableWrap.value?.querySelector('[data-slot="table"]')
+  if (table) resizeObserver?.observe(table)
+}
+
+onMounted(() => {
+  resizeObserver = new ResizeObserver(() => measureFreeze())
+  observeTable()
+  measureFreeze()
+})
+
+onBeforeUnmount(() => resizeObserver?.disconnect())
+
+watch(tableWrap, () => observeTable())
+
+watch([frozenIds, tableRows], () => {
+  void nextTick(measureFreeze)
+}, { flush: 'post' })
+
+function freezeStyle(id: string) {
+  const left = freezeOffsets.value[id]
+  if (left === undefined) return undefined
+  return { left: `${left}px` }
+}
+
+function headerFreezeClass(id: string) {
+  if (!frozenIds.value.includes(id)) return undefined
+  return id === frozenIds.value.at(-1) ? ['sticky z-20', FREEZE_SHADOW] : 'sticky z-20'
+}
+
+function cellFreezeClass(id: string, rowNotFound: boolean) {
+  if (!frozenIds.value.includes(id)) return undefined
+  return [
+    'sticky z-10',
+    id === frozenIds.value.at(-1) ? FREEZE_SHADOW : '',
+    rowNotFound ? 'bg-muted' : 'bg-card',
+    'group-hover:bg-muted',
+  ]
+}
 
 function leafHeaderClass(id: string) {
   return COLUMN_GROUP_CLASS[columnGroup(id)] ?? ''
@@ -309,7 +388,7 @@ const visibleColCount = computed(
       </QueryPanel>
     </div>
 
-    <div class="overflow-hidden rounded-md border">
+    <div ref="tableWrap" class="overflow-hidden rounded-md border">
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-card px-3 py-2 text-xs">
         <span
           v-for="group in COLUMN_GROUP_ORDER"
@@ -331,8 +410,10 @@ const visibleColCount = computed(
                 v-if="!header.isPlaceholder && header.colSpan > 0 && header.rowSpan > 0"
                 :colspan="header.colSpan"
                 :rowspan="header.rowSpan > 1 ? header.rowSpan : undefined"
+                :data-freeze-id="frozenIds.includes(header.column.id) ? header.column.id : undefined"
+                :style="freezeStyle(header.column.id)"
                 class="whitespace-nowrap"
-                :class="header.column.id === 'actions' ? ACTIONS_HEAD : leafHeaderClass(header.column.id)"
+                :class="header.column.id === 'actions' ? ACTIONS_HEAD : [leafHeaderClass(header.column.id), headerFreezeClass(header.column.id)]"
               >
                 <DataTableColumnHeader
                   v-if="header.column.getCanSort()"
@@ -359,9 +440,10 @@ const visibleColCount = computed(
               v-for="cell in row.getVisibleCells()"
               :key="cell.id"
               class="whitespace-nowrap"
+              :style="freezeStyle(cell.column.id)"
               :class="cell.column.id === 'actions'
                 ? [ACTIONS_STICKY, row.original.rowNotFound ? 'bg-muted' : 'bg-card', 'group-hover:bg-muted']
-                : undefined"
+                : cellFreezeClass(cell.column.id, Boolean(row.original.rowNotFound))"
             >
               <FlexRender :cell="cell" />
             </TableCell>

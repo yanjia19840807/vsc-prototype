@@ -11,7 +11,7 @@ export const menuItems: MenuItem[] = [
     match: ['/vessels', '/list-settings'],
   },
   {
-    label: 'Terminal coverage',
+    label: 'Port terminal setting',
     to: '/coverage',
   },
 ]

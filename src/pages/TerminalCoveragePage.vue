@@ -2,6 +2,8 @@
 import { computed, ref } from 'vue'
 import { ChevronDown, GripVertical, Plus } from '@lucide/vue'
 
+import { toast } from 'vue-sonner'
+
 import FilterField from '@/components/FilterField.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,6 +25,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import QueryPanel from '@/components/QueryPanel.vue'
+import CoverageIcon from '@/components/CoverageIcon.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import DeletePortDialog from '@/features/terminal-coverage/DeletePortDialog.vue'
 import PortCoverageDialog from '@/features/terminal-coverage/PortCoverageDialog.vue'
@@ -30,18 +33,20 @@ import RegionsDialog from '@/features/terminal-coverage/RegionsDialog.vue'
 import { regionLabel, type PortCoverage } from '@/features/terminal-coverage/model'
 import { allPlaceholder } from '@/features/vessel-search/list-setting-model'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
+import { useVesselStore } from '@/stores/vessels'
 
 const store = useTerminalCoverageStore()
+const vessels = useVesselStore()
 
 type CoverageQuery = {
   portCode: string
   portName: string
   regions: string[]
-  available: string
+  coverage: string
 }
 
 function emptyCoverageQuery(): CoverageQuery {
-  return { portCode: '', portName: '', regions: [], available: '' }
+  return { portCode: '', portName: '', regions: [], coverage: '' }
 }
 
 const draft = ref(emptyCoverageQuery())
@@ -51,16 +56,21 @@ const regionsOpen = ref(false)
 const editorOpen = ref(false)
 const deleteOpen = ref(false)
 const selected = ref<PortCoverage | null>(null)
+const portAction = ref<'delete' | 'deactivate'>('delete')
 const dragCode = ref<string | null>(null)
 
 const regionOptions = computed(() => store.regions.map((region) => regionLabel(region)))
+
+function portReferenced(portCode: string) {
+  return vessels.vessels.some((vessel) => vessel.pointCode === portCode)
+}
 
 const rows = computed(() => {
   const portCode = applied.value.portCode.trim().toLowerCase()
   const portName = applied.value.portName.trim().toLowerCase()
   return store.ports.filter((port) => {
-    if (applied.value.available === 'available' && !port.available) return false
-    if (applied.value.available === 'unavailable' && port.available) return false
+    if (applied.value.coverage === 'covered' && !port.apiCovered) return false
+    if (applied.value.coverage === 'not-covered' && port.apiCovered) return false
     if (applied.value.regions.length && !applied.value.regions.includes(port.regionCode)) return false
     if (portCode && !port.portCode.toLowerCase().includes(portCode)) return false
     if (portName && !port.portName.toLowerCase().includes(portName)) return false
@@ -77,7 +87,7 @@ const appliedCount = computed(() => {
   if (draft.value.portCode.trim()) count += 1
   if (draft.value.portName.trim()) count += 1
   if (draft.value.regions.length) count += 1
-  if (draft.value.available) count += 1
+  if (draft.value.coverage) count += 1
   return count
 })
 
@@ -118,9 +128,15 @@ function openEdit(port: PortCoverage) {
   editorOpen.value = true
 }
 
-function openDelete(port: PortCoverage) {
+function openPortAction(port: PortCoverage, action: 'delete' | 'deactivate') {
   selected.value = port
+  portAction.value = action
   deleteOpen.value = true
+}
+
+function activatePort(port: PortCoverage) {
+  store.setPortActive(port.portCode, true)
+  toast.success('Port activated')
 }
 
 function onDrop(portCode: string) {
@@ -169,17 +185,17 @@ function onDrop(portCode: string) {
             @update:model-value="draft.regions = regionCodes($event)"
           />
         </FilterField>
-        <FilterField label="Available for Terminal">
+        <FilterField label="API coverage">
           <Select
-            :model-value="draft.available || undefined"
-            @update:model-value="(value) => (draft.available = typeof value === 'string' ? value : '')"
+            :model-value="draft.coverage || undefined"
+            @update:model-value="(value) => (draft.coverage = typeof value === 'string' ? value : '')"
           >
-            <SelectTrigger class="h-8 w-[220px]" aria-label="Available for Terminal">
-              <SelectValue :placeholder="allPlaceholder('Available for Terminal')" />
+            <SelectTrigger class="h-8 w-[220px]" aria-label="API coverage">
+              <SelectValue :placeholder="allPlaceholder('API coverage')" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="available">Available</SelectItem>
-              <SelectItem value="unavailable">Unavailable</SelectItem>
+              <SelectItem value="covered">API covered</SelectItem>
+              <SelectItem value="not-covered">Not covered</SelectItem>
             </SelectContent>
           </Select>
         </FilterField>
@@ -194,7 +210,8 @@ function onDrop(portCode: string) {
             <TableHead>Port code</TableHead>
             <TableHead>Port name</TableHead>
             <TableHead>Region</TableHead>
-            <TableHead>Available for Terminal</TableHead>
+            <TableHead>API coverage</TableHead>
+            <TableHead>Status</TableHead>
             <TableHead>Terminals</TableHead>
             <TableHead>Actions</TableHead>
           </TableRow>
@@ -219,23 +236,44 @@ function onDrop(portCode: string) {
             <TableCell>{{ port.portName }}</TableCell>
             <TableCell>{{ regionText(port) }}</TableCell>
             <TableCell>
-              <StatusBadge :status="port.available ? 'Available' : 'Unavailable'" />
+              <CoverageIcon :covered="port.apiCovered" />
+            </TableCell>
+            <TableCell>
+              <StatusBadge :status="port.active ? 'Active' : 'Inactive'" />
             </TableCell>
             <TableCell class="whitespace-normal">{{ terminalSummary(port) || '—' }}</TableCell>
             <TableCell>
               <div class="flex items-center gap-1">
                 <Button type="button" size="xs" variant="outline" @click="openEdit(port)">Edit</Button>
-                <Button type="button" size="xs" variant="destructive" @click="openDelete(port)">Delete</Button>
+                <Button
+                  v-if="port.active && portReferenced(port.portCode)"
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  @click="openPortAction(port, 'deactivate')"
+                >
+                  Deactivate
+                </Button>
+                <Button
+                  v-else-if="port.active"
+                  type="button"
+                  size="xs"
+                  variant="destructive"
+                  @click="openPortAction(port, 'delete')"
+                >
+                  Delete
+                </Button>
+                <Button v-else type="button" size="xs" variant="outline" @click="activatePort(port)">Activate</Button>
               </div>
             </TableCell>
           </TableRow>
-          <TableEmpty v-if="!rows.length" :colspan="7">No results.</TableEmpty>
+          <TableEmpty v-if="!rows.length" :colspan="8">No results.</TableEmpty>
         </TableBody>
       </Table>
     </div>
 
     <RegionsDialog v-model:open="regionsOpen" />
     <PortCoverageDialog v-model:open="editorOpen" :port="selected" />
-    <DeletePortDialog v-model:open="deleteOpen" :port="selected" />
+    <DeletePortDialog v-model:open="deleteOpen" :port="selected" :mode="portAction" />
   </div>
 </template>

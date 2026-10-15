@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import DataSection from '@/components/DataSection.vue'
 import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
 import ReadonlyField from '@/components/ReadonlyField.vue'
+import CoverageIcon from '@/components/CoverageIcon.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -13,6 +14,7 @@ import { type ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-ac
 import VesselQuickActions from '@/features/vessel-schedule/VesselQuickActions.vue'
 import {
   SEARCH_COLUMNS,
+  isPortApiCovered,
   columnHasHistory,
   isWarningCellText,
   manualOverrideFor,
@@ -169,19 +171,22 @@ function sourceText(columnId: string) {
             layout="row"
             :label="column.label"
           >
-            <button
-              v-if="columnHasHistory(vessel, column.id)"
-              type="button"
-              class="text-left underline decoration-dotted underline-offset-2"
-              :class="fieldTone(column.id, pane.source) ?? 'text-primary'"
-              @click="openHistory(column.id)"
-            >
-              <StatusBadge v-if="STATUS_COLUMNS.has(column.id)" :status="searchCellText(vessel, column.id)" />
-              <template v-else>{{ searchCellText(vessel, column.id) }}</template>
-            </button>
-            <StatusBadge v-else-if="STATUS_COLUMNS.has(column.id)" :status="searchCellText(vessel, column.id)" />
-            <span v-else :class="fieldTone(column.id, pane.source)">
-              {{ searchCellText(vessel, column.id) }}
+            <span class="inline-flex flex-wrap items-center gap-2">
+              <button
+                v-if="columnHasHistory(vessel, column.id)"
+                type="button"
+                class="text-left underline decoration-dotted underline-offset-2"
+                :class="fieldTone(column.id, pane.source) ?? 'text-primary'"
+                @click="openHistory(column.id)"
+              >
+                <StatusBadge v-if="STATUS_COLUMNS.has(column.id)" :status="searchCellText(vessel, column.id)" />
+                <template v-else>{{ searchCellText(vessel, column.id) }}</template>
+              </button>
+              <StatusBadge v-else-if="STATUS_COLUMNS.has(column.id)" :status="searchCellText(vessel, column.id)" />
+              <span v-else :class="fieldTone(column.id, pane.source)">
+                {{ searchCellText(vessel, column.id) }}
+              </span>
+              <CoverageIcon v-if="column.id === 'pointCode'" :covered="isPortApiCovered(vessel)" />
             </span>
             <p v-if="pane.source === 'lara' && targetLaraText(column.id)" class="text-xs text-amber-800">
               Target {{ targetLaraText(column.id) }}

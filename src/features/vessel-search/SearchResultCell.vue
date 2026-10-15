@@ -2,8 +2,9 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 
+import CoverageIcon from '@/components/CoverageIcon.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
-import { isWarningCellText, searchCellText } from '@/features/vessel-search/search-columns'
+import { isPortApiCovered, isWarningCellText, searchCellText } from '@/features/vessel-search/search-columns'
 import type { VesselRecord } from '@/types/vsp'
 
 const props = defineProps<{
@@ -13,6 +14,7 @@ const props = defineProps<{
 
 const STATUS_COLUMNS = new Set(['mappingStatus', 'voyageStatus', 'tmlVslStatus'])
 const text = computed(() => searchCellText(props.vessel, props.columnId))
+const covered = computed(() => isPortApiCovered(props.vessel))
 </script>
 
 <template>
@@ -24,6 +26,10 @@ const text = computed(() => searchCellText(props.vessel, props.columnId))
     >
       {{ vessel.terminalCandidates.length }} candidates
     </span>
+  </span>
+  <span v-else-if="columnId === 'pointCode'" class="inline-flex items-center gap-2">
+    <span>{{ text }}</span>
+    <CoverageIcon :covered="covered" />
   </span>
   <StatusBadge v-else-if="STATUS_COLUMNS.has(columnId)" :status="text" />
   <RouterLink

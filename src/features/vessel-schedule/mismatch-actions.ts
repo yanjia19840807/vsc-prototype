@@ -29,7 +29,7 @@ export const MISMATCH_EDIT_LABEL: Record<MismatchQuickAction, string> = {
 export const MISMATCH_ALERT: Record<MismatchQuickAction, string> = {
   selectMatch: 'Multiple terminal schedules match this LARA voyage. Select one to confirm.',
   reviewMatch:
-    'The LARA–terminal time gap exceeds the review threshold (ETD/ETB gap > 5 days). Review and confirm or edit terminal data.',
+    'The LARA ETD and terminal ETD differ by more than 5 days. Review and confirm or edit terminal data.',
   addTerminal: 'No terminal schedule was found for this port/voyage. Add terminal information manually.',
 }
 
@@ -54,11 +54,10 @@ export function mismatchActionForStatus(vessel: VesselRecord): MismatchQuickActi
   switch (vessel.matchingStatus) {
     case 'Multiple terminal records':
       return 'selectMatch'
-    case 'Terminal time gap':
+    case 'ETD gap > 5 days':
     case 'No external voyage':
       return 'reviewMatch'
     case 'No terminal record':
-    case 'Port not covered':
     case 'Pending match':
       return 'addTerminal'
     default:
@@ -68,9 +67,6 @@ export function mismatchActionForStatus(vessel: VesselRecord): MismatchQuickActi
 
 export function addTerminalAlert(vessel: VesselRecord) {
   if (isMismatchReedit(vessel) || isManualTerminalEditable(vessel)) return MISMATCH_REEDIT_ALERT.addTerminal
-  if (vessel.matchingStatus === 'Port not covered') {
-    return 'This port is not covered by the terminal API. Enter terminal information manually. LARA data still syncs.'
-  }
   if (vessel.matchingStatus === 'Pending match') {
     return 'Matching has not run yet. Enter terminal information manually.'
   }

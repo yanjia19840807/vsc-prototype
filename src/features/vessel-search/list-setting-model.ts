@@ -17,11 +17,11 @@ import {
 import {
   DEFAULT_SORT,
   defaultColumnPrefs,
-  defaultTimeWindow,
   loadColumns,
   loadFilters,
   loadSort,
   loadTime,
+  normalizeFreezeThrough,
   type ColumnPrefs,
   type SortRule,
   type TimeWindow,
@@ -39,6 +39,8 @@ export type FilterOptionSource =
   | 'tmlVslStatus'
   | 'terminal9code'
   | 'terminalName'
+  | 'vesselName'
+  | 'laraVoyage'
 
 export type FilterFieldDef = {
   id: string
@@ -47,12 +49,17 @@ export type FilterFieldDef = {
   optionSource?: FilterOptionSource
 }
 
+export type DateDefaultMode = 'fixed' | 'relative'
+
 export type FilterState = {
   text: string
   from: string
   to: string
   values: string[]
   on: boolean
+  dateMode: DateDefaultMode
+  fromDays: number | null
+  toDays: number | null
 }
 
 export type FilterPref = {
@@ -96,16 +103,17 @@ const MULTI_FIELDS: Record<string, FilterOptionSource> = {
   tmlVslStatus: 'tmlVslStatus',
   terminal9code: 'terminal9code',
   terminalName: 'terminalName',
+  vesselName: 'vesselName',
+  laraVoyage: 'laraVoyage',
 }
 
 const MAPPING_STATUSES: MatchingStatus[] = [
   'Auto matched',
   'Manual matched',
   'Multiple terminal records',
-  'Terminal time gap',
+  'ETD gap > 5 days',
   'No external voyage',
   'No terminal record',
-  'Port not covered',
   'Pending match',
   'Linked',
 ]
@@ -116,10 +124,28 @@ const EXTRA_FIELDS: FilterFieldDef[] = [
   { id: 'region', label: 'LARA Region', kind: 'multi', optionSource: 'region' },
 ]
 
-const SEARCHABLE_SOURCES = new Set<FilterOptionSource>(['pointCode', 'terminal9code', 'terminalName'])
+const SEARCHABLE_SOURCES = new Set<FilterOptionSource>([
+  'pointCode',
+  'terminal9code',
+  'terminalName',
+  'vesselName',
+  'laraVoyage',
+])
 
 export function filterIsSearchable(field: FilterFieldDef) {
   return Boolean(field.optionSource && SEARCHABLE_SOURCES.has(field.optionSource))
+}
+
+export function scheduleValueOptions(
+  vessels: readonly { vesselName: string; laraVoyage: string }[],
+  source: 'vesselName' | 'laraVoyage',
+) {
+  const values = new Set<string>()
+  for (const vessel of vessels) {
+    const value = (source === 'vesselName' ? vessel.vesselName : vessel.laraVoyage).trim()
+    if (value) values.add(value)
+  }
+  return [...values].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
 }
 
 export function portsForRegions<T extends { portCode: string; regionCode: string }>(
@@ -141,7 +167,71 @@ export function retainPointCodes(
 }
 
 export function emptyFilterState(kind: FilterControlKind, on = true): FilterState {
-  return { text: '', from: '', to: '', values: [], on }
+  return { text: '', from: '', to: '', values: [], on, dateMode: 'fixed', fromDays: null, toDays: null }
+}
+
+function startOfDay(today = new Date()) {
+  const date = new Date(today)
+  date.setHours(0, 0, 0, 0)
+  return date
+}
+
+function isoDate(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+export function shiftIsoDate(today: Date, dayOffset: number) {
+  const date = startOfDay(today)
+  date.setDate(date.getDate() + dayOffset)
+  return isoDate(date)
+}
+
+export function normalizeDayOffset(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null
+  const days = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(days)) return null
+  return Math.max(0, Math.trunc(days))
+}
+
+export function relativeDateLabel(fromDays: number | null, toDays: number | null, today = new Date()) {
+  const from = fromDays == null ? '' : shiftIsoDate(today, -fromDays)
+  const to = toDays == null ? '' : shiftIsoDate(today, toDays)
+  if (from && to) return `${from} – ${to}`
+  if (from) return `From ${from}`
+  if (to) return `Through ${to}`
+  return 'No date limit'
+}
+
+export function resolveFilterDefault(field: FilterFieldDef, state: FilterState, today = new Date()): FilterState {
+  const copy = copyFilterState(state)
+  if (field.kind !== 'datetime' || state.dateMode !== 'relative') {
+    return { ...copy, dateMode: 'fixed', fromDays: null, toDays: null }
+  }
+  return {
+    ...copy,
+    dateMode: 'fixed',
+    fromDays: null,
+    toDays: null,
+    from: state.fromDays == null ? '' : shiftIsoDate(today, -state.fromDays),
+    to: state.toDays == null ? '' : shiftIsoDate(today, state.toDays),
+  }
+}
+
+function normalizeStoredFilter(field: FilterFieldDef, raw: Partial<FilterState> | undefined): FilterState {
+  const source = raw ?? {}
+  const base = emptyFilterState(field.kind, source.on ?? true)
+  base.text = field.kind === 'multi' ? '' : (source.text ?? '')
+  base.from = source.from ?? ''
+  base.to = source.to ?? ''
+  base.values = [...(source.values ?? [])]
+  if (field.kind !== 'datetime' || source.dateMode !== 'relative') return base
+  return {
+    ...base,
+    dateMode: 'relative',
+    fromDays: normalizeDayOffset(source.fromDays),
+    toDays: normalizeDayOffset(source.toDays),
+  }
 }
 
 export function allPlaceholder(label: string) {
@@ -194,7 +284,16 @@ export function filterFields() {
 }
 
 export function copyFilterState(state: FilterState): FilterState {
-  return { text: state.text, from: state.from, to: state.to, values: [...state.values], on: state.on }
+  return {
+    text: state.text,
+    from: state.from,
+    to: state.to,
+    values: [...state.values],
+    on: state.on,
+    dateMode: state.dateMode === 'relative' ? 'relative' : 'fixed',
+    fromDays: state.fromDays ?? null,
+    toDays: state.toDays ?? null,
+  }
 }
 
 export function copyFilterSession(session: Record<string, FilterState>): Record<string, FilterState> {
@@ -214,8 +313,7 @@ export function emptyFilterSession(ids: readonly string[]): Record<string, Filte
 
 export function defaultFilterState(field: FilterFieldDef): FilterState {
   if (field.id === 'laraEtb') {
-    const time = defaultTimeWindow()
-    return { ...emptyFilterState('datetime'), from: time.from, to: time.to }
+    return { ...emptyFilterState('datetime'), dateMode: 'relative', fromDays: 7, toDays: 7 }
   }
   return emptyFilterState(field.kind)
 }
@@ -237,15 +335,25 @@ export function createListSetting(
   name: string,
   source?: Partial<ListSetting>,
 ): ListSetting {
+  const defaults = defaultColumnPrefs()
+  const known = new Set(defaults.order)
+  const order = (source?.columns?.order ?? defaults.order).filter((id) => known.has(id))
+  for (const id of defaults.order) {
+    if (!order.includes(id)) order.push(id)
+  }
+  const sort = (source?.sort ?? DEFAULT_SORT)
+    .filter((rule) => known.has(rule.id))
+    .map((rule) => ({ ...rule }))
   return {
     id: source?.id ?? nextSettingId(),
     name,
     filters: normalizeFilterPrefs(source?.filters ?? defaultFilterPrefs()),
     columns: {
-      order: [...(source?.columns?.order ?? defaultColumnPrefs().order)],
-      hidden: [...(source?.columns?.hidden ?? [])],
+      order,
+      hidden: (source?.columns?.hidden ?? []).filter((id) => known.has(id) && id !== 'vesselName'),
+      freezeThrough: normalizeFreezeThrough(order, source?.columns?.freezeThrough),
     },
-    sort: (source?.sort ?? DEFAULT_SORT).map((rule) => ({ ...rule })),
+    sort: sort.length ? sort : DEFAULT_SORT.map((rule) => ({ ...rule })),
   }
 }
 
@@ -258,7 +366,11 @@ export function copyListSetting(setting: ListSetting): ListSetting {
       visible: pref.visible,
       default: copyFilterState(pref.default),
     })),
-    columns: { order: [...setting.columns.order], hidden: [...setting.columns.hidden] },
+    columns: {
+      order: [...setting.columns.order],
+      hidden: [...setting.columns.hidden],
+      freezeThrough: setting.columns.freezeThrough ?? null,
+    },
     sort: setting.sort.map((rule) => ({ ...rule })),
   }
 }
@@ -270,7 +382,11 @@ export function cloneListSetting(setting: ListSetting, name: string): ListSettin
       visible: pref.visible,
       default: copyFilterState(pref.default),
     })),
-    columns: { order: [...setting.columns.order], hidden: [...setting.columns.hidden] },
+    columns: {
+      order: [...setting.columns.order],
+      hidden: [...setting.columns.hidden],
+      freezeThrough: setting.columns.freezeThrough ?? null,
+    },
     sort: setting.sort.map((rule) => ({ ...rule })),
   })
 }
@@ -286,7 +402,7 @@ export function normalizeFilterPrefs(prefs: FilterPref[]): FilterPref[] {
     ordered.push({
       id: pref.id,
       visible: pref.visible,
-      default: { ...emptyFilterState(field.kind), ...pref.default, values: [...(pref.default.values ?? [])] },
+      default: normalizeStoredFilter(field, pref.default),
     })
   }
   for (const field of CATALOG) {
@@ -297,7 +413,7 @@ export function normalizeFilterPrefs(prefs: FilterPref[]): FilterPref[] {
         ? {
             id: field.id,
             visible: existing.visible,
-            default: { ...emptyFilterState(field.kind), ...existing.default, values: [...(existing.default.values ?? [])] },
+            default: normalizeStoredFilter(field, existing.default),
           }
         : { id: field.id, visible: false, default: defaultFilterState(field) },
     )
@@ -305,8 +421,14 @@ export function normalizeFilterPrefs(prefs: FilterPref[]): FilterPref[] {
   return ordered
 }
 
-export function sessionFromSetting(setting: ListSetting): Record<string, FilterState> {
-  return Object.fromEntries(setting.filters.map((pref) => [pref.id, copyFilterState(pref.default)]))
+export function sessionFromSetting(setting: ListSetting, today = new Date()): Record<string, FilterState> {
+  return Object.fromEntries(
+    setting.filters.map((pref) => {
+      const field = CATALOG_BY_ID.get(pref.id)
+      const state = field ? resolveFilterDefault(field, pref.default, today) : copyFilterState(pref.default)
+      return [pref.id, state]
+    }),
+  )
 }
 
 export function visibleFilterPrefs(setting: ListSetting) {
@@ -440,7 +562,7 @@ function settingFromLegacy(): ListSetting {
   assign('vesselName', { text: legacy.vesselNames })
   assign('laraVoyage', { text: legacy.voyage })
   assign('service', { text: legacy.service })
-  assign('laraEtb', { from: time.from, to: time.to })
+  assign('laraEtb', { dateMode: 'fixed', from: time.from, to: time.to, fromDays: null, toDays: null })
   setting.columns = columns
   setting.sort = sort
   return setting

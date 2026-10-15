@@ -198,7 +198,7 @@ export function datetimeToIso(local: string) {
   return Number.isNaN(date.getTime()) ? local : date.toISOString()
 }
 
-/** Highlight ETD (and ETB if gap > 5 days) for Terminal time gap. */
+/** Highlight ETD when the LARA–terminal ETD gap exceeds 5 days. */
 export function reviewWarnKeys(vessel: VesselRecord, schedule: TerminalSchedule | null | undefined): Set<TerminalDraftKey> {
   if (isMissingExternalVoyage(vessel)) return new Set<TerminalDraftKey>(['evoyage', 'ivoyage'])
   const warn = new Set<TerminalDraftKey>()
@@ -215,10 +215,7 @@ export function reviewWarnKeys(vessel: VesselRecord, schedule: TerminalSchedule 
     return Math.abs(a - b) / dayMs
   }
   const etdGap = gapDays(vessel.laraEtd, schedule.etd)
-  const etbGap = gapDays(vessel.laraEtb, schedule.etb)
   if (etdGap == null || etdGap > 5) warn.add('etd')
-  if (etbGap != null && etbGap > 5) warn.add('etb')
-  if (!warn.size) warn.add('etd')
   return warn
 }
 
@@ -233,13 +230,9 @@ export function reviewAlertText(vessel: VesselRecord, schedule: TerminalSchedule
     const days = Math.round(Math.abs(new Date(vessel.laraEtd).getTime() - new Date(schedule.etd).getTime()) / dayMs)
     if (Number.isFinite(days)) parts.push(`ETD gap is about ${days} day(s)`)
   }
-  if (warn.has('etb') && schedule?.etb && vessel.laraEtb) {
-    const days = Math.round(Math.abs(new Date(vessel.laraEtb).getTime() - new Date(schedule.etb).getTime()) / dayMs)
-    if (Number.isFinite(days)) parts.push(`ETB gap is about ${days} day(s)`)
-  }
   const base = MISMATCH_ALERT_REVIEW
   return parts.length ? `${base} ${parts.join('; ')}.` : base
 }
 
 const MISMATCH_ALERT_REVIEW =
-  'The LARA–terminal time gap exceeds the review threshold (ETD/ETB gap > 5 days). Review and confirm or edit terminal data.'
+  'The LARA ETD and terminal ETD differ by more than 5 days. Review and confirm or edit terminal data.'

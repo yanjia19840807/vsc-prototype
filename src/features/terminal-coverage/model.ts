@@ -18,13 +18,15 @@ export type RegionRecord = {
   active: boolean
 }
 
-/** Port master row. `available` is the manual switch for calling the terminal schedule API. */
+/** Port master row. `apiCovered` decides whether the terminal schedule API is called. */
 export type PortCoverage = {
   portCode: string
   portName: string
-  /** Region code. Empty after that region is deleted. */
+  /** Region code. Stays on the port after that region is deactivated. */
   regionCode: string
-  available: boolean
+  /** False when the port is deactivated. Historical rows still show the code. */
+  active: boolean
+  apiCovered: boolean
   terminals: PortTerminal[]
 }
 
@@ -47,24 +49,6 @@ export const TERMINAL_CODE_ALIAS: Record<string, string> = {
   YS01: 'YAN1',
 }
 
-/**
- * Ports the Feituo terminal-plan sheet marks as provided or upgrading.
- * Other ports start unavailable and can be switched on by hand.
- */
-const FEITUO_AVAILABLE_PORTS = new Set([
-  'CNSHA',
-  'CNNGB',
-  'CNYTN',
-  'CNSHK',
-  'CNDCB',
-  'CNNSA',
-  'CNTAO',
-  'CNTXG',
-  'CNXMN',
-  'CNDLC',
-  'HKHKG',
-])
-
 export function createTerminalId() {
   return `tml-${crypto.randomUUID()}`
 }
@@ -74,7 +58,8 @@ export function createSeedPorts(): PortCoverage[] {
     portCode: port.code,
     portName: port.name,
     regionCode: port.region,
-    available: FEITUO_AVAILABLE_PORTS.has(port.code),
+    active: true,
+    apiCovered: port.apiCovered,
     terminals: TML_MATRIX.filter((row) => row.port === port.code).map((row) => ({
       id: `${port.code}-${row.pool}`,
       pool: row.pool,
@@ -89,13 +74,14 @@ export function clonePort(port: PortCoverage): PortCoverage {
     portCode: port.portCode,
     portName: port.portName,
     regionCode: port.regionCode,
-    available: port.available,
+    active: port.active,
+    apiCovered: port.apiCovered,
     terminals: port.terminals.map((terminal) => ({ ...terminal })),
   }
 }
 
 export function emptyPort(): PortCoverage {
-  return { portCode: '', portName: '', regionCode: '', available: false, terminals: [] }
+  return { portCode: '', portName: '', regionCode: '', active: true, apiCovered: false, terminals: [] }
 }
 
 export function normalizeRegion(input: RegionRecord): RegionRecord {
@@ -111,7 +97,8 @@ export function normalizePort(input: PortCoverage): PortCoverage {
     portCode: input.portCode.trim().toUpperCase(),
     portName: input.portName.trim(),
     regionCode: input.regionCode.trim().toUpperCase(),
-    available: input.available,
+    active: input.active,
+    apiCovered: input.apiCovered,
     terminals: input.terminals.map((terminal) => ({
       id: terminal.id || createTerminalId(),
       pool: terminal.pool.trim().toUpperCase(),
@@ -234,5 +221,13 @@ export function findTerminal(
 }
 
 export function portCanCallFeituo(ports: PortCoverage[], portCode: string) {
-  return ports.some((port) => port.portCode === portCode && port.available)
+  return ports.some((port) => port.portCode === portCode && port.active && port.apiCovered)
+}
+
+export function selectableRegions(regions: RegionRecord[]) {
+  return regions.filter((region) => region.active)
+}
+
+export function selectablePorts(ports: PortCoverage[]) {
+  return ports.filter((port) => port.active)
 }

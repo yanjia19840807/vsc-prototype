@@ -87,7 +87,9 @@ function setValue(
   setFieldValue(name, value as never, false)
 }
 
-const pointCodeOptions = computed(() => coverage.ports)
+const pointCodeOptions = computed(() =>
+  coverage.ports.filter((port) => port.active || port.portCode === values.pointCode),
+)
 
 function brandOf(vessel: VesselRecord): LaraBrand | undefined {
   if (LARA_BRANDS.includes(vessel.brand as LaraBrand)) return vessel.brand as LaraBrand

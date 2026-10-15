@@ -105,6 +105,10 @@ function confirmRemoveTerminal() {
   removingId.value = ''
 }
 
+function setApiCovered(value: boolean) {
+  form.value.apiCovered = value
+}
+
 function close() {
   emit('update:open', false)
 }
@@ -138,7 +142,7 @@ function save() {
         <DialogDescription>{{ DIALOG_CONFIRM_DESCRIPTION }}</DialogDescription>
       </DialogHeader>
       <p class="text-sm">
-        Available ports are sent to the terminal schedule API. Terminal rows translate the returned terminal code into a 9code.
+        API covered ports are sent to the terminal schedule API. Other ports show a dash in terminal columns unless the terminal data was entered manually. Terminal rows translate a returned terminal code into a 9code.
       </p>
 
       <div class="grid gap-4 sm:grid-cols-2">
@@ -182,8 +186,12 @@ function save() {
       </div>
 
       <Field orientation="horizontal" class="w-fit">
-        <Switch id="coverage-available" v-model="form.available" />
-        <FieldLabel for="coverage-available">Available for Terminal</FieldLabel>
+        <Switch
+          id="coverage-api"
+          :model-value="form.apiCovered"
+          @update:model-value="(value) => setApiCovered(value === true)"
+        />
+        <FieldLabel for="coverage-api">API covered</FieldLabel>
       </Field>
 
       <div class="space-y-2">
@@ -236,7 +244,7 @@ function save() {
               </TableRow>
               <TableRow v-if="!form.terminals.length">
                 <TableCell colspan="4" class="text-muted-foreground">
-                  No terminals. An available port can still be called, and the returned code will not translate to a 9code.
+                  No terminals. An API covered port can still be called, and an unknown code will not translate to a 9code.
                 </TableCell>
               </TableRow>
             </TableBody>

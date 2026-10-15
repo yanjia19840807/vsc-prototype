@@ -17,6 +17,7 @@ import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
 const props = defineProps<{
   open: boolean
   port: PortCoverage | null
+  mode: 'delete' | 'deactivate'
 }>()
 
 const emit = defineEmits<{
@@ -25,10 +26,15 @@ const emit = defineEmits<{
 
 const store = useTerminalCoverageStore()
 
-function confirmDelete() {
+function confirm() {
   if (!props.port) return
-  store.remove(props.port.portCode)
-  toast.success('Port deleted')
+  if (props.mode === 'deactivate') {
+    store.setPortActive(props.port.portCode, false)
+    toast.success('Port deactivated')
+  } else {
+    store.remove(props.port.portCode)
+    toast.success('Port deleted')
+  }
   emit('update:open', false)
 }
 </script>
@@ -37,16 +43,24 @@ function confirmDelete() {
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent size="sm">
       <DialogHeader>
-        <DialogTitle>Delete port</DialogTitle>
+        <DialogTitle>{{ mode === 'deactivate' ? 'Deactivate port' : 'Delete port' }}</DialogTitle>
         <DialogDescription>{{ DIALOG_CONFIRM_DESCRIPTION }}</DialogDescription>
       </DialogHeader>
-      <p class="text-sm">Delete this port and every terminal row under it.</p>
+      <p class="text-sm">
+        {{
+          mode === 'deactivate'
+            ? 'This port stays on existing vessel rows. It is left out of new filters.'
+            : 'Delete this port and every terminal row under it.'
+        }}
+      </p>
       <p v-if="port" class="text-sm text-muted-foreground">
         {{ port.portCode }} · {{ port.portName }} · {{ port.terminals.length }} terminals
       </p>
       <DialogFooter>
         <Button type="button" variant="outline" @click="emit('update:open', false)">Cancel</Button>
-        <Button type="button" variant="destructive" @click="confirmDelete">Delete</Button>
+        <Button type="button" :variant="mode === 'deactivate' ? 'primary' : 'destructive'" @click="confirm">
+          {{ mode === 'deactivate' ? 'Deactivate' : 'Delete' }}
+        </Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

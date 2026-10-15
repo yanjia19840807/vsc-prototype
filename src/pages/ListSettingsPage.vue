@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { GripVertical, Plus, Trash2 } from '@lucide/vue'
+import { GripVertical, Pin, Plus, Trash2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 
 import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
@@ -40,20 +40,23 @@ import {
   normalizeFilterPrefs,
   portsForRegions,
   retainPointCodes,
+  scheduleValueOptions,
   staticFilterOptions,
   type FilterFieldDef,
   type FilterState,
   type ListSetting,
 } from '@/features/vessel-search/list-setting-model'
 import { DEFAULT_SORT, defaultColumnPrefs } from '@/features/vessel-search/schedule-prefs'
-import { regionLabel } from '@/features/terminal-coverage/model'
+import { regionLabel, selectablePorts, selectableRegions } from '@/features/terminal-coverage/model'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { DIALOG_CONFIRM_DESCRIPTION } from '@/lib/dialog-copy'
 import { useListSettingsStore } from '@/stores/list-settings'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
+import { useVesselStore } from '@/stores/vessels'
 
 const coverage = useTerminalCoverageStore()
 const store = useListSettingsStore()
+const vessels = useVesselStore()
 
 const selectedId = ref(store.activeId)
 const draft = ref<ListSetting>(cloneSelected())
@@ -70,17 +73,18 @@ const selected = computed(() => store.byId(selectedId.value) ?? store.active)
 const unusedSortColumns = computed(() =>
   SEARCH_COLUMNS.filter((column) => !draft.value.sort.some((rule) => rule.id === column.id)),
 )
+const orderedColumnIds = computed(() => groupColumnOrder(draft.value.columns.order))
 
-const regionOptions = computed(() => coverage.regions.map((region) => regionLabel(region)))
+const regionOptions = computed(() => selectableRegions(coverage.regions).map((region) => regionLabel(region)))
 const selectedRegionCodes = computed(
   () => draft.value.filters.find((pref) => pref.id === 'region')?.default.values ?? [],
 )
-const portOptions = computed(() => portsForRegions(selectedRegionCodes.value, coverage.ports))
+const portOptions = computed(() => portsForRegions(selectedRegionCodes.value, selectablePorts(coverage.ports)))
 const terminalCodes = computed(() =>
-  [...new Set(coverage.ports.flatMap((port) => port.terminals.map((terminal) => terminal.pool).filter(Boolean)))],
+  [...new Set(selectablePorts(coverage.ports).flatMap((port) => port.terminals.map((terminal) => terminal.pool).filter(Boolean)))],
 )
 const terminalNames = computed(() =>
-  [...new Set(coverage.ports.flatMap((port) => port.terminals.map((terminal) => terminal.nameZh || terminal.abbr || terminal.pool).filter(Boolean)))],
+  [...new Set(selectablePorts(coverage.ports).flatMap((port) => port.terminals.map((terminal) => terminal.nameZh || terminal.abbr || terminal.pool).filter(Boolean)))],
 )
 
 function cloneSelected(): ListSetting {
@@ -110,6 +114,9 @@ function optionsFor(field: FilterFieldDef) {
   if (field.optionSource === 'pointCode') return portOptions.value
   if (field.optionSource === 'terminal9code') return terminalCodes.value
   if (field.optionSource === 'terminalName') return terminalNames.value
+  if (field.optionSource === 'vesselName' || field.optionSource === 'laraVoyage') {
+    return scheduleValueOptions(vessels.vessels, field.optionSource)
+  }
   return staticFilterOptions(field.optionSource)
 }
 
@@ -166,7 +173,18 @@ function addSort() {
 }
 
 function resetColumns() {
-  draft.value.columns = { order: [...defaultColumnPrefs().order], hidden: [] }
+  draft.value.columns = defaultColumnPrefs()
+}
+
+function toggleFreeze(id: string) {
+  draft.value.columns.freezeThrough = draft.value.columns.freezeThrough === id ? null : id
+}
+
+function inFreezeRange(index: number) {
+  const boundary = draft.value.columns.freezeThrough
+  if (!boundary) return false
+  const at = orderedColumnIds.value.indexOf(boundary)
+  return at >= 0 && index <= at
 }
 
 function resetSort() {
@@ -243,7 +261,11 @@ function save() {
       ...pref,
       default: { ...pref.default, values: [...pref.default.values] },
     })),
-    columns: { order: [...draft.value.columns.order], hidden: [...draft.value.columns.hidden] },
+    columns: {
+      order: [...draft.value.columns.order],
+      hidden: [...draft.value.columns.hidden],
+      freezeThrough: draft.value.columns.freezeThrough,
+    },
     sort: draft.value.sort.map((rule) => ({ ...rule })),
   })
   toast.success('List setting saved')
@@ -371,6 +393,7 @@ function cancel() {
                       :field="filterDef(pref.id)"
                       :state="toDisplay(filterDef(pref.id), pref.default)"
                       :options="optionsFor(filterDef(pref.id))"
+                      date-default
                       @update:state="setFilterState(pref.id, $event)"
                     />
                   </div>
@@ -384,17 +407,19 @@ function cancel() {
               <div class="flex shrink-0 items-center gap-3 border-b px-3 py-2 text-sm font-medium">
                 <span class="size-4 shrink-0" aria-hidden="true" />
                 <span class="size-4 shrink-0" aria-hidden="true" />
+                <span class="w-8 shrink-0 text-center">Pin</span>
                 <span>Field</span>
               </div>
               <ul class="min-h-0 flex-1 overflow-y-auto">
                 <li
-                  v-for="(id, index) in draft.columns.order"
+                  v-for="(id, index) in orderedColumnIds"
                   :key="id"
-                  class="flex items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted/50"
+                  class="flex items-center gap-3 border-b px-3 py-2 last:border-b-0"
+                  :class="inFreezeRange(index) ? 'bg-muted hover:bg-muted' : 'hover:bg-muted/50'"
                   draggable="true"
                   @dragstart="dragColumn = index"
                   @dragover.prevent
-                  @drop="columnGroup(draft.columns.order[dragColumn ?? index] ?? '') === columnGroup(id) && (draft.columns.order = move(draft.columns.order, dragColumn ?? index, index))"
+                  @drop="columnGroup(orderedColumnIds[dragColumn ?? index] ?? '') === columnGroup(id) && (draft.columns.order = move(orderedColumnIds, dragColumn ?? index, index))"
                 >
                   <GripVertical class="size-4 shrink-0 text-muted-foreground" />
                   <Checkbox
@@ -402,6 +427,17 @@ function cancel() {
                     :disabled="id === 'vesselName'"
                     @update:model-value="(value) => toggleColumn(id, value === true)"
                   />
+                  <button
+                    type="button"
+                    class="inline-flex size-8 shrink-0 items-center justify-center rounded-md"
+                    :class="draft.columns.freezeThrough === id ? 'text-primary' : 'text-muted-foreground hover:text-foreground'"
+                    :aria-pressed="draft.columns.freezeThrough === id"
+                    :aria-label="draft.columns.freezeThrough === id ? `Clear left freeze at ${columnHeaderLabelById(id)}` : `Freeze through ${columnHeaderLabelById(id)}`"
+                    @pointerdown.stop
+                    @click.stop="toggleFreeze(id)"
+                  >
+                    <Pin class="size-3.5" :class="draft.columns.freezeThrough === id ? 'fill-current' : ''" />
+                  </button>
                   <span class="text-sm">{{ columnHeaderLabelById(id) }}</span>
                 </li>
               </ul>

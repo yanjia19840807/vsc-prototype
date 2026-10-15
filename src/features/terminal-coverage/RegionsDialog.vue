@@ -32,16 +32,24 @@ import {
   type RegionRecord,
 } from '@/features/terminal-coverage/model'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
+import { useVesselStore } from '@/stores/vessels'
 
 const open = defineModel<boolean>('open', { required: true })
 
 const store = useTerminalCoverageStore()
+const vessels = useVesselStore()
 const mode = ref<'idle' | 'create' | 'edit'>('idle')
 const editingCode = ref('')
 const draft = ref<RegionRecord>({ code: '', name: '', active: true })
 const submitted = ref(false)
 const deleteOpen = ref(false)
 const deleting = ref<RegionRecord | null>(null)
+const regionAction = ref<'delete' | 'deactivate'>('delete')
+
+function regionReferenced(code: string) {
+  return store.ports.some((port) => port.regionCode === code)
+    || vessels.vessels.some((vessel) => vessel.region === code)
+}
 
 const fieldErrors = computed<RegionFieldErrors>(() => {
   if (!submitted.value) return {}
@@ -87,8 +95,14 @@ function saveDraft() {
 
 function openDelete(region: RegionRecord) {
   deleting.value = region
+  regionAction.value = regionReferenced(region.code) ? 'deactivate' : 'delete'
   deleteOpen.value = true
   if (mode.value === 'edit' && editingCode.value === region.code) resetEditor()
+}
+
+function activateRegion(region: RegionRecord) {
+  store.setRegionActive(region.code, true)
+  toast.success('Region activated')
 }
 
 function onOpenChange(value: boolean) {
@@ -121,7 +135,7 @@ function keepNested(event: Event) {
         <DialogDescription>{{ DIALOG_CONFIRM_DESCRIPTION }}</DialogDescription>
       </DialogHeader>
       <p class="text-sm">
-        Ports choose a region from this list. Deleting a region clears it on the ports and vessels that used it.
+        Ports choose a region from this list. A region used by a port or vessel is deactivated instead of deleted, and existing rows keep the code.
       </p>
 
       <div class="flex justify-end">
@@ -187,7 +201,16 @@ function keepNested(event: Event) {
                   <div class="flex h-8 items-center gap-1">
                     <Button type="button" size="xs" variant="primary" @click="saveDraft">Save</Button>
                     <Button type="button" size="xs" variant="outline" @click="resetEditor">Cancel</Button>
-                    <Button type="button" size="xs" variant="destructive" @click="openDelete(region)">Delete</Button>
+                    <Button
+                      v-if="region.active"
+                      type="button"
+                      size="xs"
+                      :variant="regionReferenced(region.code) ? 'outline' : 'destructive'"
+                      @click="openDelete(region)"
+                    >
+                      {{ regionReferenced(region.code) ? 'Deactivate' : 'Delete' }}
+                    </Button>
+                    <Button v-else type="button" size="xs" variant="outline" @click="activateRegion(region)">Activate</Button>
                   </div>
                 </TableCell>
               </template>
@@ -201,7 +224,16 @@ function keepNested(event: Event) {
                 <TableCell>
                   <div class="flex items-center gap-1">
                     <Button type="button" size="xs" variant="outline" :disabled="mode !== 'idle'" @click="startEdit(region)">Edit</Button>
-                    <Button type="button" size="xs" variant="destructive" @click="openDelete(region)">Delete</Button>
+                    <Button
+                      v-if="region.active"
+                      type="button"
+                      size="xs"
+                      :variant="regionReferenced(region.code) ? 'outline' : 'destructive'"
+                      @click="openDelete(region)"
+                    >
+                      {{ regionReferenced(region.code) ? 'Deactivate' : 'Delete' }}
+                    </Button>
+                    <Button v-else type="button" size="xs" variant="outline" @click="activateRegion(region)">Activate</Button>
                   </div>
                 </TableCell>
               </template>
@@ -213,5 +245,5 @@ function keepNested(event: Event) {
     </DialogContent>
   </Dialog>
 
-  <DeleteRegionDialog v-model:open="deleteOpen" :region="deleting" />
+  <DeleteRegionDialog v-model:open="deleteOpen" :region="deleting" :mode="regionAction" />
 </template>

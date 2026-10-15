@@ -146,16 +146,11 @@ const NOT_FOUND_ALIASES: Record<string, string[]> = {
   portsCn: ['portsCn'],
 }
 
-const FIELD_LABELS: Record<string, string> = {}
-for (const [id, aliases] of Object.entries(NOT_FOUND_ALIASES)) {
-  const label = SEARCH_COLUMNS.find((column) => column.id === id)?.label
-  if (!label) continue
-  FIELD_LABELS[id] = label
-  for (const alias of aliases) FIELD_LABELS[alias] = label
-}
-
 export function historyFieldLabel(field: string) {
-  return FIELD_LABELS[field] ?? SEARCH_COLUMNS.find((column) => column.id === field)?.label ?? field
+  const direct = SEARCH_COLUMNS.find((column) => column.id === field)
+  if (direct) return columnHeaderLabel(direct)
+  const aliased = SEARCH_COLUMNS.find((column) => (NOT_FOUND_ALIASES[column.id] ?? []).includes(field))
+  return aliased ? columnHeaderLabel(aliased) : field
 }
 
 export function historyFieldMatches(field: string, columnId: string) {
@@ -216,7 +211,7 @@ export function isMissingExternalVoyage(v: VesselRecord) {
 
 /** Match found but not confirmed. Terminal cells show an em dash. */
 export function isUnconfirmedMatch(v: VesselRecord) {
-  return v.matchingStatus === 'Multiple terminal records' || v.matchingStatus === 'Terminal time gap'
+  return v.matchingStatus === 'Multiple terminal records' || v.matchingStatus === 'ETD gap > 5 days'
 }
 
 export function candidateCountLabel(v: VesselRecord) {
@@ -232,6 +227,20 @@ export function manualOverrideFor(v: VesselRecord, columnId: string) {
   return undefined
 }
 
+/** Whether the vessel's LARA point code is sent to the terminal schedule API. */
+export function isPortApiCovered(v: VesselRecord): boolean {
+  const port = useTerminalCoverageStore().ports.find((row) => row.portCode === v.pointCode)
+  return Boolean(port?.apiCovered)
+}
+
+/** Non-API covered ports show a dash in terminal columns. Manual entry still shows. */
+export function isApiFieldHidden(v: VesselRecord, id: string) {
+  if (!TERMINAL_COLUMNS.has(id)) return false
+  if (v.terminalSource === 'manual' || manualOverrideFor(v, id)) return false
+  const port = useTerminalCoverageStore().ports.find((row) => row.portCode === v.pointCode)
+  return !port?.apiCovered
+}
+
 export function brdTerminal(v: VesselRecord): { code: string; name: string } {
   const row = useTerminalCoverageStore().resolveTerminal(v.pointCode, v.terminalSchedule?.terminal)
   if (!row) return { code: '', name: '' }
@@ -243,6 +252,7 @@ export function brdTerminal(v: VesselRecord): { code: string; name: string } {
 
 /** Sortable raw value. Datetimes stay ISO; empty text sorts as ''. */
 export function searchSortValue(v: VesselRecord, id: string): string | number {
+  if (isApiFieldHidden(v, id)) return ''
   const terminal = brdTerminal(v)
   switch (id) {
     case 'vesselType':
@@ -351,6 +361,7 @@ function isNotFound(v: VesselRecord, id: string) {
 }
 
 export function searchCellText(v: VesselRecord, id: string): string {
+  if (isApiFieldHidden(v, id)) return '—'
   if (isUnconfirmedMatch(v) && TERMINAL_COLUMNS.has(id)) return '—'
   if (isNotFound(v, id)) return '—'
   const column = SEARCH_COLUMNS.find((col) => col.id === id)
