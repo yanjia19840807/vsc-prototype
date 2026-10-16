@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { FlexRender } from '@tanstack/vue-table'
-import { ChevronDown } from '@lucide/vue'
 
 import DataSection from '@/components/DataSection.vue'
 import DataTableColumnHeader from '@/components/DataTableColumnHeader.vue'
@@ -11,6 +9,7 @@ import FilterField from '@/components/FilterField.vue'
 import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
 import QueryPanel from '@/components/QueryPanel.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import { DateRangePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { MultiSelect } from '@/components/ui/multi-select'
@@ -25,12 +24,13 @@ import {
 } from '@/components/ui/table'
 import { datetimeColumn, textColumn, useVesselDataTable } from '@/composables/useVesselDataTable'
 import {
-  activityOperationsOf,
-  operationTouchesField,
-  type ActivityFieldChange,
-  type ActivityLogOperation,
+  ACTIVITY_CATEGORIES,
+  activityCategoryLabel,
+  activityDescription,
+  activityLogsOf,
+  activityPriority,
+  itemTouchesField,
 } from '@/features/vessel-schedule/activity-log'
-import { historyFieldLabel } from '@/features/vessel-search/search-columns'
 import { allPlaceholder } from '@/features/vessel-search/list-setting-model'
 import { formatDateTime } from '@/lib/vessel-utils'
 import { useVesselStore } from '@/stores/vessels'
@@ -40,18 +40,10 @@ const router = useRouter()
 const store = useVesselStore()
 const vessel = computed(() => store.byId(String(route.params.id)))
 const selectedId = ref('')
-const filtersOpen = ref(true)
-
-const UPDATE_SOURCES = ['System Sync', 'Manual Update']
+const typeOptions = ACTIVITY_CATEGORIES.map((item) => item.label)
 
 function emptyLogQuery() {
-  return {
-    source: [] as string[],
-    field: '',
-    updatedBy: '',
-    from: '',
-    to: '',
-  }
+  return { types: [] as string[], field: '', updatedBy: '', from: '', to: '' }
 }
 
 const form = reactive(emptyLogQuery())
@@ -60,8 +52,8 @@ const applied = ref(emptyLogQuery())
 watch(
   () => route.query.field,
   (field) => {
-    form.field = typeof field === 'string' && field ? historyFieldLabel(field) : ''
-    applied.value = { ...form, source: [...form.source] }
+    form.field = typeof field === 'string' ? field : ''
+    applied.value = { ...form }
   },
   { immediate: true },
 )
@@ -72,90 +64,82 @@ function localDay(date: string, endOfDay: boolean) {
   return new Date(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0).getTime()
 }
 
-function blank(value: string) {
-  const text = value.trim()
-  if (!text || text === '—') return '—'
-  const parsed = new Date(text)
-  if (text.includes('-') && !Number.isNaN(parsed.getTime()) && text.length > 8) return formatDateTime(text)
-  return text
-}
-
 const logs = computed(() => {
   const current = vessel.value
   if (!current) return []
-  return activityOperationsOf(current, (id) => store.refreshById(id))
-    .sort((a, b) => new Date(b.updatedTime).getTime() - new Date(a.updatedTime).getTime())
+  return activityLogsOf(current, (id) => store.refreshById(id), store.vessels)
 })
 
 const filtered = computed(() => {
   const updatedBy = applied.value.updatedBy.trim().toLowerCase()
   const from = applied.value.from ? localDay(applied.value.from, false) : Number.NEGATIVE_INFINITY
   const to = applied.value.to ? localDay(applied.value.to, true) : Number.POSITIVE_INFINITY
-  return logs.value.filter((row) => {
-    if (applied.value.source.length && !applied.value.source.includes(row.updateSource)) return false
-    if (!operationTouchesField(row, applied.value.field)) return false
-    if (updatedBy && !row.updatedBy.toLowerCase().includes(updatedBy)) return false
-    const at = new Date(row.updatedTime).getTime()
-    if (Number.isFinite(at) && (at < from || at > to)) return false
-    return true
-  })
+  const types = new Set(applied.value.types)
+  return logs.value
+    .filter((item) => !types.size || types.has(activityCategoryLabel(item.category)))
+    .filter((item) => itemTouchesField(item, applied.value.field))
+    .filter((item) => !updatedBy || item.updatedBy.toLowerCase().includes(updatedBy))
+    .filter((item) => {
+      const at = new Date(item.at).getTime()
+      return !Number.isFinite(at) || (at >= from && at <= to)
+    })
+    .sort((a, b) => {
+      const time = new Date(b.at).getTime() - new Date(a.at).getTime()
+      if (time !== 0) return time
+      return activityPriority(b.category) - activityPriority(a.category)
+    })
 })
 
-const selected = computed(() => filtered.value.find((row) => row.id === selectedId.value) ?? null)
+const tableRowsSource = computed(() =>
+  filtered.value.map((item) => ({
+    ...item,
+    categoryLabel: activityCategoryLabel(item.category),
+    description: activityDescription(item),
+    priority: activityPriority(item.category),
+  })),
+)
+
+const selected = computed(() => filtered.value.find((item) => item.id === selectedId.value) ?? null)
 
 const columns = [
-  datetimeColumn('updatedTime', 'Updated time'),
-  textColumn('updateSource', 'Update source'),
-  textColumn('refreshLabel', 'Sync'),
-  textColumn('summary', 'Summary'),
+  {
+    ...datetimeColumn('at', 'Time'),
+    sortFn: (rowA: { original: { at: string; priority: number } }, rowB: { original: { at: string; priority: number } }) => {
+      const time = new Date(rowA.original.at).getTime() - new Date(rowB.original.at).getTime()
+      if (time !== 0) return time
+      return rowA.original.priority - rowB.original.priority
+    },
+  },
+  textColumn('categoryLabel', 'Type'),
+  textColumn('description', 'Description'),
   textColumn('updatedBy', 'Updated by'),
-  textColumn('reason', 'Reason'),
 ]
 
 const { table, tableRows, rowCount, pageCount, headerGroups, pagination, resetPage } = useVesselDataTable({
   columns,
-  data: filtered,
-  initialSorting: [{ id: 'updatedTime', desc: true }],
-  getRowId: (row: ActivityLogOperation) => row.id,
+  data: tableRowsSource,
+  initialSorting: [{ id: 'at', desc: true }],
+  getRowId: (row) => row.id,
 })
 
 watch(filtered, (rows) => {
   resetPage()
   if (selectedId.value && !rows.some((row) => row.id === selectedId.value)) selectedId.value = ''
-  if (!selectedId.value && route.query.field && rows[0]) selectedId.value = rows[0].id
 })
 
-function selectOperation(id: string) {
+function selectItem(id: string) {
   selectedId.value = selectedId.value === id ? '' : id
 }
 
-function fieldHighlighted(change: ActivityFieldChange) {
-  const field = applied.value.field.trim().toLowerCase()
-  if (!field) return false
-  return change.fieldLabel.toLowerCase().includes(field) || change.field.toLowerCase().includes(field)
-}
-
-const appliedCount = computed(() => {
-  let count = 0
-  if (form.source.length) count += 1
-  if (form.field.trim()) count += 1
-  if (form.updatedBy.trim()) count += 1
-  if (form.from || form.to) count += 1
-  return count
-})
-
 function applyFilters() {
-  applied.value = { ...form, source: [...form.source] }
-  resetPage()
+  applied.value = { ...form, types: [...form.types] }
 }
 
 function clearFilters() {
   Object.assign(form, emptyLogQuery())
   applied.value = emptyLogQuery()
   selectedId.value = ''
-  if (route.query.field) {
-    void router.replace({ path: route.path, query: {} })
-  }
+  if (route.query.field) void router.replace({ path: route.path, query: {} })
 }
 </script>
 
@@ -171,45 +155,31 @@ function clearFilters() {
     <div>
       <h1 class="text-xl font-semibold">Activity logs</h1>
       <p class="text-sm text-muted-foreground">
-        {{ vessel.vesselName }} · {{ vessel.laraVoyage }} · {{ vessel.pointCode }} · {{ vessel.poolLocation }}
+        {{ vessel.vesselName }} · {{ vessel.laraVoyage }} · {{ vessel.poolLocation }}
       </p>
     </div>
 
-    <div>
-      <div class="flex items-center justify-between gap-2">
-        <button
-          type="button"
-          class="inline-flex items-center gap-2 text-sm font-medium"
-          :aria-expanded="filtersOpen"
-          @click="filtersOpen = !filtersOpen"
-        >
-          <ChevronDown class="size-4 transition-transform" :class="filtersOpen ? 'rotate-180' : ''" />
-          Filters
-          <span class="text-muted-foreground">{{ appliedCount }}</span>
-        </button>
-      </div>
-      <QueryPanel v-if="filtersOpen" class="pt-3" @search="applyFilters" @clear="clearFilters">
-        <FilterField label="Update source">
-          <MultiSelect
-            :model-value="form.source"
-            :options="UPDATE_SOURCES"
-            :placeholder="allPlaceholder('Update source')"
-            aria-label="Update source"
-            class="w-[220px]"
-            @update:model-value="form.source = $event"
-          />
-        </FilterField>
-        <FilterField label="Field">
-          <Input v-model="form.field" class="h-8 w-52" aria-label="Field" />
-        </FilterField>
-        <FilterField label="Updated by">
-          <Input v-model="form.updatedBy" class="h-8 w-52" aria-label="Updated by" />
-        </FilterField>
-        <FilterField label="Updated time">
-          <DateRangePicker v-model:from="form.from" v-model:to="form.to" />
-        </FilterField>
-      </QueryPanel>
-    </div>
+    <QueryPanel @search="applyFilters" @clear="clearFilters">
+      <FilterField label="Type">
+        <MultiSelect
+          :model-value="form.types"
+          :options="typeOptions"
+          :placeholder="allPlaceholder('Type')"
+          aria-label="Type"
+          class="w-[220px]"
+          @update:model-value="form.types = $event"
+        />
+      </FilterField>
+      <FilterField label="Field">
+        <Input v-model="form.field" class="h-8 w-52" aria-label="Field" />
+      </FilterField>
+      <FilterField label="Updated by">
+        <Input v-model="form.updatedBy" class="h-8 w-52" aria-label="Updated by" />
+      </FilterField>
+      <FilterField label="Time">
+        <DateRangePicker v-model:from="form.from" v-model:to="form.to" />
+      </FilterField>
+    </QueryPanel>
 
     <div class="overflow-hidden rounded-md border">
       <Table>
@@ -225,30 +195,27 @@ function clearFilters() {
                 @clear-sort="header.column.clearSorting()"
                 @clear-all-sort="table.setSorting([])"
               />
-              <FlexRender v-else-if="!header.isPlaceholder" :header="header" />
             </TableHead>
+            <TableHead class="w-24">Details</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <TableRow
             v-for="row in tableRows"
             :key="row.id"
-            class="cursor-pointer"
             :data-state="selected?.id === row.original.id ? 'selected' : undefined"
-            @click="selectOperation(row.original.id)"
           >
-            <TableCell class="whitespace-nowrap">{{ formatDateTime(row.original.updatedTime) }}</TableCell>
-            <TableCell class="whitespace-nowrap">{{ row.original.updateSource }}</TableCell>
-            <TableCell class="whitespace-nowrap">{{ row.original.refreshLabel || '—' }}</TableCell>
-            <TableCell class="whitespace-nowrap">
-              <button type="button" class="font-semibold text-primary hover:underline" @click.stop="selectOperation(row.original.id)">
-                {{ row.original.summary }}
-              </button>
+            <TableCell class="whitespace-nowrap">{{ formatDateTime(row.original.at) }}</TableCell>
+            <TableCell class="whitespace-nowrap">{{ row.original.categoryLabel }}</TableCell>
+            <TableCell>{{ row.original.description }}</TableCell>
+            <TableCell class="whitespace-nowrap">{{ row.original.updatedBy || '—' }}</TableCell>
+            <TableCell>
+              <Button type="button" size="xs" variant="outline" @click="selectItem(row.original.id)">
+                {{ selectedId === row.original.id ? 'Hide' : 'View' }}
+              </Button>
             </TableCell>
-            <TableCell class="whitespace-nowrap">{{ row.original.updatedBy }}</TableCell>
-            <TableCell>{{ blank(row.original.reason) }}</TableCell>
           </TableRow>
-          <TableEmpty v-if="!tableRows.length" :colspan="columns.length" />
+          <TableEmpty v-if="!tableRows.length" :colspan="columns.length + 1" />
         </TableBody>
       </Table>
     </div>
@@ -263,16 +230,33 @@ function clearFilters() {
 
     <div v-if="selected" class="space-y-4">
       <div>
-        <h2 class="text-xl font-semibold">{{ formatDateTime(selected.updatedTime) }}</h2>
-        <p class="text-sm text-muted-foreground">
-          {{ selected.updateSource }}
-          <template v-if="selected.refreshLabel"> · {{ selected.refreshLabel }}</template>
-          · {{ selected.updatedBy }}
-          <template v-if="selected.reason"> · {{ selected.reason }}</template>
-        </p>
+        <h2 class="text-xl font-semibold">{{ formatDateTime(selected.at) }}</h2>
+        <p class="text-sm text-muted-foreground">{{ activityCategoryLabel(selected.category) }} · {{ activityDescription(selected) }}</p>
       </div>
+      <p v-if="selected.resultNote" class="text-sm text-muted-foreground">{{ selected.resultNote }}</p>
 
-      <DataSection v-if="selected.fieldChanges.length" title="Fields">
+      <DataSection v-for="domain in selected.domainTables" :key="domain.id" :title="domain.title">
+        <div class="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead v-for="column in domain.columns" :key="column.id" class="whitespace-nowrap">
+                  {{ column.label }}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="record in domain.records" :key="record.id">
+                <TableCell v-for="(value, index) in record.values" :key="`${record.id}-${index}`" class="whitespace-nowrap">
+                  {{ value }}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      </DataSection>
+
+      <DataSection v-if="selected.changes.length" title="Changes">
         <div class="overflow-hidden rounded-md border">
           <Table>
             <TableHeader>
@@ -283,29 +267,10 @@ function clearFilters() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRow v-for="change in selected.fieldChanges" :key="change.id" :data-state="fieldHighlighted(change) ? 'selected' : undefined">
-                <TableCell class="whitespace-nowrap">{{ change.fieldLabel }}</TableCell>
-                <TableCell>{{ blank(change.original) }}</TableCell>
-                <TableCell>{{ blank(change.updated) }}</TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </DataSection>
-
-      <DataSection v-if="selected.matchChange" title="Match">
-        <div class="overflow-hidden rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Original match</TableHead>
-                <TableHead>Updated match</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow>
-                <TableCell>{{ blank(selected.matchChange.original) }}</TableCell>
-                <TableCell>{{ blank(selected.matchChange.updated) }}</TableCell>
+              <TableRow v-for="row in selected.changes" :key="row.id">
+                <TableCell class="whitespace-nowrap">{{ row.label }}</TableCell>
+                <TableCell>{{ row.original }}</TableCell>
+                <TableCell>{{ row.value }}</TableCell>
               </TableRow>
             </TableBody>
           </Table>

@@ -15,13 +15,13 @@ export type ScheduleQuickAction =
 
 export const MISMATCH_ACTION_LABEL: Record<MismatchQuickAction, string> = {
   selectMatch: 'Select match',
-  reviewMatch: 'Review match',
+  reviewMatch: 'Review',
   addTerminal: 'Add terminal',
 }
 
 export const MISMATCH_EDIT_LABEL: Record<MismatchQuickAction, string> = {
   selectMatch: 'Change match',
-  reviewMatch: 'Review match',
+  reviewMatch: 'Review',
   addTerminal: 'Edit terminal',
 }
 
@@ -85,14 +85,11 @@ function remediationFromVessel(vessel: VesselRecord): MismatchQuickAction | null
 /** Prefer open mismatch status; after Manual matched reopen the same remediation flow. */
 export function mismatchActionForVessel(vessel: VesselRecord): MismatchQuickAction | null {
   if (isLaraLinkTarget(vessel)) return null
-  const action = mismatchActionForStatus(vessel) ?? remediationFromVessel(vessel)
-  if (vessel.matchingStatus === 'Auto matched' && action === 'reviewMatch') return null
-  return action
+  if (vessel.createdManually && vessel.matchingStatus !== 'Pending match') return null
+  return mismatchActionForStatus(vessel) ?? remediationFromVessel(vessel)
 }
 
 export function mismatchActionLabel(vessel: VesselRecord): string | null {
-  const action = mismatchActionForVessel(vessel)
-  if (!action) return null
-  if (isMismatchReedit(vessel)) return MISMATCH_EDIT_LABEL[action]
-  return MISMATCH_ACTION_LABEL[action]
+  if (!mismatchActionForVessel(vessel)) return null
+  return 'Review'
 }

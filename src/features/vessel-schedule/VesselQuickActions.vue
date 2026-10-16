@@ -12,13 +12,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
-import AddTerminalInformationDialog from '@/features/vessel-schedule/AddTerminalInformationDialog.vue'
 import DeleteManualVesselDialog from '@/features/vessel-schedule/DeleteManualVesselDialog.vue'
 import LinkToLaraDialog from '@/features/vessel-schedule/LinkToLaraDialog.vue'
 import UnlinkLaraDialog from '@/features/vessel-schedule/UnlinkLaraDialog.vue'
 import ManualAddVesselDialog from '@/features/vessel-schedule/ManualAddVesselDialog.vue'
-import ReviewTerminalMatchDialog from '@/features/vessel-schedule/ReviewTerminalMatchDialog.vue'
-import SelectTerminalMatchDialog from '@/features/vessel-schedule/SelectTerminalMatchDialog.vue'
+import ReviewMatchDialog from '@/features/vessel-schedule/ReviewMatchDialog.vue'
 import type { ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import { DIALOG_CONFIRM_DESCRIPTION } from '@/lib/dialog-copy'
 import { buildSlcSdcFileName } from '@/lib/vessel-utils'
@@ -39,9 +37,7 @@ const emit = defineEmits<{
 
 const settings = useSettingsStore()
 
-const selectOpen = ref(false)
 const reviewOpen = ref(false)
-const addTerminalOpen = ref(false)
 const editVesselOpen = ref(false)
 const linkLaraOpen = ref(false)
 const unlinkLaraOpen = ref(false)
@@ -67,9 +63,7 @@ const rfiDraft = computed(() => {
 })
 
 function finish() {
-  selectOpen.value = false
   reviewOpen.value = false
-  addTerminalOpen.value = false
   editVesselOpen.value = false
   linkLaraOpen.value = false
   unlinkLaraOpen.value = false
@@ -118,9 +112,7 @@ watch(
     const action = props.action
     const v = props.vessel
     syncing = true
-    selectOpen.value = false
     reviewOpen.value = false
-    addTerminalOpen.value = false
     editVesselOpen.value = false
     linkLaraOpen.value = false
     unlinkLaraOpen.value = false
@@ -131,9 +123,7 @@ watch(
     if (!v || !action) return
     await nextTick()
     if (props.action !== action) return
-    if (action === 'selectMatch') selectOpen.value = true
-    else if (action === 'reviewMatch') reviewOpen.value = true
-    else if (action === 'addTerminal') addTerminalOpen.value = true
+    if (action === 'selectMatch' || action === 'reviewMatch' || action === 'addTerminal') reviewOpen.value = true
     else if (action === 'editVessel') editVesselOpen.value = true
     else if (action === 'linkLara') linkLaraOpen.value = true
     else if (action === 'unlinkLara') unlinkLaraOpen.value = true
@@ -151,18 +141,8 @@ async function copyGeneratedFile() {
 </script>
 
 <template>
-  <SelectTerminalMatchDialog
-    :open="selectOpen"
-    :vessel="vessel"
-    @update:open="onMismatchOpen"
-  />
-  <ReviewTerminalMatchDialog
+  <ReviewMatchDialog
     :open="reviewOpen"
-    :vessel="vessel"
-    @update:open="onMismatchOpen"
-  />
-  <AddTerminalInformationDialog
-    :open="addTerminalOpen"
     :vessel="vessel"
     @update:open="onMismatchOpen"
   />

@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
+import type { ColumnDef } from '@tanstack/vue-table'
 
+import DataSection from '@/components/DataSection.vue'
+import DataTableColumnHeader from '@/components/DataTableColumnHeader.vue'
 import DataTablePagination from '@/components/DataTablePagination.vue'
 import FilterField from '@/components/FilterField.vue'
 import QueryPanel from '@/components/QueryPanel.vue'
+import ReadonlyField from '@/components/ReadonlyField.vue'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -15,7 +19,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
 import {
   Table,
   TableBody,
@@ -42,7 +45,8 @@ import {
   type FilterFieldDef,
   type FilterState,
 } from '@/features/vessel-search/list-setting-model'
-import { SEARCH_COLUMNS, searchCellText } from '@/features/vessel-search/search-columns'
+import { SEARCH_COLUMNS, searchCellText, searchSortValue } from '@/features/vessel-search/search-columns'
+import { useVesselDataTable } from '@/composables/useVesselDataTable'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
 import { useVesselStore } from '@/stores/vessels'
 import type { VesselRecord } from '@/types/vsp'
@@ -60,6 +64,13 @@ const store = useVesselStore()
 const coverage = useTerminalCoverageStore()
 
 const laraColumns = SEARCH_COLUMNS.filter((column) => column.source === 'lara')
+const columns: ColumnDef<any, any>[] = laraColumns.map((column) => ({
+  id: column.id,
+  header: column.label,
+  accessorFn: (row: VesselRecord) => searchSortValue(row, column.id),
+  enableSorting: true,
+  ...(column.kind === 'datetime' ? { sortFn: 'datetime' as const } : {}),
+}))
 const defaultFields = DEFAULT_VISIBLE_FILTERS
   .map((id) => filterFieldById(id))
   .filter((field): field is FilterFieldDef => Boolean(field))
@@ -67,8 +78,6 @@ const defaultFields = DEFAULT_VISIBLE_FILTERS
 const draft = ref(emptyFilterSession(DEFAULT_VISIBLE_FILTERS))
 const applied = ref(emptyFilterSession(DEFAULT_VISIBLE_FILTERS))
 const searched = ref(false)
-const pageIndex = ref(0)
-const pageSize = ref(10)
 const selectedId = ref('')
 const remark = ref('')
 
@@ -84,10 +93,9 @@ const rows = computed(() => {
   })
 })
 
-const pageCount = computed(() => (rows.value.length ? Math.ceil(rows.value.length / pageSize.value) : 0))
-const pageRows = computed(() => {
-  const start = pageIndex.value * pageSize.value
-  return rows.value.slice(start, start + pageSize.value)
+const { table, pagination, tableRows, rowCount, pageCount, headerGroups, resetPage, clearSort } = useVesselDataTable({
+  columns,
+  data: rows,
 })
 
 watch(
@@ -97,9 +105,10 @@ watch(
     draft.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
     applied.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
     searched.value = false
-    pageIndex.value = 0
     selectedId.value = ''
     remark.value = ''
+    clearSort([])
+    resetPage()
   },
 )
 
@@ -151,19 +160,20 @@ function setDraft(id: string, state: FilterState) {
 function search() {
   applied.value = copyFilterSession(draft.value)
   searched.value = true
-  pageIndex.value = 0
+  resetPage()
 }
 
 function clearFilters() {
   draft.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
   applied.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
   searched.value = false
-  pageIndex.value = 0
   selectedId.value = ''
+  clearSort([])
+  resetPage()
 }
 
 function selectRow(id: string) {
-  selectedId.value = id
+  selectedId.value = selectedId.value === id ? '' : id
 }
 
 function save() {
@@ -192,13 +202,15 @@ function close() {
         <DialogTitle>Link to LARA</DialogTitle>
         <DialogDescription>{{ DIALOG_CONFIRM_DESCRIPTION }}</DialogDescription>
       </DialogHeader>
-      <p class="text-sm">
-        Choose one formal LARA record. This row keeps its own values. The selected record becomes Linked and is left out of Sync and Adjust. One source links to one target.
-      </p>
-      <p v-if="vessel" class="text-sm text-muted-foreground">
-        {{ vessel.vesselName }} · {{ vessel.pointCode }} · {{ vessel.laraVoyage || '—' }}
-      </p>
+      <DataSection title="Source">
+        <dl v-if="vessel" class="grid grid-cols-1 gap-x-6 sm:grid-cols-3">
+          <ReadonlyField label="Voyage" :value="vessel.laraVoyage" />
+          <ReadonlyField label="Pool location" :value="vessel.poolLocation" />
+          <ReadonlyField label="Port" :value="vessel.pointCode" />
+        </dl>
+      </DataSection>
 
+      <DataSection title="Target" class="space-y-3">
       <QueryPanel @search="search" @clear="clearFilters">
         <FilterField v-for="field in defaultFields" :key="field.id" :label="field.label">
           <SearchFilterControl
@@ -214,50 +226,49 @@ function close() {
       <div class="overflow-auto rounded-md border">
         <Table class="min-w-max border-separate border-spacing-0 [&_td]:border-b [&_th]:border-b">
           <TableHeader>
-            <TableRow>
-              <TableHead class="w-8"><span class="sr-only">Select</span></TableHead>
-              <TableHead v-for="column in laraColumns" :key="column.id">{{ column.label }}</TableHead>
+            <TableRow v-for="headerGroup in headerGroups" :key="headerGroup.id">
+              <TableHead v-for="header in headerGroup.headers" :key="header.id" class="whitespace-nowrap">
+                <DataTableColumnHeader
+                  v-if="!header.isPlaceholder && header.column.getCanSort()"
+                  :title="String(header.column.columnDef.header ?? header.column.id)"
+                  :sorted="header.column.getIsSorted()"
+                  :sort-index="header.column.getIsSorted() ? header.column.getSortIndex() + 1 : 0"
+                  @sort="(desc) => header.column.toggleSorting(desc, true)"
+                  @clear-sort="header.column.clearSorting()"
+                  @clear-all-sort="table.setSorting([])"
+                />
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableEmpty v-if="!pageRows.length" :colspan="laraColumns.length + 1">
+            <TableEmpty v-if="!tableRows.length" :colspan="laraColumns.length">
               {{ searched ? 'No results.' : 'Search to find a LARA record.' }}
             </TableEmpty>
-            <TableRow
-              v-for="row in pageRows"
+            <tr
+              v-for="row in tableRows"
               :key="row.id"
-              class="cursor-pointer"
-              :data-state="selectedId === row.id ? 'selected' : undefined"
-              @click="selectRow(row.id)"
+              data-slot="table-row"
+              class="cursor-pointer border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
+              :data-state="selectedId === row.original.id ? 'selected' : undefined"
+              @click="selectRow(row.original.id)"
             >
-              <TableCell class="w-8">
-                <div class="flex items-center">
-                  <input
-                    type="radio"
-                    class="m-0 size-4 shrink-0"
-                    name="lara-link-target"
-                    :checked="selectedId === row.id"
-                    :aria-label="`Select ${row.vesselName}`"
-                    @change="selectRow(row.id)"
-                  />
-                </div>
-              </TableCell>
               <TableCell v-for="column in laraColumns" :key="column.id" class="whitespace-nowrap">
-                {{ searchCellText(row, column.id) }}
+                {{ searchCellText(row.original, column.id) }}
               </TableCell>
-            </TableRow>
+            </tr>
           </TableBody>
         </Table>
       </div>
       <DataTablePagination
         v-if="searched"
-        :total="rows.length"
-        :page-index="pageIndex"
-        :page-size="pageSize"
+        :total="rowCount"
+        :page-index="pagination.pageIndex"
+        :page-size="pagination.pageSize"
         :page-count="pageCount"
-        @update:page-index="pageIndex = $event"
-        @update:page-size="(size) => { pageSize = size; pageIndex = 0 }"
+        @update:page-index="(index) => table.setPageIndex(index)"
+        @update:page-size="(size) => table.setPageSize(size)"
       />
+      </DataSection>
 
       <Field>
         <FieldLabel>Remark</FieldLabel>

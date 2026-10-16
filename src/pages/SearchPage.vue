@@ -335,10 +335,10 @@ const visibleColCount = computed(
 <template>
   <div class="w-full min-w-0">
     <div class="flex flex-wrap items-center justify-end gap-2 py-4">
-      <FilterField label="Setting">
+      <FilterField label="List setting">
         <Select :model-value="listSettings.activeId" @update:model-value="(value) => typeof value === 'string' && activateSetting(value)">
-          <SelectTrigger class="h-8 w-52" aria-label="Setting">
-            <SelectValue placeholder="Setting" />
+          <SelectTrigger class="h-8 w-52" aria-label="List setting">
+            <SelectValue placeholder="List setting" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem v-for="item in listSettings.items" :key="item.id" :value="item.id">

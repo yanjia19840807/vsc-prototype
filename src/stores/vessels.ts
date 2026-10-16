@@ -875,6 +875,7 @@ export const useVesselStore = defineStore('vessels', () => {
     const reason = input.reason?.trim() || ''
     const at = new Date().toISOString()
     const key = laraLinkKey(target)
+    const sourceKey = laraLinkKey(source)
     const previousStatus = target.matchingStatus
     source.laraLinkTargetId = target.id
     source.laraLinked = true
@@ -892,7 +893,10 @@ export const useVesselStore = defineStore('vessels', () => {
       type: 'Manual edit',
       reason: reason || undefined,
       summary: 'Marked as Linked',
-      details: [{ field: 'mappingStatus', from: previousStatus, to: 'Linked' }],
+      details: [
+        { field: 'laraLinkSource', from: '', to: sourceKey },
+        { field: 'mappingStatus', from: previousStatus, to: 'Linked' },
+      ],
       at,
     })
     pushLog(source, 'Link to LARA', key)
@@ -908,6 +912,7 @@ export const useVesselStore = defineStore('vessels', () => {
     const reason = input?.reason?.trim() || ''
     const at = new Date().toISOString()
     const key = target ? laraLinkKey(target) : ''
+    const sourceKey = laraLinkKey(source)
     const restored = target?.laraLinkPreviousStatus && target.laraLinkPreviousStatus !== 'Linked'
       ? target.laraLinkPreviousStatus
       : 'Pending match'
@@ -919,7 +924,10 @@ export const useVesselStore = defineStore('vessels', () => {
         type: 'Manual edit',
         reason: reason || undefined,
         summary: 'LARA link removed',
-        details: [{ field: 'mappingStatus', from: 'Linked', to: restored }],
+        details: [
+          { field: 'laraLinkSource', from: sourceKey, to: '' },
+          { field: 'mappingStatus', from: 'Linked', to: restored },
+        ],
         at,
       })
       pushLog(target, 'LARA link removed', key)
@@ -1007,6 +1015,76 @@ export const useVesselStore = defineStore('vessels', () => {
     }
     refreshSharedTerminal(vessels.value)
     pushLog(v, 'Manual add terminal information', reason)
+  }
+
+  function saveReviewMatch(
+    id: string,
+    input: {
+      lara: HistoryDetail[]
+      terminal: HistoryDetail[]
+      rows: TerminalSchedule[]
+      selectedIndex: number | null
+      reason: string
+    },
+  ) {
+    const v = byId(id)
+    if (!v) return
+    const reason = input.reason.trim()
+    const at = new Date().toISOString()
+    for (const change of input.lara) {
+      if (change.field === 'vesselName') v.vesselName = change.to
+      else if (change.field === 'service') v.service = change.to
+      else if (change.field === 'brand') v.brand = change.to
+      else if (change.field === 'laraEtb') v.laraEtb = change.to
+      else if (change.field === 'laraEtd') v.laraEtd = change.to
+      else if (change.field === 'voyageStatus') {
+        v.voyageStatus = change.to === 'Omit' ? 'Omit' : 'Active'
+        v.omit = change.to === 'Omit'
+      } else if (change.field === 'vesselType') {
+        v.groupKind = change.to === 'Partner vsl' ? 'Partner Vessel' : change.to === '3PF' ? '3PF' : 'Group Vessel'
+      }
+      rememberOverride(v, change.field, change.from, change.to, reason)
+    }
+    if (input.lara.length) {
+      pushHistory(v, {
+        type: 'Manual edit',
+        reason,
+        summary: input.lara.length === 1 ? '1 field updated' : `${input.lara.length} fields updated`,
+        details: input.lara,
+        at,
+      })
+    }
+    for (const change of input.terminal) rememberOverride(v, change.field, change.from, change.to, reason)
+    const fromSelection = previousMatchLabel(v)
+    v.terminalCandidates = input.rows.map((row) => ({ ...row }))
+    if (input.selectedIndex == null || !input.rows[input.selectedIndex]) {
+      v.terminalSchedule = null
+      v.terminalSource = null
+      v.matchingStatus = input.rows.length ? 'Pending match' : 'No terminal record'
+      v.manualRemediation = input.rows.length ? 'reviewMatch' : 'addTerminal'
+    } else {
+      const selected = input.rows[input.selectedIndex]!
+      bindSchedule(v, { ...selected }, 'manual')
+      v.matchingStatus = 'Manual matched'
+      v.manualRemediation = 'reviewMatch'
+    }
+    const toSelection = selectionLabel(v.terminalSchedule)
+    const terminalDetails = [...input.terminal]
+    if (fromSelection !== toSelection) {
+      terminalDetails.push({ field: 'Match', from: fromSelection, to: toSelection })
+      rememberMatch(v, fromSelection, toSelection, reason, at)
+    }
+    if (terminalDetails.length) {
+      const matchOnly = terminalDetails.length === 1 && terminalDetails[0]?.field === 'Match'
+      pushHistory(v, {
+        type: matchOnly ? 'Manual match' : 'Manual terminal',
+        reason,
+        summary: matchOnly ? `${fromSelection} → ${toSelection}` : 'Terminal row updated',
+        details: terminalDetails,
+        at,
+      })
+    }
+    refreshSharedTerminal(vessels.value)
   }
 
   /** Persist edited terminal fields before confirming a review match. */
@@ -1160,6 +1238,7 @@ export const useVesselStore = defineStore('vessels', () => {
     addManualTerminal,
     addManualTerminalFromDraft,
     saveTerminalOverrides,
+    saveReviewMatch,
     pushLog,
   }
 })

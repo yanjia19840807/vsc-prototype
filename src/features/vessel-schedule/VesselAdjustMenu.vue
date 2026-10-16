@@ -1,17 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ChevronDownIcon } from '@lucide/vue'
 
 import { Button } from '@/components/ui/button'
 import type { ButtonVariants } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   canDeleteManualVessel,
   canEditManualVessel,
@@ -29,9 +20,8 @@ const props = withDefaults(
   defineProps<{
     vessel: VesselRecord
     size?: ButtonVariants['size']
-    variant?: ButtonVariants['variant']
   }>(),
-  { size: 'xs', variant: 'outline' },
+  { size: 'xs' },
 )
 
 const emit = defineEmits<{
@@ -50,38 +40,27 @@ const show = computed(
 </script>
 
 <template>
-  <DropdownMenu v-if="show">
-    <DropdownMenuTrigger as-child>
-      <Button type="button" :variant="variant" :size="size">
-        Adjust
-        <ChevronDownIcon />
-      </Button>
-    </DropdownMenuTrigger>
-    <DropdownMenuContent
-      align="end"
-      class="w-auto min-w-40"
-      :class="size === 'xs' ? '[&_[data-slot=dropdown-menu-item]]:text-xs' : undefined"
+  <div v-if="show" class="flex flex-wrap items-center gap-1">
+    <Button
+      v-if="mismatchAction"
+      type="button"
+      variant="outline"
+      :size="size"
+      @click="emit('pick', mismatchAction)"
     >
-      <DropdownMenuGroup>
-        <DropdownMenuItem v-if="mismatchAction" @select="emit('pick', mismatchAction!)">
-          {{ mismatchLabel }}
-        </DropdownMenuItem>
-        <DropdownMenuItem v-if="canEdit" @select="emit('pick', 'editVessel')">
-          Edit vessel
-        </DropdownMenuItem>
-        <DropdownMenuItem v-if="canLink" @select="emit('pick', 'linkLara')">
-          Link to LARA
-        </DropdownMenuItem>
-        <DropdownMenuItem v-if="canUnlink" @select="emit('pick', 'unlinkLara')">
-          Unlink LARA
-        </DropdownMenuItem>
-      </DropdownMenuGroup>
-      <template v-if="canDelete">
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" @select="emit('pick', 'deleteVessel')">
-          Delete
-        </DropdownMenuItem>
-      </template>
-    </DropdownMenuContent>
-  </DropdownMenu>
+      {{ mismatchLabel }}
+    </Button>
+    <Button v-if="canEdit" type="button" variant="outline" :size="size" @click="emit('pick', 'editVessel')">
+      Edit vessel
+    </Button>
+    <Button v-if="canLink" type="button" variant="outline" :size="size" @click="emit('pick', 'linkLara')">
+      Link
+    </Button>
+    <Button v-if="canUnlink" type="button" variant="outline" :size="size" @click="emit('pick', 'unlinkLara')">
+      Unlink LARA
+    </Button>
+    <Button v-if="canDelete" type="button" variant="destructive" :size="size" @click="emit('pick', 'deleteVessel')">
+      Delete
+    </Button>
+  </div>
 </template>

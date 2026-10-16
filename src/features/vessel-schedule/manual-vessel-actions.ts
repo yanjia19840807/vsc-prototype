@@ -6,7 +6,7 @@ export function isManualVessel(vessel: VesselRecord) {
 }
 
 export function canEditManualVessel(vessel: VesselRecord) {
-  return isManualVessel(vessel)
+  return isManualVessel(vessel) && vessel.matchingStatus !== 'Pending match'
 }
 
 export function canLinkManualVessel(vessel: VesselRecord) {

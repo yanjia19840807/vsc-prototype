@@ -18,7 +18,7 @@ const emit = defineEmits<{
 <template>
   <div class="flex items-center gap-1">
     <Button type="button" size="xs" variant="outline" @click="emit('view')">View</Button>
-    <VesselAdjustMenu :vessel="vessel" variant="secondary" @pick="emit('quick', $event)" />
+    <VesselAdjustMenu :vessel="vessel" @pick="emit('quick', $event)" />
     <Button type="button" size="xs" variant="outline" @click="emit('history')">Activity logs</Button>
   </div>
 </template>
