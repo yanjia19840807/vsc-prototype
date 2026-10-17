@@ -22,7 +22,7 @@ const props = withDefaults(
     class?: string
   }>(),
   {
-    pageSizes: () => [10, 20, 30, 50],
+    pageSizes: () => [10, 20, 50, 100],
   },
 )
 

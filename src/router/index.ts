@@ -37,6 +37,18 @@ const router = createRouter({
       component: () => import('@/pages/ActivityLogPage.vue'),
       meta: { title: 'Activity logs' },
     },
+    {
+      path: '/vessels/:id/review',
+      name: 'vessel-review',
+      component: () => import('@/pages/ReviewPage.vue'),
+      meta: { title: 'Review' },
+    },
+    {
+      path: '/vessels/:id/link-lara',
+      name: 'vessel-link-lara',
+      component: () => import('@/pages/LinkToLaraPage.vue'),
+      meta: { title: 'Link to LARA' },
+    },
   ],
 })
 

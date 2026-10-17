@@ -1017,45 +1017,103 @@ export const useVesselStore = defineStore('vessels', () => {
     pushLog(v, 'Manual add terminal information', reason)
   }
 
+  function applyReviewedField(v: VesselRecord, change: HistoryDetail, reason: string) {
+    const existing = v.manualOverrides[change.field]
+    if (existing && change.to === existing.source) {
+      delete v.manualOverrides[change.field]
+      return
+    }
+    rememberOverride(v, change.field, change.from, change.to, reason)
+  }
+
+  function applyLaraField(v: VesselRecord, change: HistoryDetail) {
+    if (change.field === 'vesselName') v.vesselName = change.to
+    else if (change.field === 'service') v.service = change.to
+    else if (change.field === 'brand') v.brand = change.to
+    else if (change.field === 'laraEtb') v.laraEtb = change.to
+    else if (change.field === 'laraEtd') v.laraEtd = change.to
+    else if (change.field === 'voyageStatus') {
+      v.voyageStatus = change.to === 'Omit' ? 'Omit' : 'Active'
+      v.omit = change.to === 'Omit'
+    } else if (change.field === 'vesselType') {
+      v.groupKind = change.to === 'Partner vsl' ? 'Partner Vessel' : change.to === '3PF' ? '3PF' : 'Group Vessel'
+    }
+  }
+
+  /** One confirmed Sync latest. Field diffs are the saved values moving to the latest source. */
+  function recordReviewSync(
+    v: VesselRecord,
+    input: { source: 'LARA' | 'Terminal'; at: string; changes: HistoryDetail[] },
+  ) {
+    const refresh = createRefresh({
+      source: input.source,
+      trigger: 'Manual',
+      refreshTime: input.at,
+      updatedBy: CURRENT_USER,
+      vessel: v,
+    })
+    refreshes.value.unshift(refresh)
+    const changes = input.changes.filter((change) => change.from !== change.to)
+    appendScheduleLogs(
+      v,
+      changesFromDetails(changes.length ? changes : [{ field: 'Result', from: '', to: 'Synced' }]),
+      {
+        updateSource: 'System Sync',
+        refreshId: refresh.id,
+        updatedTime: input.at,
+        updatedBy: CURRENT_USER,
+      },
+    )
+  }
+
+  function recordReviewMatch(
+    v: VesselRecord,
+    input: { at: string; from: string; to: string; auto: boolean; reason: string },
+  ) {
+    if (input.from === input.to) return
+    appendScheduleLogs(v, [{ field: 'Match', from: input.from, to: input.to }], {
+      updateSource: 'Manual Update',
+      updatedTime: input.at,
+      updatedBy: input.auto ? 'System' : CURRENT_USER,
+      reason: input.reason,
+      match: true,
+    })
+    rememberMatch(v, input.from, input.to, input.reason, input.at)
+  }
+
   function saveReviewMatch(
     id: string,
     input: {
-      lara: HistoryDetail[]
-      terminal: HistoryDetail[]
+      laraApply: HistoryDetail[]
+      laraManual: HistoryDetail[]
+      terminalApply: HistoryDetail[]
+      terminalCreated: HistoryDetail[]
+      terminalUpdated: HistoryDetail[]
       rows: TerminalSchedule[]
       selectedIndex: number | null
       reason: string
+      syncs: { source: 'LARA' | 'Terminal'; at: string; changes: HistoryDetail[] }[]
+      matches: { at: string; from: string; to: string; auto: boolean }[]
     },
   ) {
     const v = byId(id)
     if (!v) return
     const reason = input.reason.trim()
     const at = new Date().toISOString()
-    for (const change of input.lara) {
-      if (change.field === 'vesselName') v.vesselName = change.to
-      else if (change.field === 'service') v.service = change.to
-      else if (change.field === 'brand') v.brand = change.to
-      else if (change.field === 'laraEtb') v.laraEtb = change.to
-      else if (change.field === 'laraEtd') v.laraEtd = change.to
-      else if (change.field === 'voyageStatus') {
-        v.voyageStatus = change.to === 'Omit' ? 'Omit' : 'Active'
-        v.omit = change.to === 'Omit'
-      } else if (change.field === 'vesselType') {
-        v.groupKind = change.to === 'Partner vsl' ? 'Partner Vessel' : change.to === '3PF' ? '3PF' : 'Group Vessel'
-      }
-      rememberOverride(v, change.field, change.from, change.to, reason)
+    for (const change of input.laraApply) {
+      applyLaraField(v, change)
+      applyReviewedField(v, change, reason)
     }
-    if (input.lara.length) {
+    if (input.laraManual.length) {
       pushHistory(v, {
         type: 'Manual edit',
         reason,
-        summary: input.lara.length === 1 ? '1 field updated' : `${input.lara.length} fields updated`,
-        details: input.lara,
+        summary: input.laraManual.length === 1 ? '1 field updated' : `${input.laraManual.length} fields updated`,
+        details: input.laraManual,
         at,
       })
     }
-    for (const change of input.terminal) rememberOverride(v, change.field, change.from, change.to, reason)
-    const fromSelection = previousMatchLabel(v)
+    for (const change of input.terminalApply) applyReviewedField(v, change, reason)
     v.terminalCandidates = input.rows.map((row) => ({ ...row }))
     if (input.selectedIndex == null || !input.rows[input.selectedIndex]) {
       v.terminalSchedule = null
@@ -1068,22 +1126,26 @@ export const useVesselStore = defineStore('vessels', () => {
       v.matchingStatus = 'Manual matched'
       v.manualRemediation = 'reviewMatch'
     }
-    const toSelection = selectionLabel(v.terminalSchedule)
-    const terminalDetails = [...input.terminal]
-    if (fromSelection !== toSelection) {
-      terminalDetails.push({ field: 'Match', from: fromSelection, to: toSelection })
-      rememberMatch(v, fromSelection, toSelection, reason, at)
-    }
-    if (terminalDetails.length) {
-      const matchOnly = terminalDetails.length === 1 && terminalDetails[0]?.field === 'Match'
+    if (input.terminalCreated.length) {
       pushHistory(v, {
-        type: matchOnly ? 'Manual match' : 'Manual terminal',
+        type: 'Manual terminal',
         reason,
-        summary: matchOnly ? `${fromSelection} → ${toSelection}` : 'Terminal row updated',
-        details: terminalDetails,
+        summary: 'Terminal record added',
+        details: input.terminalCreated,
         at,
       })
     }
+    if (input.terminalUpdated.length) {
+      pushHistory(v, {
+        type: 'Manual terminal',
+        reason,
+        summary: 'Terminal row updated',
+        details: input.terminalUpdated,
+        at: new Date(Date.parse(at) + 1).toISOString(),
+      })
+    }
+    for (const sync of input.syncs) recordReviewSync(v, sync)
+    for (const match of input.matches) recordReviewMatch(v, { ...match, reason })
     refreshSharedTerminal(vessels.value)
   }
 

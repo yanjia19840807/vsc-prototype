@@ -9,6 +9,8 @@ export type PageTab = {
   title: string
   fullPath: string
   closable: boolean
+  /** Stable while the tab stays open. A new value is assigned each time the tab is created. */
+  cacheKey?: string
 }
 
 function tabId(to: RouteLocationNormalizedLoaded) {
@@ -25,8 +27,18 @@ function tabTitle(to: RouteLocationNormalizedLoaded) {
     const vessel = useVesselStore().byId(String(to.params.id))
     return vessel ? `Activity logs · ${vessel.vesselName}` : 'Activity logs'
   }
+  if (to.name === 'vessel-review') {
+    const vessel = useVesselStore().byId(String(to.params.id))
+    return vessel ? `Review · ${vessel.vesselName}` : 'Review'
+  }
+  if (to.name === 'vessel-link-lara') {
+    const vessel = useVesselStore().byId(String(to.params.id))
+    return vessel ? `Link to LARA · ${vessel.vesselName}` : 'Link to LARA'
+  }
   return typeof to.meta.title === 'string' ? to.meta.title : 'Page'
 }
+
+let pageCacheSeq = 0
 
 export const useTabsStore = defineStore('tabs', () => {
   const tabs = ref<PageTab[]>([])
@@ -47,6 +59,8 @@ export const useTabsStore = defineStore('tabs', () => {
       && to.name !== 'list-settings'
       && to.name !== 'vessel-detail-view'
       && to.name !== 'activity-log'
+      && to.name !== 'vessel-review'
+      && to.name !== 'vessel-link-lara'
       && to.name !== 'terminal-coverage'
     ) return
     ensureHome()
@@ -62,6 +76,7 @@ export const useTabsStore = defineStore('tabs', () => {
       title: tabTitle(to),
       fullPath: to.fullPath,
       closable: to.name !== 'search',
+      cacheKey: to.name === 'vessel-review' || to.name === 'vessel-link-lara' ? `${id}:${++pageCacheSeq}` : undefined,
     })
   }
 

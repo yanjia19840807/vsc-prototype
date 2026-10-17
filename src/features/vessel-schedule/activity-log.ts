@@ -8,6 +8,7 @@ export type ActivityCategory =
   | 'terminal-match'
   | 'lara-create'
   | 'lara-update'
+  | 'terminal-create'
   | 'terminal-update'
   | 'lara-link'
   | 'lara-unlink'
@@ -18,6 +19,7 @@ export const ACTIVITY_CATEGORIES: { id: ActivityCategory; label: string }[] = [
   { id: 'terminal-match', label: 'Terminal Match' },
   { id: 'lara-create', label: 'LARA create' },
   { id: 'lara-update', label: 'LARA update' },
+  { id: 'terminal-create', label: 'Terminal Create' },
   { id: 'terminal-update', label: 'Terminal update' },
   { id: 'lara-link', label: 'LARA link' },
   { id: 'lara-unlink', label: 'LARA unlink' },
@@ -191,10 +193,7 @@ function laraOutcome(
   refresh: ScheduleRefresh | undefined,
   vessel: VesselRecord,
 ): ActivityLogItem[] {
-  const sync = laraSyncItem(id, logs, refresh, vessel)
-  if (!logs.some(hasPriorValue)) return [sync]
-  const changes = logs.filter(hasPriorValue).map(changeRow)
-  return [valueUpdateItem(`${id}:update`, 'lara-update', changes, sync)]
+  return [laraSyncItem(id, logs, refresh, vessel)]
 }
 
 function terminalOutcome(
@@ -205,7 +204,9 @@ function terminalOutcome(
 ): ActivityLogItem[] {
   const dataLogs = logs.filter((log) => !isMatchLog(log))
   const items: ActivityLogItem[] = []
-  if (dataLogs.length || (refresh && !logs.some(isMatchLog))) {
+  if (refresh?.source === 'Terminal') {
+    items.push(terminalItem(id, dataLogs, refresh, vessel))
+  } else if (dataLogs.length || (refresh && !logs.some(isMatchLog))) {
     const sync = terminalItem(id, dataLogs, refresh, vessel)
     if (dataLogs.some(hasPriorValue)) {
       items.push(valueUpdateItem(`${id}:update`, 'terminal-update', dataLogs.filter(hasPriorValue).map(changeRow), sync))
@@ -261,13 +262,39 @@ function matchedTerminal(vessel: VesselRecord, label: string) {
   const parsed = label.match(/^Export\s+(.*?)\s+·\s+Import\s+(.*?)\s+·\s+(.*)$/)
   if (!parsed) return undefined
   const exportVoyage = parsed[1]?.trim() ?? ''
+  const importVoyage = parsed[2]?.trim() ?? ''
   const terminal = parsed[3]?.trim() ?? ''
   if (!exportVoyage || exportVoyage === '—') return undefined
-  return (
-    vessel.terminalCandidates.find((candidate) => candidate.evoyage === exportVoyage && candidate.terminal === terminal)
+  const live = vessel.terminalCandidates.find((candidate) => candidate.evoyage === exportVoyage && candidate.terminal === terminal)
     ?? vessel.terminalCandidates.find((candidate) => candidate.evoyage === exportVoyage)
     ?? (vessel.terminalSchedule?.evoyage === exportVoyage ? vessel.terminalSchedule : undefined)
-  )
+  if (live) return live
+  return {
+    status: null,
+    vesselNameEn: null,
+    vesselNameCn: null,
+    shipCode: null,
+    shipName: null,
+    agentCode: null,
+    agentName: null,
+    lineCode: null,
+    terminal: terminal === '—' ? null : terminal,
+    portsEn: null,
+    portsCn: null,
+    eta: null,
+    ata: null,
+    etb: null,
+    atb: null,
+    etd: null,
+    atd: null,
+    cyOpen: null,
+    cyClosing: null,
+    portCloseDate: null,
+    customsCloseDate: null,
+    updateTime: null,
+    ivoyage: importVoyage === '—' ? null : importVoyage,
+    evoyage: exportVoyage,
+  }
 }
 
 function laraSyncItem(
@@ -476,7 +503,7 @@ function changeItem(
   const entered = new Map(changes.map((change) => [change.field, change.value]))
   return {
     id,
-    category: created && category === 'lara-update' ? 'lara-create' : category,
+    category: created ? (category === 'lara-update' ? 'lara-create' : 'terminal-create') : category,
     at: first.updatedTime,
     updatedBy: first.updatedBy,
     reason: [...new Set(logs.map((log) => log.reason).filter(Boolean))].join('; '),
@@ -591,9 +618,10 @@ const ACTIVITY_PRIORITY: Record<ActivityCategory, number> = {
   'terminal-match': 2,
   'lara-create': 3,
   'lara-update': 4,
-  'terminal-update': 5,
-  'lara-link': 6,
-  'lara-unlink': 7,
+  'terminal-create': 5,
+  'terminal-update': 6,
+  'lara-link': 7,
+  'lara-unlink': 8,
 }
 
 export function activityPriority(category: ActivityCategory) {

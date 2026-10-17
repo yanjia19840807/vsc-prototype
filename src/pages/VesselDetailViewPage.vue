@@ -154,7 +154,7 @@ function sourceText(columnId: string) {
       </ReadonlyField>
     </dl>
 
-    <div class="grid items-start gap-6 lg:grid-cols-2 lg:gap-x-8">
+    <div class="grid items-start gap-4 lg:grid-cols-2">
       <DataSection v-for="pane in panes" :key="pane.source" :title="pane.title">
         <template v-if="pane.source === 'terminal' && vessel.terminalSource === 'manual'" #title>
           <h2 class="text-sm font-medium">

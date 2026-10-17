@@ -333,8 +333,8 @@ const visibleColCount = computed(
 </script>
 
 <template>
-  <div class="w-full min-w-0">
-    <div class="flex flex-wrap items-center justify-end gap-2 py-4">
+  <div class="flex w-full min-w-0 flex-col gap-4 py-4">
+    <div class="flex flex-wrap items-center justify-end gap-2">
       <FilterField label="List setting">
         <Select :model-value="listSettings.activeId" @update:model-value="(value) => typeof value === 'string' && activateSetting(value)">
           <SelectTrigger class="h-8 w-52" aria-label="List setting">
@@ -358,7 +358,7 @@ const visibleColCount = computed(
       </Button>
     </div>
 
-    <div class="mb-4">
+    <div>
       <div class="flex items-center justify-between gap-2">
         <button
           type="button"

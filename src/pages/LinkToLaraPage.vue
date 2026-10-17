@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import type { ColumnDef } from '@tanstack/vue-table'
 
@@ -7,18 +8,12 @@ import DataSection from '@/components/DataSection.vue'
 import DataTableColumnHeader from '@/components/DataTableColumnHeader.vue'
 import DataTablePagination from '@/components/DataTablePagination.vue'
 import FilterField from '@/components/FilterField.vue'
+import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
 import QueryPanel from '@/components/QueryPanel.vue'
 import ReadonlyField from '@/components/ReadonlyField.vue'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Field, FieldLabel } from '@/components/ui/field'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Table,
   TableBody,
@@ -29,39 +24,46 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { DIALOG_CONFIRM_DESCRIPTION } from '@/lib/dialog-copy'
 import { isLaraLinkTarget } from '@/features/vessel-schedule/lara-link'
 import { regionLabel, selectablePorts, selectableRegions } from '@/features/terminal-coverage/model'
 import SearchFilterControl from '@/features/vessel-search/SearchFilterControl.vue'
 import {
   copyFilterSession,
-  DEFAULT_VISIBLE_FILTERS,
   emptyFilterSession,
+  emptyFilterState,
   filterFieldById,
   portsForRegions,
   retainPointCodes,
   staticFilterOptions,
-  vesselMatchesFilters,
   type FilterFieldDef,
   type FilterState,
 } from '@/features/vessel-search/list-setting-model'
 import { SEARCH_COLUMNS, searchCellText, searchSortValue } from '@/features/vessel-search/search-columns'
 import { useVesselDataTable } from '@/composables/useVesselDataTable'
+import { useTabsStore } from '@/stores/tabs'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
 import { useVesselStore } from '@/stores/vessels'
 import type { VesselRecord } from '@/types/vsp'
 
-const props = defineProps<{
-  open: boolean
-  vessel: VesselRecord | null
-}>()
+const LARA_AREA: { id: string; label: string }[] = [
+  { id: 'laraVoyage', label: 'Voyage' },
+  { id: 'laraPoolLocation', label: 'Pool location' },
+  { id: 'pointCode', label: 'Port' },
+  { id: 'vesselName', label: 'Vessel name' },
+  { id: 'vesselType', label: 'Vessel type' },
+  { id: 'brand', label: 'Brand' },
+  { id: 'service', label: 'Service' },
+  { id: 'laraEtb', label: 'ETB' },
+  { id: 'laraEtd', label: 'ETD' },
+  { id: 'voyageStatus', label: 'Voyage status' },
+]
 
-const emit = defineEmits<{
-  'update:open': [value: boolean]
-}>()
-
+const route = useRoute()
+const router = useRouter()
 const store = useVesselStore()
+const tabs = useTabsStore()
 const coverage = useTerminalCoverageStore()
+const vessel = computed(() => store.byId(String(route.params.id)))
 
 const laraColumns = SEARCH_COLUMNS.filter((column) => column.source === 'lara')
 const columns: ColumnDef<any, any>[] = laraColumns.map((column) => ({
@@ -71,25 +73,30 @@ const columns: ColumnDef<any, any>[] = laraColumns.map((column) => ({
   enableSorting: true,
   ...(column.kind === 'datetime' ? { sortFn: 'datetime' as const } : {}),
 }))
-const defaultFields = DEFAULT_VISIBLE_FILTERS
-  .map((id) => filterFieldById(id))
-  .filter((field): field is FilterFieldDef => Boolean(field))
+const LINK_FILTER_IDS = ['region', 'pointCode', 'vesselName', 'laraVoyage', 'service'] as const
 
-const draft = ref(emptyFilterSession(DEFAULT_VISIBLE_FILTERS))
-const applied = ref(emptyFilterSession(DEFAULT_VISIBLE_FILTERS))
+const linkFields: FilterFieldDef[] = LINK_FILTER_IDS.flatMap((id) => {
+  const field = filterFieldById(id)
+  if (!field) return []
+  if (id === 'vesselName' || id === 'laraVoyage') return [{ ...field, kind: 'text' as const }]
+  return [field]
+})
+
+const draft = ref(emptyFilterSession(LINK_FILTER_IDS))
+const applied = ref(emptyFilterSession(LINK_FILTER_IDS))
 const searched = ref(false)
-const selectedId = ref('')
+const selectedId = ref<string | null>(null)
 const remark = ref('')
 
 const regionOptions = computed(() => selectableRegions(coverage.regions).map((region) => regionLabel(region)))
 const portOptions = computed(() => portsForRegions(draft.value.region?.values ?? [], selectablePorts(coverage.ports)))
 
 const rows = computed(() => {
-  const vessel = props.vessel
-  if (!searched.value || !vessel) return [] as VesselRecord[]
+  const current = vessel.value
+  if (!searched.value || !current) return [] as VesselRecord[]
   return store.vessels.filter((row) => {
-    if (row.id === vessel.id || row.createdManually || isLaraLinkTarget(row)) return false
-    return vesselMatchesFilters(row, applied.value)
+    if (row.id === current.id || row.createdManually || isLaraLinkTarget(row)) return false
+    return linkRecordMatches(row, applied.value)
   })
 })
 
@@ -98,23 +105,31 @@ const { table, pagination, tableRows, rowCount, pageCount, headerGroups, resetPa
   data: rows,
 })
 
-watch(
-  () => [props.open, props.vessel?.id] as const,
-  ([open]) => {
-    if (!open) return
-    draft.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
-    applied.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
-    searched.value = false
-    selectedId.value = ''
-    remark.value = ''
-    clearSort([])
-    resetPage()
-  },
-)
-
 watch(rows, (list) => {
-  if (selectedId.value && !list.some((row) => row.id === selectedId.value)) selectedId.value = ''
+  if (selectedId.value && !list.some((row) => row.id === selectedId.value)) selectedId.value = null
 })
+
+function linkRecordMatches(row: VesselRecord, session: Record<string, FilterState>) {
+  for (const field of linkFields) {
+    const state = session[field.id] ?? emptyFilterState(field.kind)
+    if (field.id === 'region') {
+      if (state.values.length && !state.values.includes(row.region)) return false
+      continue
+    }
+    if (field.kind === 'multi') {
+      if (!state.values.length) continue
+      const raw = String(searchSortValue(row, field.id) ?? '')
+      const text = searchCellText(row, field.id)
+      if (!state.values.includes(raw) && !state.values.includes(text)) return false
+      continue
+    }
+    const query = state.text.trim().toLowerCase()
+    if (!query) continue
+    const text = searchCellText(row, field.id)
+    if (!text || text === '—' || !text.toLowerCase().includes(query)) return false
+  }
+  return true
+}
 
 function optionsFor(field: FilterFieldDef) {
   if (field.optionSource === 'region') return regionOptions.value
@@ -145,7 +160,7 @@ function fromDisplay(field: FilterFieldDef, state: FilterState): FilterState {
 }
 
 function setDraft(id: string, state: FilterState) {
-  const field = filterFieldById(id)
+  const field = linkFields.find((item) => item.id === id)
   if (!field) return
   const next = { ...draft.value, [id]: fromDisplay(field, state) }
   if (id === 'region' && next.pointCode) {
@@ -164,21 +179,27 @@ function search() {
 }
 
 function clearFilters() {
-  draft.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
-  applied.value = emptyFilterSession(DEFAULT_VISIBLE_FILTERS)
+  draft.value = emptyFilterSession(LINK_FILTER_IDS)
+  applied.value = emptyFilterSession(LINK_FILTER_IDS)
   searched.value = false
-  selectedId.value = ''
+  selectedId.value = null
   clearSort([])
   resetPage()
 }
 
-function selectRow(id: string) {
-  selectedId.value = selectedId.value === id ? '' : id
+function setSelection(id: string, checked: boolean) {
+  selectedId.value = checked ? id : null
+}
+
+function closePage() {
+  const next = tabs.close(route.path, route.fullPath)
+  void router.push(next ?? '/search')
 }
 
 function save() {
-  if (!props.vessel || !selectedId.value) return
-  const ok = store.linkManualVesselToLara(props.vessel.id, {
+  const current = vessel.value
+  if (!current || !selectedId.value) return
+  const ok = store.linkManualVesselToLara(current.id, {
     targetId: selectedId.value,
     reason: remark.value.trim(),
   })
@@ -187,32 +208,40 @@ function save() {
     return
   }
   toast.success('Linked to LARA')
-  emit('update:open', false)
-}
-
-function close() {
-  emit('update:open', false)
+  closePage()
 }
 </script>
 
 <template>
-  <Dialog :open="open" @update:open="emit('update:open', $event)">
-    <DialogContent size="2xl" class="max-h-[calc(100dvh-2rem)] overflow-y-auto">
-      <DialogHeader>
-        <DialogTitle>Link to LARA</DialogTitle>
-        <DialogDescription>{{ DIALOG_CONFIRM_DESCRIPTION }}</DialogDescription>
-      </DialogHeader>
-      <DataSection title="Source">
-        <dl v-if="vessel" class="grid grid-cols-1 gap-x-6 sm:grid-cols-3">
-          <ReadonlyField label="Voyage" :value="vessel.laraVoyage" />
-          <ReadonlyField label="Pool location" :value="vessel.poolLocation" />
-          <ReadonlyField label="Port" :value="vessel.pointCode" />
+  <div v-if="vessel" class="space-y-4">
+    <PageBreadcrumb
+      :items="[
+        { label: 'Vessel schedule search', to: '/search' },
+        { label: vessel.vesselName, to: `/vessels/${vessel.id}/view` },
+        { label: 'Link to LARA' },
+      ]"
+    />
+    <div>
+      <h1 class="text-xl font-semibold">Link to LARA</h1>
+      <p class="text-sm text-muted-foreground">{{ vessel.vesselName }} · {{ vessel.pointCode }} · {{ vessel.laraVoyage }}</p>
+    </div>
+
+    <div class="flex flex-col gap-4">
+      <DataSection title="LARA">
+        <dl class="grid grid-cols-1 gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
+          <ReadonlyField
+            v-for="column in LARA_AREA"
+            :key="column.id"
+            class="h-full min-h-[3.25rem]"
+            :label="column.label"
+            :value="searchCellText(vessel, column.id)"
+          />
         </dl>
       </DataSection>
 
-      <DataSection title="Target" class="space-y-3">
+      <DataSection title="Search" class="gap-4">
       <QueryPanel @search="search" @clear="clearFilters">
-        <FilterField v-for="field in defaultFields" :key="field.id" :label="field.label">
+        <FilterField v-for="field in linkFields" :key="field.id" :label="field.label">
           <SearchFilterControl
             v-if="draft[field.id]"
             :field="field"
@@ -227,6 +256,7 @@ function close() {
         <Table class="min-w-max border-separate border-spacing-0 [&_td]:border-b [&_th]:border-b">
           <TableHeader>
             <TableRow v-for="headerGroup in headerGroups" :key="headerGroup.id">
+              <TableHead class="w-16 whitespace-nowrap">Select</TableHead>
               <TableHead v-for="header in headerGroup.headers" :key="header.id" class="whitespace-nowrap">
                 <DataTableColumnHeader
                   v-if="!header.isPlaceholder && header.column.getCanSort()"
@@ -241,21 +271,25 @@ function close() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableEmpty v-if="!tableRows.length" :colspan="laraColumns.length">
+            <TableEmpty v-if="!tableRows.length" :colspan="laraColumns.length + 1">
               {{ searched ? 'No results.' : 'Search to find a LARA record.' }}
             </TableEmpty>
-            <tr
+            <TableRow
               v-for="row in tableRows"
               :key="row.id"
-              data-slot="table-row"
-              class="cursor-pointer border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted"
               :data-state="selectedId === row.original.id ? 'selected' : undefined"
-              @click="selectRow(row.original.id)"
             >
+              <TableCell class="w-16">
+                <Checkbox
+                  :model-value="selectedId === row.original.id"
+                  :aria-label="selectedId === row.original.id ? 'Clear selection' : 'Select LARA record'"
+                  @update:model-value="setSelection(row.original.id, $event === true)"
+                />
+              </TableCell>
               <TableCell v-for="column in laraColumns" :key="column.id" class="whitespace-nowrap">
                 {{ searchCellText(row.original, column.id) }}
               </TableCell>
-            </tr>
+            </TableRow>
           </TableBody>
         </Table>
       </div>
@@ -269,20 +303,19 @@ function close() {
         @update:page-size="(size) => table.setPageSize(size)"
       />
       </DataSection>
+    </div>
 
-      <Field>
-        <FieldLabel>Remark</FieldLabel>
-        <Textarea
-          :model-value="remark"
-          placeholder="Why this LARA record is linked"
-          @update:model-value="remark = String($event)"
-        />
-      </Field>
+    <label class="grid gap-1 text-sm">
+      <span>Remark</span>
+      <Textarea v-model="remark" rows="2" placeholder="Why this LARA record is linked" />
+    </label>
 
-      <DialogFooter>
-        <Button type="button" variant="outline" @click="close">Cancel</Button>
-        <Button type="button" variant="primary" :disabled="!selectedId" @click="save">Save</Button>
-      </DialogFooter>
-    </DialogContent>
-  </Dialog>
+    <div class="flex justify-end gap-2 border-t pt-4">
+      <Button type="button" variant="outline" @click="closePage">Cancel</Button>
+      <Button type="button" variant="primary" :disabled="!selectedId" @click="save">Save</Button>
+    </div>
+  </div>
+  <Alert v-else variant="warning">
+    <AlertDescription>This schedule record is no longer available.</AlertDescription>
+  </Alert>
 </template>

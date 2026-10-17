@@ -77,16 +77,23 @@ function restorePageScroll(key: string) {
   }
 }
 
+function scrollKeyFor(path: string) {
+  const tab = tabs.tabs.find((item) => item.id === path)
+  return tab?.cacheKey ?? path
+}
+
 watch(
   () => route.fullPath,
   async () => {
-    if (pageScrollKey && tabs.tabs.some((tab) => tab.id === pageScrollKey)) savePageScroll(pageScrollKey)
+    if (pageScrollKey && tabs.tabs.some((tab) => tab.id === pageScrollKey || tab.cacheKey === pageScrollKey)) {
+      savePageScroll(pageScrollKey)
+    }
     tabs.openFromRoute(route)
-    const nextKey = route.path
+    const nextKey = scrollKeyFor(route.path)
     await nextTick()
     restorePageScroll(nextKey)
     requestAnimationFrame(() => {
-      if (route.path === nextKey) restorePageScroll(nextKey)
+      if (scrollKeyFor(route.path) === nextKey) restorePageScroll(nextKey)
     })
     pageScrollKey = nextKey
     scrollActiveTabIntoView()
@@ -95,12 +102,15 @@ watch(
 )
 
 function cacheKey() {
-  return route.path
+  const tab = tabs.tabs.find((item) => item.id === route.path)
+  return tab?.cacheKey ?? route.path
 }
 
 function closeTab(id: string) {
+  const tab = tabs.tabs.find((item) => item.id === id)
   const next = tabs.close(id, route.fullPath)
   pageScroll.delete(id)
+  if (tab?.cacheKey) pageScroll.delete(tab.cacheKey)
   if (next) void router.push(next)
 }
 

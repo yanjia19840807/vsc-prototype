@@ -303,7 +303,7 @@ function cancel() {
       </div>
     </div>
 
-    <div class="grid min-h-0 flex-1 gap-6 lg:grid-cols-[16rem_1fr]">
+    <div class="grid min-h-0 flex-1 gap-4 lg:grid-cols-[16rem_1fr]">
       <div class="max-h-full self-start overflow-y-auto overflow-hidden rounded-md border">
         <button
           v-for="item in store.items"

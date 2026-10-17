@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 
 import { Button } from '@/components/ui/button'
@@ -13,10 +14,8 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
 import DeleteManualVesselDialog from '@/features/vessel-schedule/DeleteManualVesselDialog.vue'
-import LinkToLaraDialog from '@/features/vessel-schedule/LinkToLaraDialog.vue'
 import UnlinkLaraDialog from '@/features/vessel-schedule/UnlinkLaraDialog.vue'
 import ManualAddVesselDialog from '@/features/vessel-schedule/ManualAddVesselDialog.vue'
-import ReviewMatchDialog from '@/features/vessel-schedule/ReviewMatchDialog.vue'
 import type { ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import { DIALOG_CONFIRM_DESCRIPTION } from '@/lib/dialog-copy'
 import { buildSlcSdcFileName } from '@/lib/vessel-utils'
@@ -36,10 +35,9 @@ const emit = defineEmits<{
 }>()
 
 const settings = useSettingsStore()
+const router = useRouter()
 
-const reviewOpen = ref(false)
 const editVesselOpen = ref(false)
-const linkLaraOpen = ref(false)
 const unlinkLaraOpen = ref(false)
 const deleteVesselOpen = ref(false)
 const rfiOpen = ref(false)
@@ -63,9 +61,7 @@ const rfiDraft = computed(() => {
 })
 
 function finish() {
-  reviewOpen.value = false
   editVesselOpen.value = false
-  linkLaraOpen.value = false
   unlinkLaraOpen.value = false
   deleteVesselOpen.value = false
   rfiOpen.value = false
@@ -112,20 +108,26 @@ watch(
     const action = props.action
     const v = props.vessel
     syncing = true
-    reviewOpen.value = false
     editVesselOpen.value = false
-    linkLaraOpen.value = false
     unlinkLaraOpen.value = false
     deleteVesselOpen.value = false
     rfiOpen.value = false
     fileOpen.value = false
     syncing = false
     if (!v || !action) return
+    if (action === 'selectMatch' || action === 'reviewMatch' || action === 'addTerminal') {
+      emit('close')
+      void router.push(`/vessels/${v.id}/review`)
+      return
+    }
+    if (action === 'linkLara') {
+      emit('close')
+      void router.push(`/vessels/${v.id}/link-lara`)
+      return
+    }
     await nextTick()
     if (props.action !== action) return
-    if (action === 'selectMatch' || action === 'reviewMatch' || action === 'addTerminal') reviewOpen.value = true
-    else if (action === 'editVessel') editVesselOpen.value = true
-    else if (action === 'linkLara') linkLaraOpen.value = true
+    if (action === 'editVessel') editVesselOpen.value = true
     else if (action === 'unlinkLara') unlinkLaraOpen.value = true
     else if (action === 'deleteVessel') deleteVesselOpen.value = true
     else if (action === 'rfi') rfiOpen.value = true
@@ -141,18 +143,8 @@ async function copyGeneratedFile() {
 </script>
 
 <template>
-  <ReviewMatchDialog
-    :open="reviewOpen"
-    :vessel="vessel"
-    @update:open="onMismatchOpen"
-  />
   <ManualAddVesselDialog
     :open="editVesselOpen"
-    :vessel="vessel"
-    @update:open="onMismatchOpen"
-  />
-  <LinkToLaraDialog
-    :open="linkLaraOpen"
     :vessel="vessel"
     @update:open="onMismatchOpen"
   />

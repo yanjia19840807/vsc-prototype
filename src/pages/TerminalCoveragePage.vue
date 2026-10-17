@@ -147,15 +147,15 @@ function onDrop(portCode: string) {
 </script>
 
 <template>
-  <div class="w-full min-w-0">
-    <div class="flex flex-wrap items-center justify-end gap-2 py-4">
+  <div class="flex w-full min-w-0 flex-col gap-4 py-4">
+    <div class="flex flex-wrap items-center justify-end gap-2">
       <Button type="button" variant="outline" @click="regionsOpen = true">Region</Button>
       <Button type="button" variant="secondary" @click="openCreate">
         <Plus class="size-3.5" /> Add port
       </Button>
     </div>
 
-    <div class="mb-4">
+    <div>
       <div class="flex items-center justify-between gap-2">
         <button
           type="button"
