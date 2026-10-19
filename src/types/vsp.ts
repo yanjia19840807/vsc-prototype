@@ -15,10 +15,12 @@ export type MatchingStatus =
   | 'No external voyage'
   | 'No terminal record'
   | 'Pending match'
-  | 'Linked'
 
 /** Where the bound terminal row came from. Manual rows are not Freightower results. */
 export type TerminalSource = 'freightower' | 'manual'
+
+/** List visibility. Inactive rows stay stored and are omitted from the default query. */
+export type RecordStatus = 'Active' | 'Inactive'
 
 export type ManualOverride = {
   source: string
@@ -298,14 +300,14 @@ export type VesselRecord = {
   rowNotFound?: boolean
   /** Created via Manual Add Vessel (not from LARA sync). */
   createdManually?: boolean
+  /** Active rows appear in the default query. Inactive rows are linked manual sources. */
+  recordStatus?: RecordStatus
   /** Manual vessel is the source of a LARA link. */
   laraLinked?: boolean
   /** Formal LARA vessel this manual row points at. */
   laraLinkTargetId?: string
   /** Manual vessel that points at this formal LARA row. */
   laraLinkSourceId?: string
-  /** Mapping status restored when the LARA link is removed. */
-  laraLinkPreviousStatus?: MatchingStatus
 }
 
 export type PortDef = {

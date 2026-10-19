@@ -31,7 +31,7 @@ const variant = computed<BadgeVariants['variant'] | null>(() => {
     return 'success'
   }
   // Terminal schedule status (Feituo) — uniform info, not match semantics
-  if (['计划', '在港', '离港', 'Linked'].includes(status)) return 'info'
+  if (['计划', '在港', '离港'].includes(status)) return 'info'
   if (status === 'omit' || status === 'Omit') return 'muted'
   if (
     [

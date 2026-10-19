@@ -203,6 +203,7 @@ export function createManualCall(
     origin: 'MANUAL',
     internalVoyage: input.internalVoyage,
     poolLocation: input.poolLocation,
+    portCode: input.fields.portCode ?? '',
     laraRecordId: null,
     platformOmit: false,
     manualLaraId: manualIssued.id,
@@ -251,7 +252,7 @@ export function deleteManualCall(state: ScheduleState, callId: string) {
   const call = requireEditable(state, callId)
   if (call.origin !== 'MANUAL') throw new Error('Only a manual call can be deleted')
   if (state.laraLinks.some((link) => link.sourceCallId === callId)) {
-    throw new Error('Unlink the formal LARA call before deleting')
+    throw new Error('A linked manual call stays inactive and cannot be deleted')
   }
   return {
     ...state,

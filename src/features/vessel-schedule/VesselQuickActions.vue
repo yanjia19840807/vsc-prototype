@@ -14,7 +14,6 @@ import {
 } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
 import DeleteManualVesselDialog from '@/features/vessel-schedule/DeleteManualVesselDialog.vue'
-import UnlinkLaraDialog from '@/features/vessel-schedule/UnlinkLaraDialog.vue'
 import ManualAddVesselDialog from '@/features/vessel-schedule/ManualAddVesselDialog.vue'
 import type { ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import { DIALOG_CONFIRM_DESCRIPTION } from '@/lib/dialog-copy'
@@ -38,7 +37,6 @@ const settings = useSettingsStore()
 const router = useRouter()
 
 const editVesselOpen = ref(false)
-const unlinkLaraOpen = ref(false)
 const deleteVesselOpen = ref(false)
 const rfiOpen = ref(false)
 const fileOpen = ref(false)
@@ -62,7 +60,6 @@ const rfiDraft = computed(() => {
 
 function finish() {
   editVesselOpen.value = false
-  unlinkLaraOpen.value = false
   deleteVesselOpen.value = false
   rfiOpen.value = false
   fileOpen.value = false
@@ -109,7 +106,6 @@ watch(
     const v = props.vessel
     syncing = true
     editVesselOpen.value = false
-    unlinkLaraOpen.value = false
     deleteVesselOpen.value = false
     rfiOpen.value = false
     fileOpen.value = false
@@ -128,7 +124,6 @@ watch(
     await nextTick()
     if (props.action !== action) return
     if (action === 'editVessel') editVesselOpen.value = true
-    else if (action === 'unlinkLara') unlinkLaraOpen.value = true
     else if (action === 'deleteVessel') deleteVesselOpen.value = true
     else if (action === 'rfi') rfiOpen.value = true
     else if (action === 'slc' || action === 'sdc') generateFile(action === 'slc' ? 'SLC' : 'SDC')
@@ -145,11 +140,6 @@ async function copyGeneratedFile() {
 <template>
   <ManualAddVesselDialog
     :open="editVesselOpen"
-    :vessel="vessel"
-    @update:open="onMismatchOpen"
-  />
-  <UnlinkLaraDialog
-    :open="unlinkLaraOpen"
     :vessel="vessel"
     @update:open="onMismatchOpen"
   />

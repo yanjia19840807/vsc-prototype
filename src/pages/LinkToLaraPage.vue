@@ -25,16 +25,13 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { isLaraLinkTarget } from '@/features/vessel-schedule/lara-link'
-import { regionLabel, selectablePorts, selectableRegions } from '@/features/terminal-coverage/model'
+import { selectablePorts } from '@/features/terminal-coverage/model'
 import SearchFilterControl from '@/features/vessel-search/SearchFilterControl.vue'
 import {
   copyFilterSession,
   emptyFilterSession,
   emptyFilterState,
   filterFieldById,
-  portsForRegions,
-  retainPointCodes,
-  staticFilterOptions,
   type FilterFieldDef,
   type FilterState,
 } from '@/features/vessel-search/list-setting-model'
@@ -73,12 +70,12 @@ const columns: ColumnDef<any, any>[] = laraColumns.map((column) => ({
   enableSorting: true,
   ...(column.kind === 'datetime' ? { sortFn: 'datetime' as const } : {}),
 }))
-const LINK_FILTER_IDS = ['region', 'pointCode', 'vesselName', 'laraVoyage', 'service'] as const
+const LINK_FILTER_IDS = ['vesselName', 'pointCode'] as const
 
 const linkFields: FilterFieldDef[] = LINK_FILTER_IDS.flatMap((id) => {
   const field = filterFieldById(id)
   if (!field) return []
-  if (id === 'vesselName' || id === 'laraVoyage') return [{ ...field, kind: 'text' as const }]
+  if (id === 'vesselName') return [{ ...field, kind: 'text' as const }]
   return [field]
 })
 
@@ -88,13 +85,22 @@ const searched = ref(false)
 const selectedId = ref<string | null>(null)
 const remark = ref('')
 
-const regionOptions = computed(() => selectableRegions(coverage.regions).map((region) => regionLabel(region)))
-const portOptions = computed(() => portsForRegions(draft.value.region?.values ?? [], selectablePorts(coverage.ports)))
+function suggestedSession(current: VesselRecord) {
+  const session = emptyFilterSession(LINK_FILTER_IDS)
+  const name = current.vesselName.trim()
+  const point = current.pointCode.trim()
+  if (name && session.vesselName) session.vesselName = { ...session.vesselName, text: name }
+  if (point && session.pointCode) session.pointCode = { ...session.pointCode, values: [point] }
+  return session
+}
+
+const portOptions = computed(() => selectablePorts(coverage.ports).map((port) => port.portCode))
 
 const rows = computed(() => {
   const current = vessel.value
   if (!searched.value || !current) return [] as VesselRecord[]
   return store.vessels.filter((row) => {
+    if (row.recordStatus === 'Inactive') return false
     if (row.id === current.id || row.createdManually || isLaraLinkTarget(row)) return false
     return linkRecordMatches(row, applied.value)
   })
@@ -112,10 +118,6 @@ watch(rows, (list) => {
 function linkRecordMatches(row: VesselRecord, session: Record<string, FilterState>) {
   for (const field of linkFields) {
     const state = session[field.id] ?? emptyFilterState(field.kind)
-    if (field.id === 'region') {
-      if (state.values.length && !state.values.includes(row.region)) return false
-      continue
-    }
     if (field.kind === 'multi') {
       if (!state.values.length) continue
       const raw = String(searchSortValue(row, field.id) ?? '')
@@ -132,60 +134,45 @@ function linkRecordMatches(row: VesselRecord, session: Record<string, FilterStat
 }
 
 function optionsFor(field: FilterFieldDef) {
-  if (field.optionSource === 'region') return regionOptions.value
   if (field.optionSource === 'pointCode') return portOptions.value
-  return staticFilterOptions(field.optionSource)
-}
-
-function toDisplay(field: FilterFieldDef, state: FilterState): FilterState {
-  if (field.id !== 'region') return state
-  return {
-    ...state,
-    values: state.values.map((code) => {
-      const region = coverage.regions.find((item) => item.code === code)
-      return region ? regionLabel(region) : code
-    }),
-  }
-}
-
-function fromDisplay(field: FilterFieldDef, state: FilterState): FilterState {
-  if (field.id !== 'region') return state
-  return {
-    ...state,
-    values: state.values.map((label) => {
-      const region = coverage.regions.find((item) => regionLabel(item) === label)
-      return region?.code ?? label
-    }),
-  }
+  return []
 }
 
 function setDraft(id: string, state: FilterState) {
-  const field = linkFields.find((item) => item.id === id)
-  if (!field) return
-  const next = { ...draft.value, [id]: fromDisplay(field, state) }
-  if (id === 'region' && next.pointCode) {
-    next.pointCode = {
-      ...next.pointCode,
-      values: retainPointCodes(next.region?.values ?? [], next.pointCode.values, coverage.ports),
-    }
-  }
-  draft.value = next
+  if (!linkFields.some((field) => field.id === id)) return
+  draft.value = { ...draft.value, [id]: state }
 }
 
 function search() {
   applied.value = copyFilterSession(draft.value)
   searched.value = true
+  selectedId.value = null
   resetPage()
 }
 
-function clearFilters() {
-  draft.value = emptyFilterSession(LINK_FILTER_IDS)
-  applied.value = emptyFilterSession(LINK_FILTER_IDS)
-  searched.value = false
+function runSuggestedQuery() {
+  const current = vessel.value
+  if (!current) return
+  const session = suggestedSession(current)
+  draft.value = session
+  applied.value = copyFilterSession(session)
+  searched.value = true
   selectedId.value = null
   clearSort([])
   resetPage()
 }
+
+function clearFilters() {
+  runSuggestedQuery()
+}
+
+watch(
+  () => vessel.value?.id,
+  () => {
+    runSuggestedQuery()
+  },
+  { immediate: true },
+)
 
 function setSelection(id: string, checked: boolean) {
   selectedId.value = checked ? id : null
@@ -208,7 +195,9 @@ function save() {
     return
   }
   toast.success('Linked to LARA')
-  closePage()
+  const targetId = selectedId.value
+  tabs.close(route.path, route.fullPath)
+  void router.push(`/vessels/${targetId}/view`)
 }
 </script>
 
@@ -245,7 +234,7 @@ function save() {
           <SearchFilterControl
             v-if="draft[field.id]"
             :field="field"
-            :state="toDisplay(field, draft[field.id]!)"
+            :state="draft[field.id]!"
             :options="optionsFor(field)"
             @update:state="setDraft(field.id, $event)"
           />
@@ -304,6 +293,12 @@ function save() {
       />
       </DataSection>
     </div>
+
+    <Alert>
+      <AlertDescription>
+        Confirm the formal LARA row before saving. The link cannot be undone. This manual row becomes inactive and drops out of the default search. If it already has terminal data, that terminal picture replaces the formal row. A formal row with no terminal data on this manual row keeps its own terminal result.
+      </AlertDescription>
+    </Alert>
 
     <label class="grid gap-1 text-sm">
       <span>Remark</span>

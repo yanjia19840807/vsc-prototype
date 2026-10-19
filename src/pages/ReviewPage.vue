@@ -42,12 +42,14 @@ import {
 } from '@/features/vessel-schedule/mismatch-fields'
 import { formatDateTime } from '@/lib/vessel-utils'
 import { useTabsStore } from '@/stores/tabs'
+import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
 import { useVesselStore } from '@/stores/vessels'
-import type { HistoryDetail, TerminalSchedule, VesselRecord } from '@/types/vsp'
+import type { HistoryDetail, MatchingStatus, TerminalSchedule, VesselRecord } from '@/types/vsp'
 
 const route = useRoute()
 const router = useRouter()
 const store = useVesselStore()
+const coverage = useTerminalCoverageStore()
 const tabs = useTabsStore()
 const vessel = computed(() => store.byId(String(route.params.id)))
 
@@ -349,56 +351,116 @@ function setMatch(row: TerminalRow, checked: boolean) {
   selectedId.value = checked ? row.id : null
 }
 
-function autoMatchId() {
-  if (rows.value.length !== 1) return null
-  const row = rows.value[0]!
-  if (!row.draft.evoyage.trim() || !row.draft.ivoyage.trim()) return null
-  const gap = etdGapDays(laraValues.value.laraEtd ?? '', row.draft.etd)
-  if (gap == null || gap > 5) return null
-  return row.id
+function rowSignature(draft: TerminalDraft) {
+  return [draft.evoyage, draft.ivoyage, draft.terminal, draft.etd].join('\u0000')
 }
 
-function rematch() {
-  const from = loggedMatchLabel.value
-  selectedId.value = autoMatchId()
-  const to = matchLabel(selectedRow.value)
-  if (from === to) return
-  pendingMatches.value.push({
-    at: new Date().toISOString(),
-    from,
-    to,
-    auto: true,
-  })
-  loggedMatchLabel.value = to
+function lockedFields() {
+  return new Set(Object.keys(vessel.value?.manualOverrides ?? {}))
 }
 
 function applyLaraSync() {
+  const current = vessel.value
+  const locked = lockedFields()
+  const next = { ...laraSource.value }
+  for (const column of LARA_COLUMNS) {
+    if (locked.has(column.id)) next[column.id] = laraValues.value[column.id] ?? next[column.id]
+  }
   pendingSyncs.value.push({
     source: 'LARA',
     at: new Date().toISOString(),
-    changes: diffLara(laraOrigin.value, laraSource.value),
+    changes: diffLara(laraValues.value, next),
   })
-  laraValues.value = { ...laraSource.value }
-  laraBaseline.value = { ...laraSource.value }
+  laraValues.value = next
+  if (current) {
+    for (const column of LARA_COLUMNS) {
+      if (!locked.has(column.id)) laraBaseline.value[column.id] = next[column.id] ?? ''
+    }
+  }
   laraEditing.value = false
-  rematch()
+}
+
+function applyProtectedTerminalSync() {
+  const locked = lockedFields()
+  const changes: HistoryDetail[] = []
+  for (const row of rows.value) {
+    if (row.originIndex == null) continue
+    const source = sourceDrafts.value[row.originIndex]
+    if (!source) continue
+    for (const key of Object.keys(row.draft) as TerminalDraftKey[]) {
+      if (locked.has(key)) continue
+      const from = row.draft[key]
+      const to = source[key]
+      if (from === to) continue
+      row.draft[key] = to
+      if (row.baseline) row.baseline[key] = to
+      const origin = originDrafts.value[row.originIndex]
+      if (origin) origin[key] = to
+      changes.push({ field: key, from, to })
+    }
+  }
+  pendingSyncs.value.push({ source: 'Terminal', at: new Date().toISOString(), changes })
 }
 
 function applyTerminalSync() {
-  pendingSyncs.value.push({
-    source: 'Terminal',
-    at: new Date().toISOString(),
-    changes: indexDiff(originDrafts.value, sourceDrafts.value),
-  })
   const current = vessel.value
-  rows.value = sourceDrafts.value.map((draft, index) => rowFromDraft(draft, current ? rowSource(current, draft) : 'sync', index))
-  committedDrafts.value = sourceDrafts.value.map(cloneDraft)
+  if (current && (current.matchingStatus === 'Manual matched' || current.terminalSource === 'manual')) {
+    applyProtectedTerminalSync()
+    return
+  }
+  const previous = selectedRow.value ? rowSignature(selectedRow.value.draft) : ''
+  const changes = indexDiff(originDrafts.value, sourceDrafts.value)
+  pendingSyncs.value.push({ source: 'Terminal', at: new Date().toISOString(), changes })
+  const nextDrafts = sourceDrafts.value.map(cloneDraft)
+  originDrafts.value = nextDrafts.map(cloneDraft)
+  committedDrafts.value = nextDrafts.map(cloneDraft)
+  rows.value = nextDrafts.map((draft, index) => rowFromDraft(draft, 'sync', index))
   formRowId.value = null
-  rematch()
+  if (rows.value.length === 0) {
+    selectedId.value = null
+  } else if (rows.value.length > 1) {
+    selectedId.value = rows.value.find((row) => rowSignature(row.draft) === previous)?.id ?? null
+  } else {
+    selectedId.value = rows.value[0]!.id
+  }
 }
 
 function requestSync(side: 'LARA' | 'Terminal') {
+  const current = vessel.value
+  if (!current || current.recordStatus === 'Inactive') {
+    toast.error('An inactive record cannot be synced')
+    return
+  }
+  if (side === 'Terminal' && !coverage.canCallFeituo(current.pointCode)) {
+    toast.error('This port has no terminal coverage, so no terminal request is sent')
+    return
+  }
   syncSide.value = side
+}
+
+function statusAfterSave(current: VesselRecord): MatchingStatus {
+  const chosen = manualMatch()
+  if (chosen?.to === 'Unconfirmed') {
+    return rows.value.length ? 'Multiple terminal records' : 'No terminal record'
+  }
+  const edited = Boolean(
+    laraManualChanges().length
+    || createdDetails().length
+    || updatedDetails().length
+    || chosen,
+  )
+  if (current.matchingStatus === 'Manual matched' || current.terminalSource === 'manual' || edited) {
+    return 'Manual matched'
+  }
+  if (!selectedId.value) {
+    return rows.value.length ? 'Multiple terminal records' : 'No terminal record'
+  }
+  if (rows.value.length > 1) return 'Multiple terminal records'
+  const row = rows.value[0]
+  if (!row || !row.draft.evoyage.trim() || !row.draft.ivoyage.trim()) return 'No external voyage'
+  const gap = etdGapDays(laraValues.value.laraEtd ?? '', row.draft.etd)
+  if (gap == null || gap > 5) return 'ETD gap > 5 days'
+  return 'Auto matched'
 }
 
 function confirmSync() {
@@ -527,6 +589,7 @@ async function confirmSave() {
     reason: remark.value,
     syncs: pendingSyncs.value.map((sync) => ({ ...sync, changes: [...sync.changes] })),
     matches,
+    matchingStatus: statusAfterSave(current),
   })
   confirmOpen.value = false
   toast.success('Review saved')
@@ -535,15 +598,19 @@ async function confirmSave() {
 }
 
 const syncCopy = computed(() => {
+  const current = vessel.value
+  const manual = current?.matchingStatus === 'Manual matched' || current?.terminalSource === 'manual'
   if (syncSide.value === 'Terminal') {
     return {
       title: 'Sync terminal',
-      description: 'Syncing terminal records discards unsaved terminal edits and the current match. Matching runs again from the latest data. Unsaved LARA edits stay.',
+      description: manual
+        ? 'Sync this row only. The selected terminal record and fields you edited stay. Other terminal fields update from the latest result.'
+        : 'Sync this row only. An automatic match follows the latest result: one record stays attached, several records keep the previous row only when it is still returned, and no record clears the automatic match.',
     }
   }
   return {
     title: 'Sync LARA',
-    description: 'Syncing LARA discards unsaved LARA edits and the current match. Matching runs again from the latest data. Unsaved terminal edits stay.',
+    description: 'Sync this row only, outside the daily batch window. Fields you already edited stay. This does not mark other rows Omit.',
   }
 })
 </script>

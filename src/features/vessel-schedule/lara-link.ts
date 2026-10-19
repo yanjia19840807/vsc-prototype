@@ -8,8 +8,12 @@ export function laraLinkKey(vessel: Pick<VesselRecord, 'laraVoyage' | 'pointCode
     .join(' · ')
 }
 
-export function isLaraLinkTarget(vessel: Pick<VesselRecord, 'laraLinkSourceId' | 'matchingStatus'>) {
-  return Boolean(vessel.laraLinkSourceId) || vessel.matchingStatus === 'Linked'
+export function isLaraLinkTarget(vessel: Pick<VesselRecord, 'laraLinkSourceId'>) {
+  return Boolean(vessel.laraLinkSourceId)
+}
+
+export function isInactiveRecord(vessel: Pick<VesselRecord, 'recordStatus'>) {
+  return vessel.recordStatus === 'Inactive'
 }
 
 export function isLaraLinkSource(vessel: Pick<VesselRecord, 'laraLinkTargetId' | 'laraLinked'>) {

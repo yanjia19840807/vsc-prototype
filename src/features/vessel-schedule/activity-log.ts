@@ -11,7 +11,6 @@ export type ActivityCategory =
   | 'terminal-create'
   | 'terminal-update'
   | 'lara-link'
-  | 'lara-unlink'
 
 export const ACTIVITY_CATEGORIES: { id: ActivityCategory; label: string }[] = [
   { id: 'lara-sync', label: 'LARA sync' },
@@ -22,7 +21,6 @@ export const ACTIVITY_CATEGORIES: { id: ActivityCategory; label: string }[] = [
   { id: 'terminal-create', label: 'Terminal Create' },
   { id: 'terminal-update', label: 'Terminal update' },
   { id: 'lara-link', label: 'LARA link' },
-  { id: 'lara-unlink', label: 'LARA unlink' },
 ]
 
 export type ActivityFact = {
@@ -79,8 +77,6 @@ const LARA_SNAPSHOT_FIELDS = [
   'voyageStatus',
 ]
 
-const LINK_FIELDS = new Set(['laraLink', 'mappingStatus'])
-
 function columnSource(field: string): 'lara' | 'terminal' | 'platform' {
   const direct = SEARCH_COLUMNS.find((column) => column.id === field)
   if (direct) return direct.source
@@ -89,8 +85,7 @@ function columnSource(field: string): 'lara' | 'terminal' | 'platform' {
 }
 
 function isLinkLog(log: ScheduleActivityLog) {
-  if (log.field === 'laraLink' || log.field === 'laraLinkSource') return true
-  return log.field === 'mappingStatus' && (log.updatedValue === 'Linked' || log.originalValue === 'Linked')
+  return log.field === 'laraLink' || log.field === 'laraLinkSource'
 }
 
 function isMatchLog(log: ScheduleActivityLog) {
@@ -524,17 +519,9 @@ function changeItem(
 function linkItem(id: string, logs: ScheduleActivityLog[], vessels: VesselRecord[]): ActivityLogItem {
   const link = logs.find((log) => log.field === 'laraLink')
   const sourceLink = logs.find((log) => log.field === 'laraLinkSource')
-  const status = logs.find((log) => log.field === 'mappingStatus')
-  const anchor = link ?? sourceLink ?? status
-  const removed = link
-    ? !link.updatedValue
-    : sourceLink
-      ? !sourceLink.updatedValue
-      : status?.updatedValue !== 'Linked'
+  const anchor = link ?? sourceLink
   const counterpartyLog = sourceLink ?? link
-  const counterparty = counterpartyLog
-    ? (removed ? counterpartyLog.originalValue : counterpartyLog.updatedValue)
-    : ''
+  const counterparty = (counterpartyLog?.updatedValue || counterpartyLog?.originalValue || '').trim()
   const party = counterparty ? vessels.find((row) => laraLinkKey(row) === counterparty) : undefined
   const partyTitle = sourceLink ? 'Source' : 'Target'
   return {
@@ -542,10 +529,10 @@ function linkItem(id: string, logs: ScheduleActivityLog[], vessels: VesselRecord
     at: anchor!.updatedTime,
     updatedBy: anchor!.updatedBy,
     reason: [...new Set(logs.map((log) => log.reason).filter(Boolean))].join('; '),
-    category: removed ? 'lara-unlink' : 'lara-link',
-    headline: removed ? 'Unlinked' : 'Linked to LARA',
+    category: 'lara-link',
+    headline: 'Linked to LARA',
     facts: [
-      { label: 'Action', value: removed ? 'Unlinked' : 'Linked' },
+      { label: 'Action', value: 'Linked' },
       ...(counterparty ? [{ label: 'Counterparty', value: counterparty }] : []),
       { label: 'Updated by', value: anchor!.updatedBy || '—' },
       { label: 'Reason', value: blankValue(anchor!.reason) },
@@ -560,12 +547,12 @@ function linkItem(id: string, logs: ScheduleActivityLog[], vessels: VesselRecord
       ],
       records: [{
         id: `${id}:record`,
-        values: [removed ? 'Unlinked' : 'Linked', blankValue(counterparty)],
+        values: ['Linked', blankValue(counterparty)],
       }],
     }],
     changes: [],
     association: [{ label: 'Counterparty', value: blankValue(counterparty) }],
-    resultNote: counterparty ? '' : removed ? 'The LARA link was removed.' : 'This call was marked Linked.',
+    resultNote: '',
   }
 }
 
@@ -621,7 +608,6 @@ const ACTIVITY_PRIORITY: Record<ActivityCategory, number> = {
   'terminal-create': 5,
   'terminal-update': 6,
   'lara-link': 7,
-  'lara-unlink': 8,
 }
 
 export function activityPriority(category: ActivityCategory) {
@@ -644,14 +630,14 @@ export function activityDescription(item: ActivityLogItem) {
   if (item.category === 'terminal-sync') {
     return [present(fact('Result')), present(fact('Records')) ? `${fact('Records')} records` : '', present(key)].filter(Boolean).join(' · ')
   }
-  if (item.category === 'lara-link' || item.category === 'lara-unlink') {
+  if (item.category === 'lara-link') {
     return [item.headline, present(fact('Counterparty'))].filter(Boolean).join(' · ')
   }
   return item.reason ? `${item.headline} · ${item.reason}` : item.headline
 }
 
 export function activityCategoryShowsField(category: ActivityCategory) {
-  return category !== 'lara-link' && category !== 'lara-unlink'
+  return category !== 'lara-link'
 }
 
 export function activityCategoryShowsActor(category: ActivityCategory) {

@@ -1,10 +1,9 @@
-import { isLaraLinkTarget } from '@/features/vessel-schedule/lara-link'
 import type { VesselRecord } from '@/types/vsp'
 
 /** Match / terminal remediation actions opened from list or detail. */
 export type MismatchQuickAction = 'selectMatch' | 'reviewMatch' | 'addTerminal'
 
-export type ManualVesselQuickAction = 'editVessel' | 'linkLara' | 'unlinkLara' | 'deleteVessel'
+export type ManualVesselQuickAction = 'editVessel' | 'linkLara' | 'deleteVessel'
 
 export type ScheduleQuickAction =
   | MismatchQuickAction
@@ -84,7 +83,7 @@ function remediationFromVessel(vessel: VesselRecord): MismatchQuickAction | null
 
 /** Prefer open mismatch status; after Manual matched reopen the same remediation flow. */
 export function mismatchActionForVessel(vessel: VesselRecord): MismatchQuickAction | null {
-  if (isLaraLinkTarget(vessel)) return null
+  if (vessel.recordStatus === 'Inactive') return null
   if (vessel.createdManually && vessel.matchingStatus !== 'Pending match') return null
   return mismatchActionForStatus(vessel) ?? remediationFromVessel(vessel)
 }

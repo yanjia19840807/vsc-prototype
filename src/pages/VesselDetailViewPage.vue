@@ -26,6 +26,16 @@ import { useVesselStore } from '@/stores/vessels'
 
 const STATUS_COLUMNS = new Set(['mappingStatus', 'voyageStatus', 'tmlVslStatus'])
 
+const SOURCE_FIELDS = [
+  { id: 'vesselName', label: 'Vessel name' },
+  { id: 'laraVoyage', label: 'Voyage' },
+  { id: 'pointCode', label: 'Point code' },
+  { id: 'laraPoolLocation', label: 'Pool location' },
+  { id: 'mappingStatus', label: 'Matching status' },
+  { id: 'localVoyageExport', label: 'Terminal voyage' },
+  { id: 'terminalEtd', label: 'Terminal ETD' },
+] as const
+
 const route = useRoute()
 const router = useRouter()
 const store = useVesselStore()
@@ -106,15 +116,33 @@ function sourceText(columnId: string) {
       </div>
       <div class="flex flex-wrap gap-2">
         <Button v-if="linkTarget" type="button" variant="outline" @click="openVessel(linkTarget.id)">
-          Target LARA data
-        </Button>
-        <Button v-if="linkSource" type="button" variant="outline" @click="openVessel(linkSource.id)">
-          Source LARA data
+          Active LARA record
         </Button>
         <VesselAdjustMenu :vessel="vessel" size="default" @pick="quickAction = $event" />
         <Button type="button" variant="outline" @click="openHistory()">Activity logs</Button>
       </div>
     </div>
+
+    <Alert v-if="vessel.recordStatus === 'Inactive'">
+      <AlertDescription>
+        This manual record is inactive. It stays out of the default search, and later sync is recorded on the active LARA record.
+      </AlertDescription>
+    </Alert>
+
+    <DataSection v-if="linkSource" title="Original source">
+      <p class="mb-3 text-sm text-muted-foreground">
+        Inactive manual row kept for reference. This LARA record is Manual matched.
+      </p>
+      <dl class="grid sm:grid-cols-2 sm:gap-x-6">
+        <ReadonlyField v-for="column in SOURCE_FIELDS" :key="column.id" :label="column.label">
+          <StatusBadge v-if="column.id === 'mappingStatus'" :status="searchCellText(linkSource, column.id)" />
+          <span v-else>{{ searchCellText(linkSource, column.id) }}</span>
+        </ReadonlyField>
+      </dl>
+      <Button type="button" variant="outline" class="mt-3" @click="openVessel(linkSource.id)">
+        Open original record
+      </Button>
+    </DataSection>
 
     <dl class="grid sm:grid-cols-2 sm:gap-x-6">
       <ReadonlyField v-for="column in platformColumns" :key="column.id" :label="column.label">
@@ -123,6 +151,14 @@ function sourceText(columnId: string) {
           type="button"
           class="text-left text-primary underline underline-offset-2"
           @click="openVessel(vessel.laraLinkTargetId)"
+        >
+          {{ searchCellText(vessel, column.id) }}
+        </button>
+        <button
+          v-else-if="column.id === 'laraLink' && vessel.laraLinkSourceId && searchCellText(vessel, column.id) !== '—'"
+          type="button"
+          class="text-left text-primary underline underline-offset-2"
+          @click="openVessel(vessel.laraLinkSourceId)"
         >
           {{ searchCellText(vessel, column.id) }}
         </button>

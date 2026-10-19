@@ -155,8 +155,10 @@ export type FieldHistory = {
 export type VesselCall = {
   id: string
   origin: CallOrigin
+  /** Identity with poolLocation and portCode. */
   internalVoyage: string
   poolLocation: string
+  portCode: string
   laraRecordId: string | null
   platformOmit: boolean
   manualLaraId: string | null

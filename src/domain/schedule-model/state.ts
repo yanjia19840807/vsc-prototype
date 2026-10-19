@@ -22,21 +22,22 @@ export function nextId(state: ScheduleState, prefix: string): { state: ScheduleS
   return { state: { ...state, seq: state.seq + 1 }, id }
 }
 
-export function callKey(internalVoyage: string, poolLocation: string) {
-  return `${internalVoyage}\u0000${poolLocation}`
+export function callKey(internalVoyage: string, poolLocation: string, portCode: string) {
+  return `${internalVoyage}\u0000${poolLocation}\u0000${portCode}`
 }
 
-export function linkTargetIds(state: ScheduleState) {
-  return new Set(state.laraLinks.map((link) => link.targetCallId))
+export function isLinkSource(state: ScheduleState, callId: string) {
+  return state.laraLinks.some((link) => link.sourceCallId === callId)
 }
 
-export function isLinkTarget(state: ScheduleState, callId: string) {
-  return state.laraLinks.some((link) => link.targetCallId === callId)
-}
-
-export function findLaraCall(state: ScheduleState, internalVoyage: string, poolLocation: string) {
+/** Same Voyage + Pool location + Point code, including an active manual row. Linked sources are skipped. */
+export function findLaraCall(state: ScheduleState, internalVoyage: string, poolLocation: string, portCode: string) {
   return state.calls.find(
-    (call) => call.origin === 'LARA' && call.internalVoyage === internalVoyage && call.poolLocation === poolLocation,
+    (call) =>
+      call.internalVoyage === internalVoyage
+      && call.poolLocation === poolLocation
+      && call.portCode === portCode
+      && !isLinkSource(state, call.id),
   )
 }
 

@@ -1,4 +1,4 @@
-import { isLinkTarget } from '@/domain/schedule-model/state'
+import { isLinkSource } from '@/domain/schedule-model/state'
 import type {
   LaraSyncRecord,
   ManualField,
@@ -92,7 +92,7 @@ export function displayedTerminalField(state: ScheduleState, call: VesselCall, f
 }
 
 export function assertEditable(state: ScheduleState, call: VesselCall) {
-  if (isLinkTarget(state, call.id)) {
-    throw new Error('A linked formal LARA call is left out of adjustments')
+  if (isLinkSource(state, call.id)) {
+    throw new Error('An inactive linked manual call is left out of adjustments')
   }
 }

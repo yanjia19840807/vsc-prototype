@@ -30,7 +30,7 @@ function confirmDelete() {
   if (!props.vessel) return
   const ok = store.removeManualVessel(props.vessel.id)
   if (!ok) {
-    toast.error('Only unlinked manual vessels can be deleted')
+    toast.error('A linked manual vessel stays inactive and cannot be deleted')
     return
   }
   toast.success('Vessel deleted')
@@ -51,7 +51,7 @@ function close() {
         <DialogDescription>{{ DIALOG_CONFIRM_DESCRIPTION }}</DialogDescription>
       </DialogHeader>
       <p class="text-sm">
-        Remove this manually created schedule row. Delete is only allowed before the row is linked to a formal LARA voyage.
+        Remove this manually created schedule row. After it is linked, the row stays inactive and cannot be deleted.
       </p>
       <p v-if="vessel" class="text-sm text-muted-foreground">
         {{ vessel.vesselName }} · {{ vessel.pointCode }} · {{ vessel.laraVoyage || '—' }}

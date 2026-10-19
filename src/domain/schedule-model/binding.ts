@@ -5,7 +5,7 @@ import {
   TERMINAL_FIELDS,
 } from '@/domain/schedule-model/display'
 import { appendFieldChanges } from '@/domain/schedule-model/history'
-import { isLinkTarget, nextId } from '@/domain/schedule-model/state'
+import { isLinkSource, nextId } from '@/domain/schedule-model/state'
 import type {
   BindingMode,
   BindingSource,
@@ -30,7 +30,7 @@ export function setTerminalBinding(
     updatedAt: string
   },
 ) {
-  if (isLinkTarget(state, input.call.id)) return state
+  if (isLinkSource(state, input.call.id)) return state
   const current = state.bindings.find((binding) => binding.callId === input.call.id) ?? null
   const before = shapeOf(current)
   const after: BindingShape = { mode: input.mode, candidateId: input.candidateId }

@@ -1,6 +1,6 @@
 import { clearAutoBinding, setTerminalBinding } from '@/domain/schedule-model/binding'
 import { displayedLaraField, displayedTerminalField } from '@/domain/schedule-model/display'
-import { addDays, isLinkTarget, nextId, parseTime } from '@/domain/schedule-model/state'
+import { addDays, isLinkSource, nextId, parseTime } from '@/domain/schedule-model/state'
 import type {
   ScheduleState,
   ScheduleTrigger,
@@ -47,7 +47,7 @@ export function openTerminalBatch(
   let next = { ...issued.state, terminalBatches: [...issued.state.terminalBatches, batch] }
   if (input.failedToIssue) return next
 
-  const due = next.calls.filter((call) => !isLinkTarget(next, call.id) && isDue(next, call, input.startedAt, etaLeadDays, atdLagDays))
+  const due = next.calls.filter((call) => !isLinkSource(next, call.id) && isDue(next, call, input.startedAt, etaLeadDays, atdLagDays))
   for (const call of due) {
     next = appendQuery(next, call, {
       batchRunId: batch.id,
@@ -72,7 +72,7 @@ export function openSingleTerminalQuery(
   },
 ) {
   const call = requireCall(state, input.callId)
-  if (isLinkTarget(state, call.id)) throw new Error('A linked formal LARA call is left out of sync')
+  if (isLinkSource(state, call.id)) throw new Error('An inactive linked manual call is left out of sync')
   return appendQuery(state, call, {
     batchRunId: null,
     trigger: input.trigger,
@@ -110,7 +110,7 @@ export function completeTerminalQuery(
       }
     }
   }
-  if (call && !isLinkTarget(next, call.id)) {
+  if (call && !isLinkSource(next, call.id)) {
     next = applyQueryToBinding(next, call, query.id, input)
   }
   if (query.batchRunId) next = settleBatch(next, query.batchRunId, input.respondedAt)
@@ -163,6 +163,9 @@ function appendQuery(
 ) {
   const issued = nextId(state, 'terminal-query')
   const record = state.laraRecords.find((item) => item.id === call.laraRecordId)
+  const exportVoyage = displayedTerminalField(state, call, 'exportVoyage').trim()
+  const importVoyage = displayedTerminalField(state, call, 'importVoyage').trim()
+  const boundVoyage = input.externalVoyage.trim() || [exportVoyage, importVoyage].filter(Boolean).join(' / ')
   const query: TerminalQuery = {
     id: issued.id,
     batchRunId: input.batchRunId,
@@ -175,7 +178,7 @@ function appendQuery(
     requestedAt: input.requestedAt,
     requestedBy: input.requestedBy,
     vesselName: displayedLaraField(state, call, 'vesselName'),
-    externalVoyage: input.externalVoyage,
+    externalVoyage: boundVoyage,
     status: 'PENDING',
     respondedAt: null,
     failureReason: '',

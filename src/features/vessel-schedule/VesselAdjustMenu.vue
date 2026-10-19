@@ -7,7 +7,6 @@ import {
   canDeleteManualVessel,
   canEditManualVessel,
   canLinkManualVessel,
-  canUnlinkManualVessel,
 } from '@/features/vessel-schedule/manual-vessel-actions'
 import {
   mismatchActionForVessel,
@@ -32,10 +31,9 @@ const mismatchAction = computed(() => mismatchActionForVessel(props.vessel))
 const mismatchLabel = computed(() => mismatchActionLabel(props.vessel))
 const canEdit = computed(() => canEditManualVessel(props.vessel))
 const canLink = computed(() => canLinkManualVessel(props.vessel))
-const canUnlink = computed(() => canUnlinkManualVessel(props.vessel))
 const canDelete = computed(() => canDeleteManualVessel(props.vessel))
 const show = computed(
-  () => canEdit.value || canLink.value || canUnlink.value || canDelete.value || Boolean(mismatchAction.value),
+  () => canEdit.value || canLink.value || canDelete.value || Boolean(mismatchAction.value),
 )
 </script>
 
@@ -55,9 +53,6 @@ const show = computed(
     </Button>
     <Button v-if="canLink" type="button" variant="outline" :size="size" @click="emit('pick', 'linkLara')">
       Link
-    </Button>
-    <Button v-if="canUnlink" type="button" variant="outline" :size="size" @click="emit('pick', 'unlinkLara')">
-      Unlink LARA
     </Button>
     <Button v-if="canDelete" type="button" variant="destructive" :size="size" @click="emit('pick', 'deleteVessel')">
       Delete

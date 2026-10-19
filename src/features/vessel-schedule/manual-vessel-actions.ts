@@ -6,15 +6,11 @@ export function isManualVessel(vessel: VesselRecord) {
 }
 
 export function canEditManualVessel(vessel: VesselRecord) {
-  return isManualVessel(vessel) && vessel.matchingStatus !== 'Pending match'
+  return isManualVessel(vessel) && vessel.matchingStatus !== 'Pending match' && !isLaraLinkSource(vessel)
 }
 
 export function canLinkManualVessel(vessel: VesselRecord) {
   return isManualVessel(vessel) && !isLaraLinkSource(vessel) && !isLaraLinkTarget(vessel)
-}
-
-export function canUnlinkManualVessel(vessel: VesselRecord) {
-  return isManualVessel(vessel) && isLaraLinkSource(vessel)
 }
 
 export function canDeleteManualVessel(vessel: VesselRecord) {

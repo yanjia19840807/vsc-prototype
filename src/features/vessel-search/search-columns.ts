@@ -320,9 +320,10 @@ export function searchSortValue(v: VesselRecord, id: string): string | number {
     case 'mappingStatus':
       return matchingStatusLabel(v.matchingStatus, v.sharedTerminal)
     case 'laraLink': {
-      if (!v.laraLinkTargetId) return ''
-      const target = useVesselStore().byId(v.laraLinkTargetId)
-      return target ? laraLinkKey(target) : ''
+      const linkedId = v.laraLinkTargetId || v.laraLinkSourceId
+      if (!linkedId) return ''
+      const linked = useVesselStore().byId(linkedId)
+      return linked ? laraLinkKey(linked) : ''
     }
     case 'lastRefreshTime':
       return v.lastRefreshTime || ''

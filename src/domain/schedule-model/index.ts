@@ -7,7 +7,7 @@ export {
 } from '@/domain/schedule-model/display'
 export { fieldHistoryFor } from '@/domain/schedule-model/history'
 export { completeLaraRun, openLaraRun } from '@/domain/schedule-model/lara-sync'
-export { linkToLara, unlinkLara } from '@/domain/schedule-model/lara-link'
+export { linkToLara } from '@/domain/schedule-model/lara-link'
 export {
   acceptLaraSource,
   confirmTerminalCandidate,

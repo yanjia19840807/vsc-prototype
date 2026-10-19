@@ -38,26 +38,3 @@ export function linkToLara(
     ],
   )
 }
-
-export function unlinkLara(
-  state: ScheduleState,
-  input: { sourceCallId: string; reason: string; updatedBy: string; updatedAt: string },
-) {
-  const link = state.laraLinks.find((item) => item.sourceCallId === input.sourceCallId)
-  if (!link) throw new Error('LARA link was not found')
-  return appendFieldChanges(
-    { ...state, laraLinks: state.laraLinks.filter((item) => item.id !== link.id) },
-    [
-      {
-        callId: link.sourceCallId,
-        field: 'targetCallId',
-        originalValue: link.targetCallId,
-        updatedValue: '',
-        cause: 'USER',
-        reason: input.reason,
-        updatedBy: input.updatedBy,
-        updatedAt: input.updatedAt,
-      },
-    ],
-  )
-}

@@ -8,7 +8,7 @@ import {
   callKey,
   findLaraCall,
   inRange,
-  isLinkTarget,
+  isLinkSource,
   nextId,
 } from '@/domain/schedule-model/state'
 import type {
@@ -109,14 +109,17 @@ function applyLaraSuccess(
         { ...input, id: issued.id, runId: run.id, capturedAt: respondedAt },
       ],
     }
-    stored.push({ key: callKey(input.internalVoyage, input.poolLocation), recordId: issued.id, input })
+    stored.push({
+      key: callKey(input.internalVoyage, input.poolLocation, input.portCode),
+      recordId: issued.id,
+      input,
+    })
   }
 
   const seen = new Set<string>()
   for (const item of stored) {
     seen.add(item.key)
-    const existing = findLaraCall(next, item.input.internalVoyage, item.input.poolLocation)
-    if (existing && isLinkTarget(next, existing.id)) continue
+    const existing = findLaraCall(next, item.input.internalVoyage, item.input.poolLocation, item.input.portCode)
     if (!existing) {
       const created = nextId(next, 'call')
       const call: VesselCall = {
@@ -124,6 +127,7 @@ function applyLaraSuccess(
         origin: 'LARA',
         internalVoyage: item.input.internalVoyage,
         poolLocation: item.input.poolLocation,
+        portCode: item.input.portCode,
         laraRecordId: item.recordId,
         platformOmit: false,
         manualLaraId: null,
@@ -186,10 +190,10 @@ function markInWindowOmissions(state: ScheduleState, run: LaraSyncRun, seen: Set
   let next = state
   const previousRecords = state.laraRecords.filter((record) => record.runId === previous.id)
   for (const record of previousRecords) {
-    const key = callKey(record.internalVoyage, record.poolLocation)
+    const key = callKey(record.internalVoyage, record.poolLocation, record.portCode)
     if (seen.has(key)) continue
-    const call = findLaraCall(next, record.internalVoyage, record.poolLocation)
-    if (!call || isLinkTarget(next, call.id) || call.platformOmit) continue
+    const call = findLaraCall(next, record.internalVoyage, record.poolLocation, record.portCode)
+    if (!call || isLinkSource(next, call.id) || call.platformOmit) continue
     const stillInside = inRange(record.eta, run.etaFrom, run.etaTo) || inRange(record.etb, run.etbFrom, run.etbTo)
     if (!stillInside) continue
     next = updateCall(next, call.id, { platformOmit: true })

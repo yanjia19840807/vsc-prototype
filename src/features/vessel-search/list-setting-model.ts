@@ -121,7 +121,6 @@ const MAPPING_STATUSES: MatchingStatus[] = [
   'No external voyage',
   'No terminal record',
   'Pending match',
-  'Linked',
 ]
 
 const TERMINAL_STATUSES = ['计划', '在港', '离港']
@@ -473,6 +472,7 @@ function inDateRange(raw: string | number, from: string, to: string) {
 }
 
 export function vesselMatchesFilters(vessel: VesselRecord, session: Record<string, FilterState>) {
+  if (vessel.recordStatus === 'Inactive') return false
   for (const field of CATALOG) {
     const state = session[field.id] ?? emptyFilterState(field.kind)
     if (!filterMatches(vessel, field, state)) return false
