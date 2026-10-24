@@ -11,10 +11,9 @@ export type MatchingStatus =
   | 'Auto matched'
   | 'Manual matched'
   | 'Multiple terminal records'
-  | 'ETD gap > 5 days'
+  | 'ETD gap > 3 days'
   | 'No external voyage'
   | 'No terminal record'
-  | 'Pending match'
 
 /** Where the bound terminal row came from. Manual rows are not Freightower results. */
 export type TerminalSource = 'freightower' | 'manual'
@@ -73,9 +72,10 @@ export type ScheduleRefresh = {
   result: 'Success' | 'Failed'
   failureSource: '' | RefreshSource
   /** Set for a terminal call. Empty for a LARA batch. */
-  internalVoyage: string
-  port: string
-  poolLocation: string
+  laraVoyage: string
+  pointCode: string
+  visitNo: string
+  laraPoolLocation: string
   vesselId: string
 }
 
@@ -83,9 +83,10 @@ export type ScheduleRefresh = {
 export type ScheduleActivityLog = {
   id: string
   vesselId: string
-  internalVoyage: string
-  port: string
-  poolLocation: string
+  laraVoyage: string
+  pointCode: string
+  visitNo: string
+  laraPoolLocation: string
   updateSource: UpdateSource
   refreshId: string
   updatedTime: string
@@ -209,9 +210,13 @@ export type VesselRecord = {
   department: string
   vesselName: string
   vesselType: 'MV' | 'Feeder' | '3PF'
+  /** Calculated when voyage, brand, or operator is saved. Empty when the voyage digit is neither 3 nor 9. */
+  vesselTypeLabel: '' | 'Group vsl' | 'Partner vsl' | '3PF'
   vesselOperator: string
-  /** LARA brand shown in search (CMA / ANL / APL / CNC). Derived when empty. */
+  /** LARA brand. Voyage suffix MA/NC/PL/NL wins over a stored value. */
   brand?: string
+  /** Carrier full name from LARA PARTNERS. */
+  acPartner: string
   /** Service / line name */
   service: string
   oaFlag: 'OA' | 'non-OA'
@@ -219,9 +224,15 @@ export type VesselRecord = {
   /** Region code from the port catalog. Empty when that region was deleted. */
   region: string
   pointCode: string
+  visitNo: string
   terminalName: string
-  poolLocation: string
+  /** Calculated when a terminal record is bound. Pool code from the TML matrix. */
+  terminal9code: string
+  laraPoolLocation: string
+  multipleCallNumber: string
   laraVoyage: string
+  /** LARA main voyage reference. Equal to laraVoyage when this row is the main voyage. */
+  mainVoyage: string
   /** Primary external voyage used for matching (usually export). */
   externalVoyage: string
   /** Template: Local VOY */
@@ -230,8 +241,11 @@ export type VesselRecord = {
   externalImportVoyage: string
   /** Template: export voyage */
   externalExportVoyage: string
+  laraEta: string
   laraEtb: string
   laraEtd: string
+  /** LARA cutoff, shifted +8 hours like the other LARA times. */
+  cutoff: string
   tmlEta: string
   tmlAta: string
   tmlEtb: string
@@ -253,8 +267,8 @@ export type VesselRecord = {
   /** Template: ports of call */
   portsOfCall: string
   matchingStatus: MatchingStatus
-  /** True when another LARA voyage is bound to the same port, terminal, and export voyage. */
-  sharedTerminal: boolean
+  /** How many matched LARA calls share this port, terminal, and export voyage. */
+  sharedLaraCount: number
   /** Null when no terminal row is bound. */
   terminalSource: TerminalSource | null
   voyageStatus: VoyageStatus
@@ -278,6 +292,8 @@ export type VesselRecord = {
   manualOverrides: Record<string, ManualOverride>
   /** Freightower rows kept for multiple-match selection, including after confirmation. */
   terminalCandidates: TerminalSchedule[]
+  /** Open comparison against one temporary vessel. Formal data stays on screen until the user confirms. */
+  linkReview?: LinkReview
   /** Confirmation and reselection history for a multiple match. */
   matchHistory: MatchChange[]
   /**
@@ -304,10 +320,35 @@ export type VesselRecord = {
   recordStatus?: RecordStatus
   /** Manual vessel is the source of a LARA link. */
   laraLinked?: boolean
-  /** Formal LARA vessel this manual row points at. */
+  /** Formal LARA vessel this manual row points at. First id when several visits match. */
   laraLinkTargetId?: string
+  /** Every formal visit linked from this temporary vessel. */
+  laraLinkTargetIds?: string[]
   /** Manual vessel that points at this formal LARA row. */
   laraLinkSourceId?: string
+}
+
+export type LinkLaraDiff = {
+  field: string
+  label: string
+  official: string
+  temporary: string
+}
+
+export type LinkTerminalSource = 'Official' | 'Temporary' | 'Both'
+
+export type LinkTerminalChoice = {
+  id: string
+  source: LinkTerminalSource
+  schedule: TerminalSchedule
+}
+
+export type LinkReview = {
+  temporaryId: string
+  laraDiffs: LinkLaraDiff[]
+  terminalChoices: LinkTerminalChoice[]
+  /** Current terminal snapshots already match, so the popup stays closed. */
+  terminalMatched: boolean
 }
 
 export type PortDef = {

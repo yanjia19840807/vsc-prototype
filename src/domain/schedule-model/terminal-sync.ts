@@ -1,21 +1,22 @@
-import { clearAutoBinding, setTerminalBinding } from '@/domain/schedule-model/binding'
-import { displayedLaraField, displayedTerminalField } from '@/domain/schedule-model/display'
-import { addDays, isLinkSource, nextId, parseTime } from '@/domain/schedule-model/state'
+import { displayedLara, displayedTerminal } from '@/domain/schedule-model/display'
+import { applyTerminalPayload, hasBoundMatch, laraVersion, type SyncPolicy } from '@/domain/schedule-model/sync-diff'
+import { addDays, isLinkSource, isLinkTarget, nextId, parseTime } from '@/domain/schedule-model/state'
 import type {
   ScheduleState,
   ScheduleTrigger,
-  TerminalBatchRun,
-  TerminalCandidateInput,
+  TerminalPayload,
+  TerminalPayloadInput,
   TerminalQuery,
   TerminalQueryStatus,
   TerminalQueryTrigger,
+  TerminalSyncRun,
   VesselCall,
 } from '@/domain/schedule-model/types'
 
 const DEFAULT_ETA_LEAD_DAYS = 15
 const DEFAULT_ATD_LAG_DAYS = 5
 
-export function openTerminalBatch(
+export function openTerminalSync(
   state: ScheduleState,
   input: {
     trigger: ScheduleTrigger
@@ -23,14 +24,13 @@ export function openTerminalBatch(
     triggeredBy: string
     etaLeadDays?: number
     atdLagDays?: number
-    /** When the round cannot be sent, no queries are created. */
     failedToIssue?: string
   },
 ) {
   const etaLeadDays = input.etaLeadDays ?? DEFAULT_ETA_LEAD_DAYS
   const atdLagDays = input.atdLagDays ?? DEFAULT_ATD_LAG_DAYS
-  const issued = nextId(state, 'terminal-batch')
-  const batch: TerminalBatchRun = {
+  const issued = nextId(state, 'terminal-sync')
+  const run: TerminalSyncRun = {
     id: issued.id,
     trigger: input.trigger,
     status: input.failedToIssue ? 'FAILED' : 'RUNNING',
@@ -44,23 +44,21 @@ export function openTerminalBatch(
     failedCount: 0,
     triggeredBy: input.triggeredBy,
   }
-  let next = { ...issued.state, terminalBatches: [...issued.state.terminalBatches, batch] }
+  let next = { ...issued.state, terminalSyncRuns: [...issued.state.terminalSyncRuns, run] }
   if (input.failedToIssue) return next
-
-  const due = next.calls.filter((call) => !isLinkSource(next, call.id) && isDue(next, call, input.startedAt, etaLeadDays, atdLagDays))
+  const due = next.calls.filter((call) => !isLinkSource(next, call.id) && !isLinkTarget(next, call.id) && isDue(next, call, input.startedAt, etaLeadDays, atdLagDays))
   for (const call of due) {
     next = appendQuery(next, call, {
-      batchRunId: batch.id,
+      syncRunId: run.id,
       trigger: 'SCHEDULE',
       requestedAt: input.startedAt,
       requestedBy: input.triggeredBy,
       externalVoyage: '',
     })
   }
-  return replaceBatch(next, { ...batch, callCount: due.length })
+  return replaceRun(next, { ...run, callCount: due.length })
 }
 
-/** One terminal call outside a batch. Ignores etaLeadDays and atdLagDays. */
 export function openSingleTerminalQuery(
   state: ScheduleState,
   input: {
@@ -71,10 +69,11 @@ export function openSingleTerminalQuery(
     externalVoyage?: string
   },
 ) {
-  const call = requireCall(state, input.callId)
-  if (isLinkSource(state, call.id)) throw new Error('An inactive linked manual call is left out of sync')
+  const call = state.calls.find((item) => item.id === input.callId)
+  if (!call) throw new Error('Vessel call was not found')
+  if (isLinkSource(state, call.id) || isLinkTarget(state, call.id)) throw new Error('A linked call is left out of sync')
   return appendQuery(state, call, {
-    batchRunId: null,
+    syncRunId: null,
     trigger: input.trigger,
     requestedAt: input.requestedAt,
     requestedBy: input.requestedBy,
@@ -89,72 +88,74 @@ export function completeTerminalQuery(
     status: Extract<TerminalQueryStatus, 'FOUND' | 'NOT_FOUND' | 'FAILED'>
     respondedAt: string
     failureReason?: string
-    candidates?: TerminalCandidateInput[]
+    candidates?: TerminalPayloadInput[]
+    policy?: SyncPolicy
+    /** When set, only Auto matched and Manual matched compare. Otherwise a bound match is compared. */
+    matchingStatus?: string
   },
 ) {
   const query = state.terminalQueries.find((item) => item.id === input.queryId)
   if (!query || query.status !== 'PENDING') throw new Error('Terminal query is not pending')
-  const call = state.calls.find((item) => item.id === query.callId)
   let next = replaceQuery(state, {
     ...query,
     status: input.status,
     respondedAt: input.respondedAt,
     failureReason: input.status === 'FAILED' ? (input.failureReason ?? '') : '',
   })
+  const payloads: TerminalPayload[] = []
   if (input.status === 'FOUND') {
     for (const candidate of input.candidates ?? []) {
-      const issued = nextId(next, 'candidate')
-      next = {
-        ...issued.state,
-        terminalCandidates: [...issued.state.terminalCandidates, { ...candidate, id: issued.id, queryId: query.id }],
-      }
+      const issued = nextId(next, 'terminal-payload')
+      const payload: TerminalPayload = { ...candidate, id: issued.id, queryId: query.id, callId: query.callId }
+      payloads.push(payload)
+      next = { ...issued.state, terminalPayloads: [...issued.state.terminalPayloads, payload] }
     }
   }
-  if (call && !isLinkSource(next, call.id)) {
-    next = applyQueryToBinding(next, call, query.id, input)
+  if (!isLinkSource(next, query.callId) && !isLinkTarget(next, query.callId)) {
+    const comparable = input.matchingStatus
+      ? input.matchingStatus === 'Auto matched' || input.matchingStatus === 'Manual matched'
+      : hasBoundMatch(next, query.callId)
+    const hasTerminal = hasBoundMatch(next, query.callId)
+    if (!comparable) {
+      if (!hasTerminal && input.status === 'FOUND' && payloads.length === 1) {
+        next = applyTerminalPayload(next, {
+          callId: query.callId,
+          payloadId: payloads[0]!.id,
+          updatedBy: query.requestedBy,
+          updatedAt: input.respondedAt,
+          policy: input.policy,
+        })
+      }
+    } else if (input.status === 'FOUND' && payloads.length === 1) {
+      next = applyTerminalPayload(next, {
+        callId: query.callId,
+        payloadId: payloads[0]!.id,
+        updatedBy: query.requestedBy,
+        updatedAt: input.respondedAt,
+        policy: input.policy,
+      })
+    }
   }
-  if (query.batchRunId) next = settleBatch(next, query.batchRunId, input.respondedAt)
+  if (query.syncRunId) next = settleRun(next, query.syncRunId, input.respondedAt)
   return next
 }
 
-function applyQueryToBinding(
-  state: ScheduleState,
-  call: VesselCall,
-  queryId: string,
-  input: { status: 'FOUND' | 'NOT_FOUND' | 'FAILED'; respondedAt: string; candidates?: TerminalCandidateInput[] },
-) {
-  if (input.status === 'FAILED') return state
-  const binding = state.bindings.find((item) => item.callId === call.id)
-  if (input.status === 'NOT_FOUND') return clearAutoBinding(state, call, input.respondedAt, 'System')
-  const candidates = state.terminalCandidates.filter((item) => item.queryId === queryId)
-  if (candidates.length !== 1 || binding?.source === 'MANUAL') return state
-  return setTerminalBinding(state, {
-    call,
-    mode: 'CANDIDATE',
-    candidateId: candidates[0]!.id,
-    source: 'AUTO',
-    cause: 'BINDING',
-    updatedBy: 'System',
-    updatedAt: input.respondedAt,
-  })
-}
-
-function settleBatch(state: ScheduleState, batchId: string, finishedAt: string) {
-  const batch = state.terminalBatches.find((item) => item.id === batchId)
-  if (!batch) return state
-  const queries = state.terminalQueries.filter((item) => item.batchRunId === batchId)
+function settleRun(state: ScheduleState, runId: string, finishedAt: string) {
+  const run = state.terminalSyncRuns.find((item) => item.id === runId)
+  if (!run) return state
+  const queries = state.terminalQueries.filter((item) => item.syncRunId === runId)
   if (queries.some((item) => item.status === 'PENDING')) return state
   const failedCount = queries.filter((item) => item.status === 'FAILED').length
   const succeededCount = queries.filter((item) => item.status === 'FOUND' || item.status === 'NOT_FOUND').length
   const status = failedCount === 0 ? 'SUCCEEDED' : 'PARTIAL'
-  return replaceBatch(state, { ...batch, status, finishedAt, succeededCount, failedCount, callCount: queries.length })
+  return replaceRun(state, { ...run, status, finishedAt, succeededCount, failedCount, callCount: queries.length })
 }
 
 function appendQuery(
   state: ScheduleState,
   call: VesselCall,
   input: {
-    batchRunId: string | null
+    syncRunId: string | null
     trigger: TerminalQueryTrigger
     requestedAt: string
     requestedBy: string
@@ -162,22 +163,19 @@ function appendQuery(
   },
 ) {
   const issued = nextId(state, 'terminal-query')
-  const record = state.laraRecords.find((item) => item.id === call.laraRecordId)
-  const exportVoyage = displayedTerminalField(state, call, 'exportVoyage').trim()
-  const importVoyage = displayedTerminalField(state, call, 'importVoyage').trim()
+  const lara = laraVersion(state, call.laraVersionId)
+  const terminal = displayedTerminal(state, call)
+  const exportVoyage = terminal.exportVoyage.trim()
+  const importVoyage = terminal.importVoyage.trim()
   const boundVoyage = input.externalVoyage.trim() || [exportVoyage, importVoyage].filter(Boolean).join(' / ')
   const query: TerminalQuery = {
     id: issued.id,
-    batchRunId: input.batchRunId,
+    syncRunId: input.syncRunId,
     callId: call.id,
-    laraRecordId: call.laraRecordId ?? '',
-    internalVoyage: call.internalVoyage,
-    poolLocation: call.poolLocation,
-    portCode: displayedLaraField(state, call, 'portCode') || record?.portCode || '',
+    laraVersionId: lara?.id ?? '',
     trigger: input.trigger,
     requestedAt: input.requestedAt,
     requestedBy: input.requestedBy,
-    vesselName: displayedLaraField(state, call, 'vesselName'),
     externalVoyage: boundVoyage,
     status: 'PENDING',
     respondedAt: null,
@@ -187,23 +185,18 @@ function appendQuery(
 }
 
 function isDue(state: ScheduleState, call: VesselCall, runAt: string, etaLeadDays: number, atdLagDays: number) {
+  const lara = displayedLara(state, call)
   const now = parseTime(runAt)
-  const eta = addDays(displayedLaraField(state, call, 'eta'), -etaLeadDays)
+  const eta = addDays(lara.laraEta || lara.laraEtb, -etaLeadDays)
   if (now == null || eta == null || now < eta) return false
-  const atdValue = displayedTerminalField(state, call, 'atd')
-  if (!atdValue) return true
-  const until = addDays(atdValue, atdLagDays)
+  const atd = displayedTerminal(state, call).atd
+  if (!atd) return true
+  const until = addDays(atd, atdLagDays)
   return until != null && now <= until
 }
 
-function requireCall(state: ScheduleState, callId: string) {
-  const call = state.calls.find((item) => item.id === callId)
-  if (!call) throw new Error('Vessel call was not found')
-  return call
-}
-
-function replaceBatch(state: ScheduleState, batch: TerminalBatchRun) {
-  return { ...state, terminalBatches: state.terminalBatches.map((item) => (item.id === batch.id ? batch : item)) }
+function replaceRun(state: ScheduleState, run: TerminalSyncRun) {
+  return { ...state, terminalSyncRuns: state.terminalSyncRuns.map((item) => (item.id === run.id ? run : item)) }
 }
 
 function replaceQuery(state: ScheduleState, query: TerminalQuery) {

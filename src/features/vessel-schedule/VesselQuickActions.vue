@@ -111,14 +111,9 @@ watch(
     fileOpen.value = false
     syncing = false
     if (!v || !action) return
-    if (action === 'selectMatch' || action === 'reviewMatch' || action === 'addTerminal') {
+    if (action === 'selectMatch' || action === 'reviewMatch' || action === 'addTerminal' || action === 'linkReview') {
       emit('close')
       void router.push(`/vessels/${v.id}/review`)
-      return
-    }
-    if (action === 'linkLara') {
-      emit('close')
-      void router.push(`/vessels/${v.id}/link-lara`)
       return
     }
     await nextTick()

@@ -46,7 +46,8 @@ function clearDraft() {
 <template>
   <div class="flex items-center gap-1">
     <div
-      class="flex h-8 w-52 min-w-0 items-center rounded-lg border bg-transparent px-2.5 text-sm"
+      class="flex h-8 w-52 min-w-0 items-center rounded-lg border bg-card px-2.5 text-sm data-placeholder:bg-background"
+      :data-placeholder="values.length ? undefined : ''"
       :class="values.length ? 'text-foreground' : 'text-muted-foreground'"
     >
       <span class="truncate">{{ summary }}</span>
@@ -64,7 +65,7 @@ function clearDraft() {
     <Dialog v-model:open="open">
       <DialogContent size="md" class="gap-3">
         <DialogHeader>
-          <DialogTitle>{{ label }}</DialogTitle>
+          <DialogTitle class="text-sm">{{ label }}</DialogTitle>
         </DialogHeader>
         <Textarea
           v-model="draft"
@@ -74,8 +75,8 @@ function clearDraft() {
         />
         <DialogFooter>
           <Button type="button" variant="outline" class="sm:mr-auto" @click="clearDraft">Clear</Button>
-          <Button type="button" variant="primary" @click="confirm">Ok</Button>
           <Button type="button" variant="outline" @click="open = false">Cancel</Button>
+          <Button type="button" variant="primary" @click="confirm">Ok</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

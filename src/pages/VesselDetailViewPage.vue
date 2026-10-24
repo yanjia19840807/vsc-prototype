@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, provide, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import DataSection from '@/components/DataSection.vue'
@@ -7,8 +7,14 @@ import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
 import ReadonlyField from '@/components/ReadonlyField.vue'
 import CoverageIcon from '@/components/CoverageIcon.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import FieldChangeTip from '@/features/vessel-schedule/FieldChangeTip.vue'
+import SyncFieldAlert from '@/features/vessel-schedule/SyncFieldAlert.vue'
+import { reviewForColumn } from '@/features/vessel-schedule/sync-columns'
+import { syncCellKey, syncPendingKey } from '@/features/vessel-schedule/sync-review'
+import { mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
+import ScheduleRecordHeading from '@/features/vessel-schedule/ScheduleRecordHeading.vue'
 import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
 import { type ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import VesselQuickActions from '@/features/vessel-schedule/VesselQuickActions.vue'
@@ -19,12 +25,15 @@ import {
   isWarningCellText,
   manualOverrideFor,
   searchCellText,
+  sharedLaraRemark,
   type ColumnSource,
 } from '@/features/vessel-search/search-columns'
 import { formatDateTime } from '@/lib/vessel-utils'
+import { useListSettingsStore } from '@/stores/list-settings'
+import { useScheduleStore } from '@/stores/schedule'
 import { useVesselStore } from '@/stores/vessels'
 
-const STATUS_COLUMNS = new Set(['mappingStatus', 'voyageStatus', 'tmlVslStatus'])
+const STATUS_COLUMNS = new Set(['mappingStatus'])
 
 const SOURCE_FIELDS = [
   { id: 'vesselName', label: 'Vessel name' },
@@ -39,6 +48,17 @@ const SOURCE_FIELDS = [
 const route = useRoute()
 const router = useRouter()
 const store = useVesselStore()
+const schedule = useScheduleStore()
+const listSettings = useListSettingsStore()
+
+provide(syncCellKey, (callId, columnId) => {
+  const watched = listSettings.active?.watchedFields ?? []
+  if (!watched.includes(columnId)) return null
+  const field = reviewForColumn(schedule.review(callId).fields, columnId)
+  if (!field) return null
+  return { field }
+})
+provide(syncPendingKey, (callId) => schedule.review(callId).pending)
 const vessel = computed(() => store.byId(String(route.params.id)))
 const quickAction = ref<ScheduleQuickAction | null>(null)
 const linkTarget = computed(() => {
@@ -55,9 +75,30 @@ function onVesselDeleted() {
   router.push('/search')
 }
 
-const platformColumns = computed(() => SEARCH_COLUMNS.filter((column) => column.source === 'platform'))
+const platformColumns = computed(() =>
+  SEARCH_COLUMNS.filter((column) => column.source === 'platform' && column.id !== 'mappingStatus'),
+)
+const headerAlert = computed(() => {
+  const current = vessel.value
+  if (!current) return null
+  const review = schedule.review(current.id)
+  return mappingHeaderAlert(current, { shape: review.shape, candidateCount: review.candidateCount })
+})
+const mappingAlert = computed(() => {
+  const current = vessel.value
+  if (!current) return null
+  const review = schedule.review(current.id)
+  if (review.shape) return null
+  const field = review.fields.find((item) => item.side === 'MATCH')
+  if (!field) return null
+  return {
+    variant: field.status === 'pending' ? 'warning' as const : 'info' as const,
+    title: 'Mapping status',
+    text: `${field.previousValue || '—'} → ${field.incomingValue || '—'}`,
+  }
+})
 const panes = computed(() => [
-  { source: 'lara' as ColumnSource, title: 'LARA', columns: SEARCH_COLUMNS.filter((column) => column.source === 'lara') },
+  { source: 'lara' as ColumnSource, title: 'LARA', columns: SEARCH_COLUMNS.filter((column) => column.source === 'lara' && column.id !== 'voyageStatus') },
   { source: 'terminal' as ColumnSource, title: 'Terminal', columns: SEARCH_COLUMNS.filter((column) => column.source === 'terminal') },
 ])
 
@@ -110,12 +151,9 @@ function sourceText(columnId: string) {
       ]"
     />
     <div class="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 class="text-xl font-semibold">{{ vessel.vesselName }}</h1>
-        <p class="text-sm text-muted-foreground">{{ vessel.pointCode }} · {{ vessel.laraVoyage }}</p>
-      </div>
+      <ScheduleRecordHeading :vessel="vessel" />
       <div class="flex flex-wrap gap-2">
-        <Button v-if="linkTarget" type="button" variant="outline" @click="openVessel(linkTarget.id)">
+        <Button v-if="linkTarget && !vessel.createdManually" type="button" variant="outline" @click="openVessel(linkTarget.id)">
           Active LARA record
         </Button>
         <VesselAdjustMenu :vessel="vessel" size="default" @pick="quickAction = $event" />
@@ -123,15 +161,25 @@ function sourceText(columnId: string) {
       </div>
     </div>
 
-    <Alert v-if="vessel.recordStatus === 'Inactive'">
+    <Alert v-if="headerAlert" :variant="headerAlert.variant">
+      <AlertTitle>{{ headerAlert.title }}</AlertTitle>
+      <AlertDescription>{{ headerAlert.text }}</AlertDescription>
+    </Alert>
+
+    <Alert v-if="mappingAlert" :variant="mappingAlert.variant">
+      <AlertTitle>{{ mappingAlert.title }}</AlertTitle>
+      <AlertDescription>{{ mappingAlert.text }}</AlertDescription>
+    </Alert>
+
+    <Alert v-if="vessel.createdManually && (vessel.laraLinked || vessel.laraLinkTargetId)">
       <AlertDescription>
-        This manual record is inactive. It stays out of the default search, and later sync is recorded on the active LARA record.
+        This temporary vessel is linked. It stays out of vessel schedule search, and later sync is recorded on the formal schedule.
       </AlertDescription>
     </Alert>
 
     <DataSection v-if="linkSource" title="Original source">
       <p class="mb-3 text-sm text-muted-foreground">
-        Inactive manual row kept for reference. This LARA record is Manual matched.
+        Linked temporary vessel kept for reference.
       </p>
       <dl class="grid sm:grid-cols-2 sm:gap-x-6">
         <ReadonlyField v-for="column in SOURCE_FIELDS" :key="column.id" :label="column.label">
@@ -144,7 +192,7 @@ function sourceText(columnId: string) {
       </Button>
     </DataSection>
 
-    <dl class="grid sm:grid-cols-2 sm:gap-x-6">
+    <dl v-if="platformColumns.length" class="grid sm:grid-cols-2 sm:gap-x-6">
       <ReadonlyField v-for="column in platformColumns" :key="column.id" :label="column.label">
         <button
           v-if="column.id === 'laraLink' && vessel.laraLinkTargetId && searchCellText(vessel, column.id) !== '—'"
@@ -162,16 +210,15 @@ function sourceText(columnId: string) {
         >
           {{ searchCellText(vessel, column.id) }}
         </button>
-        <button
+        <FieldChangeTip
           v-else-if="columnHasHistory(vessel, column.id)"
-          type="button"
-          class="text-left underline decoration-dotted underline-offset-2"
+          :vessel="vessel"
+          :column-id="column.id"
           :class="isWarningCellText(searchCellText(vessel, column.id), column.id) ? 'text-amber-800' : 'text-primary'"
-          @click="openHistory(column.id)"
         >
           <StatusBadge v-if="STATUS_COLUMNS.has(column.id)" :status="searchCellText(vessel, column.id)" />
           <template v-else>{{ searchCellText(vessel, column.id) }}</template>
-        </button>
+        </FieldChangeTip>
         <StatusBadge v-else-if="STATUS_COLUMNS.has(column.id)" :status="searchCellText(vessel, column.id)" />
         <span
           v-else
@@ -187,6 +234,13 @@ function sourceText(columnId: string) {
         >
           {{ vessel.terminalCandidates.length }} candidates
         </span>
+        <span
+          v-else-if="column.id === 'mappingStatus' && sharedLaraRemark(vessel.sharedLaraCount)"
+          class="ml-2 text-xs text-muted-foreground"
+        >
+          {{ sharedLaraRemark(vessel.sharedLaraCount) }}
+        </span>
+        <SyncFieldAlert :call-id="vessel.id" :column-id="column.id" />
       </ReadonlyField>
     </dl>
 
@@ -208,21 +262,21 @@ function sourceText(columnId: string) {
             :label="column.label"
           >
             <span class="inline-flex flex-wrap items-center gap-2">
-              <button
+              <FieldChangeTip
                 v-if="columnHasHistory(vessel, column.id)"
-                type="button"
-                class="text-left underline decoration-dotted underline-offset-2"
+                :vessel="vessel"
+                :column-id="column.id"
                 :class="fieldTone(column.id, pane.source) ?? 'text-primary'"
-                @click="openHistory(column.id)"
               >
                 <StatusBadge v-if="STATUS_COLUMNS.has(column.id)" :status="searchCellText(vessel, column.id)" />
                 <template v-else>{{ searchCellText(vessel, column.id) }}</template>
-              </button>
+              </FieldChangeTip>
               <StatusBadge v-else-if="STATUS_COLUMNS.has(column.id)" :status="searchCellText(vessel, column.id)" />
               <span v-else :class="fieldTone(column.id, pane.source)">
                 {{ searchCellText(vessel, column.id) }}
               </span>
               <CoverageIcon v-if="column.id === 'pointCode'" :covered="isPortApiCovered(vessel)" />
+              <SyncFieldAlert :call-id="vessel.id" :column-id="column.id" />
             </span>
             <p v-if="pane.source === 'lara' && targetLaraText(column.id)" class="text-xs text-amber-800">
               Target {{ targetLaraText(column.id) }}

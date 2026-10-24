@@ -1,54 +1,53 @@
-export { setTerminalBinding, clearAutoBinding } from '@/domain/schedule-model/binding'
+export { displayedLara, displayedMatch, displayedTerminal } from '@/domain/schedule-model/display'
+export { linkToLara } from '@/domain/schedule-model/lara-link'
+export { completeLaraRun, openLaraRun } from '@/domain/schedule-model/lara-sync'
 export {
   LARA_FIELDS,
+  MATCH_FIELD,
   TERMINAL_FIELDS,
-  displayedLaraField,
-  displayedTerminalField,
-} from '@/domain/schedule-model/display'
-export { fieldHistoryFor } from '@/domain/schedule-model/history'
-export { completeLaraRun, openLaraRun } from '@/domain/schedule-model/lara-sync'
-export { linkToLara } from '@/domain/schedule-model/lara-link'
-export {
-  acceptLaraSource,
-  confirmTerminalCandidate,
-  createManualCall,
-  deleteManualCall,
-  editLaraField,
-  editTerminalField,
-  restoreLaraField,
-  supplementTerminal,
-} from '@/domain/schedule-model/manual'
+} from '@/domain/schedule-model/snapshot'
+export type { LaraField, TerminalField } from '@/domain/schedule-model/snapshot'
 export { emptyScheduleState } from '@/domain/schedule-model/state'
 export {
-  completeTerminalQuery,
-  openSingleTerminalQuery,
-  openTerminalBatch,
-} from '@/domain/schedule-model/terminal-sync'
+  acceptLaraField,
+  acceptTerminalField,
+  acceptTerminalPayload,
+  adoptNoTerminal,
+  defaultSyncPolicy,
+  editLaraFields,
+  editTerminalFields,
+  hasBoundMatch,
+  keepLaraField,
+  keepMatch,
+  keepTerminalField,
+  keepTerminalShape,
+  laraFieldHistory,
+  matchHistory,
+  reviewCall,
+  terminalFieldHistory,
+  watchKey,
+} from '@/domain/schedule-model/sync-diff'
+export type { CallReview, FieldHistoryRow, FieldReview, SyncPolicy, TerminalShape } from '@/domain/schedule-model/sync-diff'
+export { completeTerminalQuery, openSingleTerminalQuery, openTerminalSync } from '@/domain/schedule-model/terminal-sync'
 export type {
-  BindingMode,
-  BindingSource,
   CallOrigin,
-  FieldHistory,
-  FieldHistoryCause,
+  DecisionAction,
+  FieldDecision,
   LaraLink,
-  LaraRecordInput,
-  LaraRunStatus,
-  LaraSyncRecord,
+  LaraPayload,
+  LaraPayloadInput,
+  LaraSnapshot,
   LaraSyncRun,
-  LaraSyncScope,
-  LaraVoyageStatus,
-  ManualField,
-  ManualLara,
-  ManualTerminal,
+  LaraVersion,
+  Match,
+  MatchMethod,
   ScheduleState,
-  ScheduleTrigger,
-  TerminalBatchRun,
-  TerminalBatchStatus,
-  TerminalBinding,
-  TerminalCandidate,
-  TerminalCandidateInput,
+  TerminalPayload,
+  TerminalPayloadInput,
   TerminalQuery,
-  TerminalQueryStatus,
-  TerminalQueryTrigger,
+  TerminalSnapshot,
+  TerminalSyncRun,
+  TerminalVersion,
   VesselCall,
+  VersionSource,
 } from '@/domain/schedule-model/types'

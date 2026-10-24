@@ -3,9 +3,16 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { X } from '@lucide/vue'
 
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { isMenuItemActive, menuItems } from '@/navigation/menu'
 import { useSessionStore } from '@/stores/session'
-import { useTabsStore } from '@/stores/tabs'
+import { useTabsStore, type PageTab } from '@/stores/tabs'
 
 type ScrollPoint = { top: number; left: number }
 
@@ -106,15 +113,106 @@ function cacheKey() {
   return tab?.cacheKey ?? route.path
 }
 
-function closeTab(id: string) {
-  const tab = tabs.tabs.find((item) => item.id === id)
-  const next = tabs.close(id, route.fullPath)
-  pageScroll.delete(id)
-  if (tab?.cacheKey) pageScroll.delete(tab.cacheKey)
+function forgetScroll(closed: PageTab[]) {
+  for (const tab of closed) {
+    pageScroll.delete(tab.id)
+    if (tab.cacheKey) pageScroll.delete(tab.cacheKey)
+  }
+}
+
+function settleClose(closed: PageTab[], next: string | null) {
+  forgetScroll(closed)
   if (next) void router.push(next)
 }
 
+function closeTab(id: string) {
+  const tab = tabs.tabs.find((item) => item.id === id)
+  settleClose(tab ? [tab] : [], tabs.close(id, route.fullPath))
+}
+
+function closeOtherTabs(id: string) {
+  const closed = tabs.tabs.filter((tab) => tab.closable && tab.id !== id)
+  settleClose(closed, tabs.closeOthers(id, route.fullPath))
+}
+
+function closeTabsToRight(id: string) {
+  const index = tabs.tabs.findIndex((tab) => tab.id === id)
+  const closed = index < 0 ? [] : tabs.tabs.slice(index + 1).filter((tab) => tab.closable)
+  settleClose(closed, tabs.closeToRight(id, route.fullPath))
+}
+
+function closeAllTabs() {
+  settleClose(tabs.tabs.filter((tab) => tab.closable), tabs.closeAll(route.fullPath))
+}
+
+function canCloseOthers(id: string) {
+  return tabs.tabs.some((tab) => tab.closable && tab.id !== id)
+}
+
+function canCloseToRight(index: number) {
+  return tabs.tabs.slice(index + 1).some((tab) => tab.closable)
+}
+
+const canCloseAll = computed(() => tabs.tabs.some((tab) => tab.closable))
+
+const draggingId = ref<string | null>(null)
+const dropIndex = ref<number | null>(null)
+let ignoreDrag = false
+
+function clearDrag() {
+  draggingId.value = null
+  dropIndex.value = null
+  ignoreDrag = false
+}
+
+function onClosePointerDown() {
+  ignoreDrag = true
+}
+
+function onClosePointerUp() {
+  ignoreDrag = false
+}
+
+function onDragStart(event: DragEvent, tab: PageTab) {
+  if (ignoreDrag || !tab.closable) {
+    event.preventDefault()
+    ignoreDrag = false
+    return
+  }
+  draggingId.value = tab.id
+  dropIndex.value = null
+  event.dataTransfer?.setData('text/plain', tab.id)
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+
+function onDragOver(event: DragEvent, index: number) {
+  if (!draggingId.value) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const after = event.clientX >= rect.left + rect.width / 2
+  const insertAt = Math.max(1, index + (after ? 1 : 0))
+  dropIndex.value = insertAt
+}
+
+function showInsertBefore(index: number) {
+  const insertAt = dropIndex.value
+  const from = tabs.tabs.findIndex((tab) => tab.id === draggingId.value)
+  if (insertAt == null || from < 0) return false
+  if (from === insertAt || from + 1 === insertAt) return false
+  return insertAt === index
+}
+
+function onDrop(event: DragEvent) {
+  event.preventDefault()
+  const id = draggingId.value
+  const insertAt = dropIndex.value
+  if (id != null && insertAt != null) tabs.move(id, insertAt)
+  clearDrag()
+}
+
 const flush = computed(() => route.meta.flush === true)
+const copyrightYear = new Date().getFullYear()
 </script>
 
 <template>
@@ -162,29 +260,69 @@ const flush = computed(() => route.meta.flush === true)
       class="min-w-0 w-full shrink-0 overflow-x-auto border-b bg-muted/40"
       role="tablist"
       aria-label="Open pages"
+      @dragover.prevent
+      @drop="onDrop"
     >
       <div class="flex h-10 w-max min-w-full items-end gap-1 px-2">
-        <div
-          v-for="tab in tabs.tabs"
-          :key="tab.id"
-          class="flex h-8 max-w-56 shrink-0 items-center rounded-t-md border border-b-0 px-2 text-sm"
-          :class="route.path === tab.id ? 'bg-card font-medium text-foreground' : 'border-transparent text-muted-foreground'"
-          role="tab"
-          :aria-selected="route.path === tab.id"
-        >
-          <button type="button" class="truncate" @click="router.push(tab.fullPath)">
-            {{ tab.title }}
-          </button>
-          <button
-            v-if="tab.closable"
-            type="button"
-            class="ml-1 grid size-4 place-items-center rounded-sm hover:bg-muted"
-            :aria-label="`Close ${tab.title}`"
-            @click="closeTab(tab.id)"
-          >
-            <X class="size-3" />
-          </button>
-        </div>
+        <ContextMenu v-for="(tab, index) in tabs.tabs" :key="tab.id">
+          <ContextMenuTrigger as-child>
+            <div
+              class="relative flex h-8 max-w-56 shrink-0 items-center rounded-t-md border border-b-0 px-2 text-sm"
+              :class="[
+                route.path === tab.id ? 'bg-card font-medium text-foreground' : 'border-transparent text-muted-foreground',
+                draggingId === tab.id ? 'opacity-40' : '',
+                tab.closable ? 'cursor-grab active:cursor-grabbing' : '',
+              ]"
+              role="tab"
+              :aria-selected="route.path === tab.id"
+              :draggable="tab.closable ? true : undefined"
+              @dragstart="onDragStart($event, tab)"
+              @dragend="clearDrag"
+              @dragover="onDragOver($event, index)"
+            >
+              <span
+                v-if="showInsertBefore(index)"
+                class="pointer-events-none absolute inset-y-1 -left-1 w-0.5 rounded-full bg-foreground"
+                aria-hidden="true"
+              />
+              <span
+                v-if="showInsertBefore(tabs.tabs.length) && index === tabs.tabs.length - 1"
+                class="pointer-events-none absolute inset-y-1 -right-1 w-0.5 rounded-full bg-foreground"
+                aria-hidden="true"
+              />
+              <button type="button" class="truncate" @click="router.push(tab.fullPath)">
+                {{ tab.title }}
+              </button>
+              <button
+                v-if="tab.closable"
+                type="button"
+                class="ml-1 grid size-4 cursor-pointer place-items-center rounded-sm hover:bg-muted"
+                :aria-label="`Close ${tab.title}`"
+                @pointerdown="onClosePointerDown"
+                @pointerup="onClosePointerUp"
+                @pointercancel="onClosePointerUp"
+                @click="closeTab(tab.id)"
+              >
+                <X class="size-3" />
+              </button>
+            </div>
+          </ContextMenuTrigger>
+          <ContextMenuContent class="w-44">
+            <ContextMenuItem :disabled="!tab.closable" @select="closeTab(tab.id)">
+              Close
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem :disabled="!canCloseOthers(tab.id)" @select="closeOtherTabs(tab.id)">
+              Close others
+            </ContextMenuItem>
+            <ContextMenuItem :disabled="!canCloseToRight(index)" @select="closeTabsToRight(tab.id)">
+              Close to the right
+            </ContextMenuItem>
+            <ContextMenuItem :disabled="!canCloseAll" @select="closeAllTabs()">
+              Close all
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
       </div>
     </div>
 
@@ -199,5 +337,9 @@ const flush = computed(() => route.meta.flush === true)
         </KeepAlive>
       </RouterView>
     </main>
+
+    <footer class="shrink-0 border-t bg-card px-4 py-3 text-center text-xs text-muted-foreground sm:px-6">
+      © {{ copyrightYear }} CMA CGM Group
+    </footer>
   </div>
 </template>

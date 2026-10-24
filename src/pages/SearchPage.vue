@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ChevronDown, Download, Plus, Settings } from '@lucide/vue'
+import { ChevronDown, Download, Settings } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { FlexRender, type ColumnVisibilityState } from '@tanstack/vue-table'
 
@@ -27,8 +27,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { useVesselDataTable } from '@/composables/useVesselDataTable'
-import ManualAddVesselDialog from '@/features/vessel-schedule/ManualAddVesselDialog.vue'
 import type { ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
+import { reviewForColumn } from '@/features/vessel-schedule/sync-columns'
+import { syncCellKey, syncPendingKey } from '@/features/vessel-schedule/sync-review'
 import VesselQuickActions from '@/features/vessel-schedule/VesselQuickActions.vue'
 import SearchFilterControl from '@/features/vessel-search/SearchFilterControl.vue'
 import SearchRowActions from '@/features/vessel-search/SearchRowActions.vue'
@@ -40,6 +41,7 @@ import {
   columnHeaderLabelById,
   groupColumnOrder,
   groupedSearchColumnDefs,
+  LOCKED_COLUMN_ID,
   SEARCH_COLUMNS,
   searchCellText,
 } from '@/features/vessel-search/search-columns'
@@ -60,17 +62,27 @@ import { DEFAULT_SORT, frozenColumnIds, type SortRule } from '@/features/vessel-
 import { regionLabel, selectablePorts, selectableRegions } from '@/features/terminal-coverage/model'
 import { downloadText, formatFileStamp, toCsv } from '@/lib/vessel-utils'
 import { useListSettingsStore } from '@/stores/list-settings'
+import { useScheduleStore } from '@/stores/schedule'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
 import { useVesselStore } from '@/stores/vessels'
 import type { VesselRecord } from '@/types/vsp'
 
 const store = useVesselStore()
 const listSettings = useListSettingsStore()
+const schedule = useScheduleStore()
 const coverage = useTerminalCoverageStore()
+
+provide(syncCellKey, (callId, columnId) => {
+  const watched = listSettings.active?.watchedFields ?? []
+  if (!watched.includes(columnId)) return null
+  const field = reviewForColumn(schedule.review(callId).fields, columnId)
+  if (!field) return null
+  return { field }
+})
+provide(syncPendingKey, (callId) => schedule.review(callId).pending)
 const router = useRouter()
 
 const filtersOpen = ref(true)
-const addVesselOpen = ref(false)
 const actionVessel = ref<VesselRecord | null>(null)
 const quickAction = ref<ScheduleQuickAction | null>(null)
 const query = ref<Record<string, FilterState>>({})
@@ -86,7 +98,7 @@ const columnVisibility = ref<ColumnVisibilityState>(visibilityFrom([]))
 function visibilityFrom(hiddenIds: string[]): ColumnVisibilityState {
   const visibility: ColumnVisibilityState = {}
   for (const column of SEARCH_COLUMNS) {
-    visibility[column.id] = column.id === 'vesselName' || !hiddenIds.includes(column.id)
+    visibility[column.id] = column.id === LOCKED_COLUMN_ID || !hiddenIds.includes(column.id)
   }
   return visibility
 }
@@ -233,7 +245,7 @@ function exportCsv() {
 }
 
 const ACTIONS_STICKY = 'sticky right-0 z-20 border-l-2 border-l-[#8aa0bb] shadow-[-8px_0_8px_-6px_rgba(20,35,58,0.18)]'
-const ACTIONS_HEAD = 'sticky right-0 z-30 h-auto border-l-2 border-l-[#8aa0bb] bg-card text-left align-middle shadow-[-8px_0_8px_-6px_rgba(20,35,58,0.18)]'
+const ACTIONS_HEAD = 'right-0 z-50 h-auto border-l-2 border-l-[#8aa0bb] bg-card text-left align-middle shadow-[-8px_0_8px_-6px_rgba(20,35,58,0.18)]'
 const FREEZE_SHADOW = 'shadow-[8px_0_8px_-6px_rgba(20,35,58,0.18)]'
 
 const frozenIds = computed(() =>
@@ -292,16 +304,24 @@ function freezeStyle(id: string) {
 }
 
 function headerFreezeClass(id: string) {
-  if (!frozenIds.value.includes(id)) return undefined
-  return id === frozenIds.value.at(-1) ? ['sticky z-20', FREEZE_SHADOW] : 'sticky z-20'
+  if (!frozenIds.value.includes(id)) return 'z-30'
+  return id === frozenIds.value.at(-1) ? ['z-40', FREEZE_SHADOW] : 'z-40'
 }
 
-function cellFreezeClass(id: string, rowNotFound: boolean) {
+function watchedChangeClass(vessel: VesselRecord) {
+  return schedule.review(vessel.id).changed ? 'bg-yellow-100' : ''
+}
+
+function rowClass(vessel: VesselRecord) {
+  return watchedChangeClass(vessel)
+}
+
+function cellFreezeClass(id: string, vessel: VesselRecord) {
   if (!frozenIds.value.includes(id)) return undefined
   return [
     'sticky z-10',
     id === frozenIds.value.at(-1) ? FREEZE_SHADOW : '',
-    rowNotFound ? 'bg-muted' : 'bg-card',
+    watchedChangeClass(vessel) || 'bg-card',
     'group-hover:bg-muted',
   ]
 }
@@ -333,8 +353,8 @@ const visibleColCount = computed(
 </script>
 
 <template>
-  <div class="flex w-full min-w-0 flex-col gap-4 py-4">
-    <div class="flex flex-wrap items-center justify-end gap-2">
+  <div class="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 overflow-hidden py-4">
+    <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
       <FilterField label="List setting">
         <Select :model-value="listSettings.activeId" @update:model-value="(value) => typeof value === 'string' && activateSetting(value)">
           <SelectTrigger class="h-8 w-52" aria-label="List setting">
@@ -353,12 +373,9 @@ const visibleColCount = computed(
       <Button type="button" variant="outline" @click="exportCsv">
         <Download class="size-3.5" /> Export
       </Button>
-      <Button type="button" variant="secondary" @click="addVesselOpen = true">
-        <Plus class="size-3.5" /> Add vessel
-      </Button>
     </div>
 
-    <div>
+    <div class="shrink-0">
       <div class="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -384,8 +401,8 @@ const visibleColCount = computed(
       </QueryPanel>
     </div>
 
-    <div ref="tableWrap" class="overflow-hidden rounded-md border">
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-card px-3 py-2 text-xs">
+    <div ref="tableWrap" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border">
+      <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-card px-3 py-2 text-xs">
         <span
           v-for="group in COLUMN_GROUP_ORDER"
           :key="group"
@@ -398,57 +415,60 @@ const visibleColCount = computed(
           {{ COLUMN_GROUP_LABEL[group] }}
         </span>
       </div>
-      <Table class="min-w-max border-separate border-spacing-0 [&_td]:border-b [&_th]:border-b">
-        <TableHeader>
-          <TableRow v-for="headerGroup in headerGroups" :key="headerGroup.id">
-            <template v-for="header in headerGroup.headers" :key="header.id">
-              <TableHead
-                v-if="!header.isPlaceholder && header.colSpan > 0 && header.rowSpan > 0"
-                :colspan="header.colSpan"
-                :rowspan="header.rowSpan > 1 ? header.rowSpan : undefined"
-                :data-freeze-id="frozenIds.includes(header.column.id) ? header.column.id : undefined"
-                :style="freezeStyle(header.column.id)"
-                class="whitespace-nowrap"
-                :class="header.column.id === 'actions' ? ACTIONS_HEAD : [leafHeaderClass(header.column.id), headerFreezeClass(header.column.id)]"
-              >
-                <DataTableColumnHeader
-                  v-if="header.column.getCanSort()"
-                  :title="String(header.column.columnDef.header ?? header.column.id)"
-                  :sorted="header.column.getIsSorted()"
-                  :sort-index="header.column.getIsSorted() ? header.column.getSortIndex() + 1 : 0"
-                  @sort="(desc) => header.column.toggleSorting(desc, true)"
-                  @clear-sort="header.column.clearSorting()"
-                  @clear-all-sort="table.setSorting([])"
-                />
-                <FlexRender v-else :header="header" />
-              </TableHead>
-            </template>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow
-            v-for="row in tableRows"
-            :key="row.id"
-            class="group"
-            :class="row.original.rowNotFound ? 'bg-muted' : ''"
-          >
-            <TableCell
-              v-for="cell in row.getVisibleCells()"
-              :key="cell.id"
-              class="whitespace-nowrap"
-              :style="freezeStyle(cell.column.id)"
-              :class="cell.column.id === 'actions'
-                ? [ACTIONS_STICKY, row.original.rowNotFound ? 'bg-muted' : 'bg-card', 'group-hover:bg-muted']
-                : cellFreezeClass(cell.column.id, Boolean(row.original.rowNotFound))"
+      <div class="min-h-0 flex-1 overflow-auto">
+        <Table :scrollable="false" class="min-w-max border-separate border-spacing-0 [&_td]:border-b [&_th]:border-b">
+          <TableHeader class="sticky top-0 z-30">
+            <TableRow v-for="headerGroup in headerGroups" :key="headerGroup.id">
+              <template v-for="header in headerGroup.headers" :key="header.id">
+                <TableHead
+                  v-if="!header.isPlaceholder && header.colSpan > 0 && header.rowSpan > 0"
+                  :colspan="header.colSpan"
+                  :rowspan="header.rowSpan > 1 ? header.rowSpan : undefined"
+                  :data-freeze-id="frozenIds.includes(header.column.id) ? header.column.id : undefined"
+                  :style="freezeStyle(header.column.id)"
+                  class="sticky top-0 whitespace-nowrap"
+                  :class="header.column.id === 'actions' ? ACTIONS_HEAD : [leafHeaderClass(header.column.id), headerFreezeClass(header.column.id)]"
+                >
+                  <DataTableColumnHeader
+                    v-if="header.column.getCanSort()"
+                    :title="String(header.column.columnDef.header ?? header.column.id)"
+                    :sorted="header.column.getIsSorted()"
+                    :sort-index="header.column.getIsSorted() ? header.column.getSortIndex() + 1 : 0"
+                    @sort="(desc) => header.column.toggleSorting(desc, true)"
+                    @clear-sort="header.column.clearSorting()"
+                    @clear-all-sort="table.setSorting([])"
+                  />
+                  <FlexRender v-else :header="header" />
+                </TableHead>
+              </template>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow
+              v-for="row in tableRows"
+              :key="row.id"
+              class="group"
+              :class="rowClass(row.original)"
             >
-              <FlexRender :cell="cell" />
-            </TableCell>
-          </TableRow>
-          <TableEmpty v-if="!tableRows.length" :colspan="Math.max(visibleColCount, 1)" />
-        </TableBody>
-      </Table>
+              <TableCell
+                v-for="cell in row.getVisibleCells()"
+                :key="cell.id"
+                class="whitespace-nowrap"
+                :style="freezeStyle(cell.column.id)"
+                :class="cell.column.id === 'actions'
+                  ? [ACTIONS_STICKY, watchedChangeClass(row.original) || 'bg-card', 'group-hover:bg-muted']
+                  : cellFreezeClass(cell.column.id, row.original)"
+              >
+                <FlexRender :cell="cell" />
+              </TableCell>
+            </TableRow>
+            <TableEmpty v-if="!tableRows.length" :colspan="Math.max(visibleColCount, 1)" />
+          </TableBody>
+        </Table>
+      </div>
     </div>
     <DataTablePagination
+      class="shrink-0"
       :total="rowCount"
       :page-index="pagination.pageIndex"
       :page-size="pagination.pageSize"
@@ -457,7 +477,6 @@ const visibleColCount = computed(
       @update:page-size="(size) => table.setPageSize(size)"
     />
 
-    <ManualAddVesselDialog v-model:open="addVesselOpen" />
     <VesselQuickActions :vessel="actionVessel" :action="quickAction" @close="quickAction = null" />
   </div>
 </template>

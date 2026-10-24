@@ -1,14 +1,14 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
+import { computed, nextTick, provide, ref } from 'vue'
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 
+import { brandFromVoyage } from '@/domain/lara-brand'
 import DataSection from '@/components/DataSection.vue'
 import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
 import ReadonlyField from '@/components/ReadonlyField.vue'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
 import { DateTimePicker } from '@/components/ui/date-picker'
 import {
   Dialog,
@@ -28,13 +28,23 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { MISMATCH_ALERT, MISMATCH_REEDIT_ALERT } from '@/features/vessel-schedule/mismatch-actions'
+import { mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
+import { type ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
+import ScheduleRecordHeading from '@/features/vessel-schedule/ScheduleRecordHeading.vue'
+import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
+import VesselQuickActions from '@/features/vessel-schedule/VesselQuickActions.vue'
+import SyncFieldAlert from '@/features/vessel-schedule/SyncFieldAlert.vue'
+import { columnIdForReview, reviewForColumn } from '@/features/vessel-schedule/sync-columns'
+import { syncCellKey } from '@/features/vessel-schedule/sync-review'
+import { useScheduleStore, type SyncChoice } from '@/stores/schedule'
 import {
   CANDIDATE_COLUMN_DEFS,
   datetimeInputValue,
   datetimeToIso,
   displayDraftValue,
+  draftKeyForColumn,
   draftToSchedule,
+  terminalPanelColumns,
   emptyTerminalDraft,
   scheduleToDraft,
   type TerminalDraft,
@@ -49,23 +59,34 @@ import type { HistoryDetail, MatchingStatus, TerminalSchedule, VesselRecord } fr
 const route = useRoute()
 const router = useRouter()
 const store = useVesselStore()
+const schedule = useScheduleStore()
+provide(syncCellKey, (callId, columnId) => {
+  const field = reviewForColumn(schedule.review(callId).fields, columnId)
+  if (!field || field.side === 'MATCH') return null
+  return { field }
+})
 const coverage = useTerminalCoverageStore()
 const tabs = useTabsStore()
 const vessel = computed(() => store.byId(String(route.params.id)))
 
-const LARA_KEY = new Set(['laraVoyage', 'laraPoolLocation', 'pointCode'])
+const LARA_KEY = new Set(['laraVoyage', 'pointCode', 'laraPoolLocation', 'visitNo'])
+const CALCULATED_LARA = new Set(['voyageStatus', 'vesselType', 'terminal9code'])
+const HIDDEN_LARA = new Set(['voyageStatus'])
 
 const LARA_COLUMNS: { id: string; label: string; kind: 'text' | 'datetime' }[] = [
   { id: 'laraVoyage', label: 'Voyage', kind: 'text' },
-  { id: 'laraPoolLocation', label: 'Pool location', kind: 'text' },
   { id: 'pointCode', label: 'Port', kind: 'text' },
+  { id: 'laraPoolLocation', label: 'Pool location', kind: 'text' },
+  { id: 'visitNo', label: 'Visit no', kind: 'text' },
   { id: 'vesselName', label: 'Vessel name', kind: 'text' },
-  { id: 'vesselType', label: 'Vessel type', kind: 'text' },
   { id: 'brand', label: 'Brand', kind: 'text' },
   { id: 'service', label: 'Service', kind: 'text' },
+  { id: 'laraEta', label: 'ETA', kind: 'datetime' },
   { id: 'laraEtb', label: 'ETB', kind: 'datetime' },
   { id: 'laraEtd', label: 'ETD', kind: 'datetime' },
   { id: 'voyageStatus', label: 'Voyage status', kind: 'text' },
+  { id: 'vesselType', label: 'Vessel type', kind: 'text' },
+  { id: 'terminal9code', label: 'Terminal 9code', kind: 'text' },
 ]
 
 type TerminalRow = {
@@ -77,6 +98,8 @@ type TerminalRow = {
   baseline: TerminalDraft | null
   editing: boolean
   editSnapshot: TerminalDraft | null
+  linkChoiceId?: string
+  linkSource?: 'Official' | 'Temporary' | 'Both'
 }
 
 type PendingSync = {
@@ -108,24 +131,38 @@ const pendingSyncs = ref<PendingSync[]>([])
 const pendingMatches = ref<PendingMatch[]>([])
 const confirmOpen = ref(false)
 const syncSide = ref<'LARA' | 'Terminal' | null>(null)
+const terminalFields = terminalPanelColumns()
+const selectOpen = ref(false)
+const shapeOpen = ref(false)
+const pendingSelectId = ref<string | null>(null)
+const replaceOpen = ref(false)
 const remark = ref('')
+const quickAction = ref<ScheduleQuickAction | null>(null)
+const syncDrafts = ref<Record<string, string>>({})
 let rowSeq = 0
+
+function syncKey(side: string, field: string) {
+  return `${side}:${field}`
+}
 
 function laraRaw(current: VesselRecord, id: string) {
   if (id === 'laraVoyage') return current.laraVoyage
   if (id === 'pointCode') return current.pointCode
-  if (id === 'laraPoolLocation') return current.poolLocation
+  if (id === 'laraPoolLocation') return current.laraPoolLocation
+  if (id === 'visitNo') return current.visitNo
+  if (id === 'multipleCallNumber') return current.multipleCallNumber
+  if (id === 'vesselOperator') return current.vesselOperator
+  if (id === 'acPartner') return current.acPartner
+  if (id === 'cutoff') return current.cutoff
   if (id === 'vesselName') return current.vesselName
   if (id === 'service') return current.service
-  if (id === 'brand') return current.brand ?? ''
+  if (id === 'brand') return brandFromVoyage(current.laraVoyage) || current.brand || ''
+  if (id === 'laraEta') return current.laraEta
   if (id === 'laraEtb') return current.laraEtb
   if (id === 'laraEtd') return current.laraEtd
   if (id === 'voyageStatus') return current.voyageStatus
-  if (id === 'vesselType') {
-    if (current.groupKind === 'Partner Vessel') return 'Partner vsl'
-    if (current.groupKind === '3PF') return '3PF'
-    return 'Group vsl'
-  }
+  if (id === 'vesselType') return current.vesselTypeLabel
+  if (id === 'terminal9code') return current.terminal9code
   return ''
 }
 
@@ -135,6 +172,8 @@ function laraLatest(current: VesselRecord, id: string) {
 }
 
 function displayLara(id: string, kind: 'text' | 'datetime') {
+  if (id === 'vesselType') return vessel.value?.vesselTypeLabel || '—'
+  if (id === 'terminal9code') return vessel.value?.terminal9code || '—'
   const raw = laraValues.value[id] ?? ''
   if (!raw) return '—'
   return kind === 'datetime' ? formatDateTime(raw) : raw
@@ -200,7 +239,7 @@ function matchLabel(row: TerminalRow | null | undefined) {
 }
 
 function diffLara(from: Record<string, string>, to: Record<string, string>): HistoryDetail[] {
-  return LARA_COLUMNS.filter((column) => !LARA_KEY.has(column.id))
+  return LARA_COLUMNS.filter((column) => !LARA_KEY.has(column.id) && !CALCULATED_LARA.has(column.id))
     .filter((column) => (from[column.id] ?? '') !== (to[column.id] ?? ''))
     .map((column) => ({
       field: column.id,
@@ -256,7 +295,7 @@ function init(current: VesselRecord) {
   committedDrafts.value = stored.map(cloneDraft)
   rows.value = stored.map((draft, index) => rowFromDraft(draft, rowSource(current, draft), index))
   const matched = rows.value.find((row) => sameSchedule(current.terminalSchedule, row.draft))
-  selectedId.value = matched?.id ?? null
+  selectedId.value = matched?.id ?? (rows.value.length === 1 ? rows.value[0]!.id : null)
   loggedMatchLabel.value = matchLabel(matched)
   formRowId.value = null
   pendingSyncs.value = []
@@ -264,31 +303,200 @@ function init(current: VesselRecord) {
   confirmOpen.value = false
   syncSide.value = null
   remark.value = ''
+  const drafts: Record<string, string> = {}
+  for (const field of schedule.review(current.id).fields) {
+    if (field.status !== 'pending') continue
+    drafts[syncKey(field.side, field.field)] = field.previousValue
+  }
+  syncDrafts.value = drafts
+  applyLinkTerminalRows(current)
+}
+
+function applyLinkTerminalRows(current: VesselRecord) {
+  const review = current.linkReview
+  if (!review || review.terminalMatched) return
+  rows.value = review.terminalChoices.map((choice) => {
+    const row = rowFromDraft(scheduleToDraft(choice.schedule, current), 'sync', null)
+    row.linkChoiceId = choice.id
+    row.linkSource = choice.source
+    return row
+  })
+  const preferred = rows.value.find((row) => row.linkSource !== 'Temporary' && sameSchedule(current.terminalSchedule, row.draft))
+    ?? rows.value.find((row) => row.linkSource !== 'Temporary')
+    ?? rows.value[0]
+  selectedId.value = preferred?.id ?? null
+  loggedMatchLabel.value = matchLabel(preferred)
+  const drafts = rows.value.map((row) => cloneDraft(row.draft))
+  originDrafts.value = drafts.map(cloneDraft)
+  committedDrafts.value = drafts.map(cloneDraft)
 }
 
 if (vessel.value) init(vessel.value)
 
-const formRow = computed(() => rows.value.find((row) => row.id === formRowId.value) ?? null)
-const selectedRow = computed(() => rows.value.find((row) => row.id === selectedId.value) ?? null)
-
-const pageHint = computed(() => {
+const pendingSyncFields = computed(() => {
   const current = vessel.value
-  if (!current) return ''
-  if (!rows.value.length) {
-    return current.matchingStatus === 'Pending match'
-      ? 'Matching has not run yet. Enter terminal information manually.'
-      : MISMATCH_ALERT.addTerminal
-  }
-  if (rows.value.length > 1) return MISMATCH_ALERT.selectMatch
-  const row = rows.value[0]!
-  if (!row.draft.evoyage.trim() || !row.draft.ivoyage.trim()) {
-    return 'A terminal schedule was found, but export/import voyage is missing. Enter the voyage to continue.'
-  }
-  const gap = etdGapDays(laraValues.value.laraEtd ?? '', row.draft.etd)
-  if (gap == null || gap > 5) return MISMATCH_ALERT.reviewMatch
-  if (current.matchingStatus === 'Manual matched') return MISMATCH_REEDIT_ALERT.reviewMatch
-  return ''
+  if (!current) return []
+  return schedule.review(current.id).fields.filter((field) => field.status === 'pending')
 })
+
+function syncChoices(): SyncChoice[] {
+  return pendingSyncFields.value.filter((field) => field.side !== 'MATCH').map((field) => ({
+    side: field.side,
+    field: field.field,
+    payloadId: field.payloadId,
+    previousValue: field.previousValue,
+    incomingValue: field.incomingValue,
+    typed: syncDrafts.value[syncKey(field.side, field.field)] ?? field.previousValue,
+  }))
+}
+
+const selectedRow = computed(() => rows.value.find((row) => row.id === selectedId.value) ?? null)
+const comparable = computed(() => {
+  const status = vessel.value?.matchingStatus
+  return status === 'Auto matched' || status === 'Manual matched'
+})
+const activeRow = computed(() => selectedRow.value ?? (rows.value.length === 1 ? rows.value[0]! : null))
+const structure = computed(() => {
+  const current = vessel.value
+  if (!current || !comparable.value) return null
+  return schedule.review(current.id).shape
+})
+const linkReview = computed(() => vessel.value?.linkReview ?? null)
+const temporaryVessel = computed(() => {
+  const id = linkReview.value?.temporaryId
+  return id ? store.byId(id) : undefined
+})
+const linkTerminalOpen = computed(() => Boolean(linkReview.value && !linkReview.value.terminalMatched))
+const fieldCompare = computed(() => {
+  if (!comparable.value || structure.value) return false
+  if (linkTerminalOpen.value) return true
+  return rows.value.length <= 1
+})
+
+const linkTarget = computed(() => {
+  const id = vessel.value?.laraLinkTargetId
+  return id ? store.byId(id) : undefined
+})
+
+const headerAlert = computed(() => {
+  const current = vessel.value
+  if (!current) return null
+  const review = schedule.review(current.id)
+  return mappingHeaderAlert(current, { shape: review.shape, candidateCount: review.candidateCount })
+})
+
+const mappingAlert = computed(() => {
+  const current = vessel.value
+  if (!current) return null
+  const review = schedule.review(current.id)
+  if (review.shape) return null
+  const field = review.fields.find((item) => item.side === 'MATCH')
+  if (!field) return null
+  return {
+    variant: field.status === 'pending' ? 'warning' as const : 'info' as const,
+    title: 'Mapping status',
+    text: `${field.previousValue || '—'} → ${field.incomingValue || '—'}`,
+  }
+})
+
+function linkOffer(columnId: string) {
+  return linkReview.value?.laraDiffs.find((diff) => diff.field === columnId)
+}
+
+function useTemporary(columnId: string) {
+  const diff = linkOffer(columnId)
+  if (diff) onLaraInput(columnId, diff.temporary)
+}
+
+function keepFormal(columnId: string) {
+  const diff = linkOffer(columnId)
+  if (diff) onLaraInput(columnId, diff.official)
+}
+
+function offerForColumn(columnId: string) {
+  if (!fieldCompare.value) return undefined
+  return pendingSyncFields.value.find((field) => field.side !== 'MATCH' && columnIdForReview(field) === columnId)
+}
+
+function offerForDraft(key: TerminalDraftKey) {
+  return pendingSyncFields.value.find((field) => {
+    if (field.side !== 'TERMINAL') return false
+    return draftKeyForColumn(columnIdForReview(field)) === key
+  })
+}
+
+function offerLabel(value: string, kind: string) {
+  if (!value) return '—'
+  return kind === 'datetime' ? formatDateTime(value) : value
+}
+
+function payloadText(payload: { exportVoyage: string; importVoyage: string; terminalCode: string; terminalName: string; vesselStatus: string; eta: string; etb: string; etd: string; atb: string; atd: string; cyOpen: string; cyCutoff: string }, columnId: string) {
+  const raw: Record<string, string> = {
+    evoyage: payload.exportVoyage,
+    ivoyage: payload.importVoyage,
+    terminal: payload.terminalName || payload.terminalCode,
+    status: payload.vesselStatus,
+    eta: payload.eta,
+    etb: payload.etb,
+    etd: payload.etd,
+    atb: payload.atb,
+    atd: payload.atd,
+    cyOpen: payload.cyOpen,
+    cyClosing: payload.cyCutoff,
+  }
+  const value = raw[columnId] ?? ''
+  if (!value) return '—'
+  const column = CANDIDATE_COLUMN_DEFS.find((item) => item.id === columnId)
+  return column?.kind === 'datetime' ? formatDateTime(value) : value
+}
+
+function payloadIsCurrent(payload: { exportVoyage: string; terminalCode: string; etd: string }) {
+  const row = activeRow.value
+  if (!row) return false
+  return payload.exportVoyage === row.draft.evoyage && (payload.terminalCode === row.draft.terminal || !payload.terminalCode) && payload.etd === row.draft.etd
+}
+
+function rememberChoice(field: { side: string; field: string }, value: string) {
+  syncDrafts.value[syncKey(field.side, field.field)] = value
+}
+
+function useLatest(columnId: string) {
+  const field = offerForColumn(columnId)
+  if (!field) return
+  rememberChoice(field, field.incomingValue)
+  if (field.side === 'LARA') {
+    laraValues.value[columnId] = field.incomingValue
+    return
+  }
+  const key = draftKeyForColumn(columnId)
+  if (key && activeRow.value) activeRow.value.draft[key] = field.incomingValue
+}
+
+function keepCurrent(columnId: string) {
+  const field = offerForColumn(columnId)
+  if (!field) return
+  rememberChoice(field, field.previousValue)
+  if (field.side === 'LARA') {
+    laraValues.value[columnId] = field.previousValue
+    return
+  }
+  const key = draftKeyForColumn(columnId)
+  if (key && activeRow.value) activeRow.value.draft[key] = field.previousValue
+}
+
+function onLaraInput(columnId: string, value: string) {
+  laraValues.value[columnId] = value
+  const field = offerForColumn(columnId)
+  if (field) rememberChoice(field, value)
+}
+
+function onTerminalInput(key: TerminalDraftKey, value: string) {
+  const row = activeRow.value
+  if (!row) return
+  row.draft[key] = value
+  const field = offerForDraft(key)
+  if (field) rememberChoice(field, value)
+}
 
 function startLaraEdit() {
   laraEditing.value = true
@@ -332,6 +540,7 @@ function addRow() {
     editSnapshot: cloneDraft(draft),
   }
   rows.value.push(row)
+  selectedId.value = row.id
   formRowId.value = row.id
 }
 
@@ -360,51 +569,43 @@ function lockedFields() {
 }
 
 function applyLaraSync() {
-  const current = vessel.value
-  const locked = lockedFields()
-  const next = { ...laraSource.value }
+  const next = { ...laraValues.value }
   for (const column of LARA_COLUMNS) {
-    if (locked.has(column.id)) next[column.id] = laraValues.value[column.id] ?? next[column.id]
+    if (LARA_KEY.has(column.id) || CALCULATED_LARA.has(column.id)) continue
+    if (comparable.value && offerForColumn(column.id)) continue
+    next[column.id] = laraSource.value[column.id] ?? next[column.id]
+    laraBaseline.value[column.id] = next[column.id] ?? ''
   }
-  pendingSyncs.value.push({
-    source: 'LARA',
-    at: new Date().toISOString(),
-    changes: diffLara(laraValues.value, next),
-  })
+  const changes = diffLara(laraValues.value, next)
+  if (changes.length) {
+    pendingSyncs.value.push({ source: 'LARA', at: new Date().toISOString(), changes })
+  }
   laraValues.value = next
-  if (current) {
-    for (const column of LARA_COLUMNS) {
-      if (!locked.has(column.id)) laraBaseline.value[column.id] = next[column.id] ?? ''
-    }
-  }
-  laraEditing.value = false
 }
 
 function applyProtectedTerminalSync() {
-  const locked = lockedFields()
+  const row = activeRow.value
+  if (!row || row.originIndex == null) return
+  const source = sourceDrafts.value[row.originIndex]
+  if (!source) return
   const changes: HistoryDetail[] = []
-  for (const row of rows.value) {
-    if (row.originIndex == null) continue
-    const source = sourceDrafts.value[row.originIndex]
-    if (!source) continue
-    for (const key of Object.keys(row.draft) as TerminalDraftKey[]) {
-      if (locked.has(key)) continue
-      const from = row.draft[key]
-      const to = source[key]
-      if (from === to) continue
-      row.draft[key] = to
-      if (row.baseline) row.baseline[key] = to
-      const origin = originDrafts.value[row.originIndex]
-      if (origin) origin[key] = to
-      changes.push({ field: key, from, to })
-    }
+  for (const key of Object.keys(row.draft) as TerminalDraftKey[]) {
+    if (offerForDraft(key)) continue
+    const from = row.draft[key]
+    const to = source[key]
+    if (from === to) continue
+    row.draft[key] = to
+    if (row.baseline) row.baseline[key] = to
+    const origin = originDrafts.value[row.originIndex]
+    if (origin) origin[key] = to
+    changes.push({ field: key, from, to })
   }
-  pendingSyncs.value.push({ source: 'Terminal', at: new Date().toISOString(), changes })
+  if (changes.length) pendingSyncs.value.push({ source: 'Terminal', at: new Date().toISOString(), changes })
 }
 
 function applyTerminalSync() {
-  const current = vessel.value
-  if (current && (current.matchingStatus === 'Manual matched' || current.terminalSource === 'manual')) {
+  if (comparable.value) {
+    if (structure.value) return
     applyProtectedTerminalSync()
     return
   }
@@ -425,6 +626,10 @@ function applyTerminalSync() {
   }
 }
 
+function formDirty() {
+  return Boolean(laraManualChanges().length || createdDetails().length || updatedDetails().length || manualMatch())
+}
+
 function requestSync(side: 'LARA' | 'Terminal') {
   const current = vessel.value
   if (!current || current.recordStatus === 'Inactive') {
@@ -435,7 +640,62 @@ function requestSync(side: 'LARA' | 'Terminal') {
     toast.error('This port has no terminal coverage, so no terminal request is sent')
     return
   }
-  syncSide.value = side
+  if (formDirty()) {
+    syncSide.value = side
+    return
+  }
+  if (side === 'LARA') applyLaraSync()
+  else applyTerminalSync()
+}
+
+function openSelect() {
+  pendingSelectId.value = selectedId.value
+  selectOpen.value = true
+}
+
+function useSelection() {
+  const next = pendingSelectId.value
+  if (!next || next === selectedId.value) {
+    selectOpen.value = false
+    return
+  }
+  const current = activeRow.value
+  if (current && rowDirty(current)) {
+    replaceOpen.value = true
+    return
+  }
+  selectedId.value = next
+  selectOpen.value = false
+}
+
+function replaceSelection() {
+  const next = pendingSelectId.value
+  if (!next) return
+  const current = activeRow.value
+  if (current) current.draft = cloneDraft(current.baseline ?? emptyTerminalDraft())
+  selectedId.value = next
+  replaceOpen.value = false
+  selectOpen.value = false
+}
+
+function keepShape() {
+  const current = vessel.value
+  if (!current) return
+  schedule.keepShape(current.id)
+}
+
+function adoptNone() {
+  const current = vessel.value
+  if (!current) return
+  schedule.adoptNone(current.id)
+  init(current)
+}
+
+function adoptListed(payloadId: string) {
+  const current = vessel.value
+  if (!current) return
+  schedule.adoptCandidate(current.id, payloadId)
+  init(current)
 }
 
 function statusAfterSave(current: VesselRecord): MatchingStatus {
@@ -459,7 +719,7 @@ function statusAfterSave(current: VesselRecord): MatchingStatus {
   const row = rows.value[0]
   if (!row || !row.draft.evoyage.trim() || !row.draft.ivoyage.trim()) return 'No external voyage'
   const gap = etdGapDays(laraValues.value.laraEtd ?? '', row.draft.etd)
-  if (gap == null || gap > 5) return 'ETD gap > 5 days'
+  if (gap == null || gap > 3) return 'ETD gap > 3 days'
   return 'Auto matched'
 }
 
@@ -528,10 +788,16 @@ const confirmCopy = computed(() => {
   for (const match of pendingMatches.value) {
     lines.push(match.to === 'Unconfirmed' ? 'Match: clear the current match.' : `Match: auto ${match.from} → ${match.to}.`)
   }
+  if (pendingSyncFields.value.some((field) => field.side !== 'MATCH')) {
+    lines.push('Watched fields you edited are saved from the value in each field.')
+  }
+  if (linkReview.value) {
+    lines.push('The temporary vessel link is confirmed from the values in this form.')
+  }
   const chosen = manualMatch()
   if (chosen) {
     lines.push(chosen.to === 'Unconfirmed' ? 'Match: cancel the current terminal match.' : `Match: ${chosen.from} → ${chosen.to}.`)
-  } else if (selectedRow.value && lines.length && !pendingMatches.value.length) {
+  } else if (hasReviewEdits() && selectedRow.value && !pendingMatches.value.length) {
     lines.push(`Match: keep ${matchLabel(selectedRow.value)}.`)
   }
   return {
@@ -541,7 +807,7 @@ const confirmCopy = computed(() => {
   }
 })
 
-function hasChanges() {
+function hasReviewEdits() {
   return Boolean(
     pendingSyncs.value.length
     || pendingMatches.value.length
@@ -550,6 +816,42 @@ function hasChanges() {
     || updatedDetails().length
     || manualMatch(),
   )
+}
+
+function hasChanges() {
+  return hasReviewEdits() || pendingSyncFields.value.length > 0 || Boolean(linkReview.value)
+}
+
+function commitLinkReview(current: VesselRecord) {
+  const review = current.linkReview
+  if (!review) return true
+  const fields: Record<string, 'official' | 'temporary'> = {}
+  const values: Record<string, string> = {}
+  for (const diff of review.laraDiffs) {
+    const value = laraValues.value[diff.field] ?? diff.official
+    values[diff.field] = value
+    fields[diff.field] = value === diff.temporary ? 'temporary' : 'official'
+  }
+  let terminalId: string | null = null
+  let terminalSchedule: TerminalSchedule | null = null
+  if (!review.terminalMatched) {
+    const row = rows.value.find((item) => item.id === selectedId.value)
+    terminalId = row?.linkChoiceId ?? null
+    if (!row || !terminalId) {
+      toast.error('Select one terminal record')
+      confirmOpen.value = false
+      return false
+    }
+    const choice = review.terminalChoices.find((item) => item.id === terminalId)
+    terminalSchedule = draftToSchedule(row.draft, choice?.schedule)
+  }
+  const saved = store.confirmTemporaryLink(current.id, { fields, values, terminalId, terminalSchedule })
+  if (!saved) {
+    toast.error('Link review could not be saved')
+    confirmOpen.value = false
+    return false
+  }
+  return true
 }
 
 function closePage() {
@@ -564,6 +866,31 @@ onBeforeRouteLeave(async () => {
   await nextTick()
 })
 
+function openHistory() {
+  const current = vessel.value
+  if (!current) return
+  void router.push(`/vessels/${current.id}/activity-log`)
+}
+
+function openVessel(id: string) {
+  void router.push(`/vessels/${id}/view`)
+}
+
+function onVesselDeleted() {
+  quickAction.value = null
+  void router.push('/search')
+}
+
+function cancelEdits() {
+  const current = vessel.value
+  if (!current) return
+  selectOpen.value = false
+  shapeOpen.value = false
+  replaceOpen.value = false
+  pendingSelectId.value = null
+  init(current)
+}
+
 function save() {
   if (!vessel.value) return
   if (!hasChanges()) {
@@ -576,9 +903,21 @@ function save() {
 async function confirmSave() {
   const current = vessel.value
   if (!current) return
+  const pendingLink = current.linkReview
+  if (pendingLink) {
+    laraBaseline.value = { ...laraValues.value }
+    laraOrigin.value = { ...laraValues.value }
+    for (const row of rows.value) row.baseline = cloneDraft(row.draft)
+    committedDrafts.value = rows.value.map((row) => cloneDraft(row.draft))
+    originDrafts.value = committedDrafts.value.map(cloneDraft)
+    loggedMatchLabel.value = matchLabel(rows.value.find((row) => row.id === selectedId.value))
+    pendingSyncs.value = []
+    pendingMatches.value = []
+  }
+  if (structure.value) schedule.keepShape(current.id)
   const chosen = manualMatch()
   const matches = [...pendingMatches.value, ...(chosen ? [chosen] : [])]
-  store.saveReviewMatch(current.id, {
+  if (hasReviewEdits()) store.saveReviewMatch(current.id, {
     laraApply: diffLara(laraOrigin.value, laraValues.value),
     laraManual: laraManualChanges(),
     terminalApply: persistedTerminalChanges(),
@@ -591,178 +930,200 @@ async function confirmSave() {
     matches,
     matchingStatus: statusAfterSave(current),
   })
+  const choices = syncChoices()
+  if (choices.length) {
+    schedule.confirm(current.id, choices)
+    if (!hasReviewEdits()) {
+      store.recordConfirmedFields(
+        current.id,
+        choices.filter((choice) => choice.side !== 'MATCH').map((choice) => ({
+          field: choice.field,
+          from: choice.previousValue,
+          to: choice.typed,
+        })),
+        remark.value,
+      )
+    }
+  }
+  if (pendingLink && !commitLinkReview(current)) return
   confirmOpen.value = false
   toast.success('Review saved')
   await nextTick()
   closePage()
 }
 
-const syncCopy = computed(() => {
-  const current = vessel.value
-  const manual = current?.matchingStatus === 'Manual matched' || current?.terminalSource === 'manual'
-  if (syncSide.value === 'Terminal') {
-    return {
-      title: 'Sync terminal',
-      description: manual
-        ? 'Sync this row only. The selected terminal record and fields you edited stay. Other terminal fields update from the latest result.'
-        : 'Sync this row only. An automatic match follows the latest result: one record stays attached, several records keep the previous row only when it is still returned, and no record clears the automatic match.',
-    }
-  }
-  return {
-    title: 'Sync LARA',
-    description: 'Sync this row only, outside the daily batch window. Fields you already edited stay. This does not mark other rows Omit.',
-  }
-})
+const syncCopy = computed(() => ({
+  title: syncSide.value === 'Terminal' ? 'Sync latest Terminal' : 'Sync latest LARA',
+  description: 'Unsaved edits will be lost. Latest values replace fields that are not waiting for confirmation.',
+}))
+
+const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vessel.value.id) : []))
 </script>
 
 <template>
-  <div v-if="vessel" class="space-y-4">
+  <div v-if="vessel" class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
     <PageBreadcrumb
+      class="shrink-0"
       :items="[
         { label: 'Vessel schedule search', to: '/search' },
         { label: vessel.vesselName, to: `/vessels/${vessel.id}/view` },
         { label: 'Review' },
       ]"
     />
-    <div>
-      <h1 class="text-xl font-semibold">Review</h1>
-      <p class="text-sm text-muted-foreground">{{ vessel.vesselName }} · {{ vessel.pointCode }} · {{ vessel.laraVoyage }}</p>
+    <div class="flex shrink-0 flex-wrap items-start justify-between gap-3">
+      <ScheduleRecordHeading :vessel="vessel" />
+      <div class="flex flex-wrap gap-2">
+        <Button v-if="linkTarget" type="button" variant="outline" @click="openVessel(linkTarget.id)">
+          Active LARA record
+        </Button>
+        <VesselAdjustMenu :vessel="vessel" size="default" hide-mismatch @pick="quickAction = $event" />
+        <Button type="button" variant="outline" @click="openHistory">Activity logs</Button>
+        <Button type="button" variant="outline" @click="requestSync('LARA')">Sync latest LARA</Button>
+        <Button type="button" variant="outline" @click="requestSync('Terminal')">Sync latest Terminal</Button>
+      </div>
     </div>
-    <Alert v-if="pageHint">
-      <AlertDescription>{{ pageHint }}</AlertDescription>
+    <div class="min-h-0 flex-1 space-y-4 overflow-auto">
+    <Alert v-if="headerAlert" :variant="headerAlert.variant">
+      <AlertTitle>{{ headerAlert.title }}</AlertTitle>
+      <AlertDescription>{{ headerAlert.text }}</AlertDescription>
+      <div v-if="structure === 'many' || vessel.matchingStatus === 'Multiple terminal records'" class="mt-2 flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" @click="rows.length > 1 ? openSelect() : (shapeOpen = true)">Select</Button>
+      </div>
+      <div v-else-if="structure === 'none'" class="mt-2 flex flex-wrap gap-2">
+        <Button type="button" variant="link" size="sm" @click="keepShape">Keep current</Button>
+        <Button type="button" variant="link" size="sm" @click="adoptNone">Adopt no record</Button>
+      </div>
+      <div v-else-if="vessel.matchingStatus === 'No terminal record' && !rows.length" class="mt-2 flex flex-wrap gap-2">
+        <Button type="button" variant="outline" size="sm" @click="addRow">Add</Button>
+      </div>
     </Alert>
-
-    <div class="flex flex-col gap-4">
+    <Alert v-if="linkReview && temporaryVessel" variant="warning">
+      <AlertTitle>Temporary vessel</AlertTitle>
+      <AlertDescription>
+        {{ temporaryVessel.vesselName }} matches this schedule by voyage, point code, pool location, and visit no.
+        Formal values stay in each field unless you choose the temporary value.
+      </AlertDescription>
+    </Alert>
+    <Alert v-if="mappingAlert" :variant="mappingAlert.variant">
+      <AlertTitle>{{ mappingAlert.title }}</AlertTitle>
+      <AlertDescription>{{ mappingAlert.text }}</AlertDescription>
+    </Alert>
+    <div class="grid items-start gap-4 lg:grid-cols-2">
       <DataSection title="LARA">
-        <template #actions>
-          <Button type="button" variant="outline" size="sm" @click="requestSync('LARA')">Sync latest</Button>
-          <Button v-if="!laraEditing" type="button" variant="outline" size="sm" @click="startLaraEdit">Edit</Button>
-          <Button v-else type="button" variant="outline" size="sm" @click="cancelLaraEdit">Cancel edit</Button>
-        </template>
-        <dl class="grid grid-cols-1 gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
+        <dl>
           <template v-for="column in LARA_COLUMNS" :key="column.id">
-            <ReadonlyField
-              v-if="LARA_KEY.has(column.id) || !laraEditing"
-              class="h-full min-h-[3.25rem]"
-              :label="column.label"
-              :value="displayLara(column.id, column.kind)"
-            />
-            <div v-else class="min-w-0 space-y-1 border-b py-2">
-              <div class="text-sm text-muted-foreground">{{ column.label }}</div>
+            <template v-if="!HIDDEN_LARA.has(column.id)">
+            <ReadonlyField v-if="LARA_KEY.has(column.id) || CALCULATED_LARA.has(column.id)" layout="row" :label="column.label" :value="displayLara(column.id, column.kind)" />
+            <div v-else class="grid gap-1 border-b py-2 sm:grid-cols-[11rem_1fr] sm:items-center">
+              <div class="flex items-center gap-1 text-sm text-muted-foreground">
+                {{ column.label }}
+                <SyncFieldAlert v-if="fieldCompare" :call-id="vessel.id" :column-id="column.id" />
+              </div>
               <DateTimePicker
                 v-if="column.kind === 'datetime'"
                 :model-value="datetimeInputValue(laraValues[column.id] ?? '')"
-                @update:model-value="laraValues[column.id] = datetimeToIso($event)"
+                @update:model-value="onLaraInput(column.id, datetimeToIso($event))"
               />
-              <Input v-else v-model="laraValues[column.id]" class="h-8" />
+              <Input v-else :model-value="laraValues[column.id]" class="h-8" @update:model-value="onLaraInput(column.id, String($event))" />
+              <p v-if="offerForColumn(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
+                <span>Latest {{ offerLabel(offerForColumn(column.id)!.incomingValue, column.kind) }}</span>
+                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useLatest(column.id)">Use latest</Button>
+                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepCurrent(column.id)">Keep current</Button>
+              </p>
+              <p v-if="linkOffer(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
+                <span>Temporary {{ offerLabel(linkOffer(column.id)!.temporary, column.kind) }}</span>
+                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useTemporary(column.id)">Use temporary</Button>
+                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepFormal(column.id)">Keep formal</Button>
+              </p>
             </div>
+            </template>
           </template>
         </dl>
       </DataSection>
 
       <DataSection title="Terminal">
-        <template #actions>
-          <Button type="button" variant="outline" size="sm" @click="requestSync('Terminal')">Sync latest</Button>
-          <Button type="button" variant="outline" size="sm" @click="addRow">Add</Button>
+        <template v-if="activeRow && rows.length > 1 && (linkTerminalOpen || structure !== 'many')" #actions>
+          <Button type="button" variant="outline" size="sm" @click="openSelect">Select</Button>
         </template>
-        <div class="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead class="w-16 whitespace-nowrap">Match</TableHead>
-                <TableHead v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
-                  {{ column.label }}
-                </TableHead>
-                <TableHead class="whitespace-nowrap">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <tr
-                v-for="row in rows"
-                :key="row.id"
-                data-slot="table-row"
-                class="cursor-pointer border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted data-[open=true]:bg-accent/40"
-                :data-state="selectedId === row.id ? 'selected' : undefined"
-                :data-open="formRowId === row.id ? 'true' : undefined"
-                @click="selectRow(row)"
-              >
-                <TableCell class="w-16" @click.stop>
-                  <Checkbox
-                    :model-value="selectedId === row.id"
-                    :aria-label="selectedId === row.id ? 'Clear match' : 'Set as match'"
-                    @update:model-value="setMatch(row, $event === true)"
-                  />
-                </TableCell>
-                <TableCell v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
-                  {{ displayDraftValue(row.draft, column.id, column.kind) }}
-                </TableCell>
-                <TableCell class="whitespace-nowrap" @click.stop>
-                  <Button
-                    v-if="row.source === 'manual'"
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    @click="deleteRow(row)"
-                  >
-                    Delete
-                  </Button>
-                </TableCell>
-              </tr>
-              <TableRow v-if="!rows.length">
-                <TableCell :colspan="CANDIDATE_COLUMN_DEFS.length + 2" class="text-muted-foreground">
-                  No terminal record. Add one to enter it manually.
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
+        <div
+          v-if="!activeRow && !rows.length"
+          class="flex flex-col items-center gap-2 rounded-md border border-dashed px-6 py-10 text-center"
+        >
+          <p class="text-sm font-medium">No terminal record</p>
+          <p class="text-sm text-muted-foreground">
+            Add a record to enter terminal information.
+          </p>
+          <Button type="button" variant="outline" size="sm" @click="addRow">Add</Button>
         </div>
-        <div v-if="formRow" class="mt-4">
-          <div class="mb-2 flex items-center justify-end gap-2">
-            <Button
-              v-if="!formRow.editing"
-              type="button"
-              variant="outline"
-              size="sm"
-              @click="startRowEdit(formRow)"
-            >
-              Edit
-            </Button>
-            <Button v-else type="button" variant="outline" size="sm" @click="cancelRowEdit(formRow)">
-              Cancel edit
-            </Button>
-          </div>
-          <dl class="grid grid-cols-1 gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
-            <template v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id">
-              <ReadonlyField
-                v-if="!formRow.editing"
-                class="h-full min-h-[3.25rem]"
-                :label="column.label"
-                :value="displayDraftValue(formRow.draft, column.id, column.kind)"
-              />
-              <div v-else class="min-w-0 space-y-1 border-b py-2">
-                <div class="text-sm text-muted-foreground">{{ column.label }}</div>
+        <div
+          v-else-if="!activeRow"
+          class="flex flex-col items-center gap-2 rounded-md border border-dashed px-6 py-10 text-center"
+        >
+          <p class="text-sm font-medium">Multiple terminal records</p>
+          <p class="text-sm text-muted-foreground">Select one record to edit.</p>
+          <Button type="button" variant="outline" size="sm" @click="openSelect">Select</Button>
+        </div>
+        <div v-else>
+          <p v-if="activeRow.linkSource" class="mb-2 text-sm text-muted-foreground">Source: {{ activeRow.linkSource }}</p>
+          <dl>
+            <template v-for="column in terminalFields" :key="column.id">
+              <div
+                v-if="draftKeyForColumn(column.id)"
+                class="grid gap-1 border-b py-2 sm:grid-cols-[11rem_1fr] sm:items-center"
+              >
+                <div class="flex items-center gap-1 text-sm text-muted-foreground">
+                  {{ column.label }}
+                  <SyncFieldAlert v-if="fieldCompare" :call-id="vessel.id" :column-id="column.id" />
+                </div>
                 <DateTimePicker
                   v-if="column.kind === 'datetime'"
-                  :model-value="datetimeInputValue(formRow.draft[column.id])"
-                  @update:model-value="formRow.draft[column.id] = datetimeToIso($event)"
+                  :model-value="datetimeInputValue(activeRow.draft[draftKeyForColumn(column.id)!])"
+                  @update:model-value="onTerminalInput(draftKeyForColumn(column.id)!, datetimeToIso($event))"
                 />
-                <Input v-else v-model="formRow.draft[column.id]" class="h-8" />
+                <Input
+                  v-else
+                  :model-value="activeRow.draft[draftKeyForColumn(column.id)!]"
+                  class="h-8"
+                  @update:model-value="onTerminalInput(draftKeyForColumn(column.id)!, String($event))"
+                />
+                <p v-if="offerForColumn(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
+                  <span>Latest {{ offerLabel(offerForColumn(column.id)!.incomingValue, column.kind) }}</span>
+                  <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useLatest(column.id)">Use latest</Button>
+                  <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepCurrent(column.id)">Keep current</Button>
+                </p>
               </div>
             </template>
           </dl>
+          <Button
+            v-if="activeRow.source === 'manual'"
+            type="button"
+            variant="outline"
+            size="sm"
+            class="mt-3"
+            @click="deleteRow(activeRow)"
+          >
+            Delete
+          </Button>
         </div>
       </DataSection>
     </div>
-
-    <label class="grid gap-1 text-sm">
-      <span>Remark</span>
-      <Textarea v-model="remark" rows="2" placeholder="Remark" />
-    </label>
-
-    <div class="flex justify-end gap-2 border-t pt-4">
-      <Button type="button" variant="outline" @click="closePage">Cancel</Button>
-      <Button type="button" variant="primary" @click="save">Save</Button>
     </div>
+    <div class="shrink-0 space-y-4">
+      <label class="grid w-full gap-1">
+        <span class="text-sm text-muted-foreground">Remark</span>
+        <Textarea v-model="remark" rows="2" class="w-full" placeholder="Saved as the activity log description" />
+      </label>
+      <div class="flex flex-wrap justify-end gap-2">
+        <Button type="button" variant="outline" @click="cancelEdits">Cancel</Button>
+        <Button type="button" variant="primary" @click="save">Save</Button>
+      </div>
+    </div>
+    <VesselQuickActions
+      :vessel="vessel"
+      :action="quickAction"
+      @close="quickAction = null"
+      @deleted="onVesselDeleted"
+    />
   </div>
   <Alert v-else variant="warning">
     <AlertDescription>This schedule record is no longer available.</AlertDescription>
@@ -790,6 +1151,93 @@ const syncCopy = computed(() => {
       <DialogFooter>
         <Button type="button" variant="outline" @click="syncSide = null">Back</Button>
         <Button type="button" variant="primary" @click="confirmSync">Sync</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <Dialog v-if="selectOpen" :open="true" @update:open="selectOpen = $event">
+    <DialogContent size="2xl" class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[calc(100%-4rem)]">
+      <DialogHeader>
+        <DialogTitle>Select a terminal record</DialogTitle>
+        <DialogDescription>Choose the record to load into the form.</DialogDescription>
+      </DialogHeader>
+      <div class="overflow-x-auto rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead class="whitespace-nowrap">Match</TableHead>
+              <TableHead v-if="linkTerminalOpen" class="whitespace-nowrap">Source</TableHead>
+              <TableHead v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
+                {{ column.label }}
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow
+              v-for="row in rows"
+              :key="row.id"
+              class="cursor-pointer"
+              :data-state="pendingSelectId === row.id ? 'selected' : undefined"
+              @click="pendingSelectId = row.id"
+            >
+              <TableCell class="whitespace-nowrap">{{ row.id === selectedId ? 'Current' : '' }}</TableCell>
+              <TableCell v-if="linkTerminalOpen" class="whitespace-nowrap">{{ row.linkSource }}</TableCell>
+              <TableCell v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
+                {{ displayDraftValue(row.draft, column.id, column.kind) }}
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" @click="selectOpen = false">Back</Button>
+        <Button type="button" variant="primary" @click="useSelection">Use this record</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <Dialog v-if="shapeOpen" :open="true" @update:open="shapeOpen = $event">
+    <DialogContent size="2xl" class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[calc(100%-4rem)]">
+      <DialogHeader>
+        <DialogTitle>Select a terminal record</DialogTitle>
+        <DialogDescription>Adopting a record replaces the current terminal record.</DialogDescription>
+      </DialogHeader>
+      <div class="overflow-x-auto rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead class="whitespace-nowrap">Match</TableHead>
+              <TableHead v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
+                {{ column.label }}
+              </TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="payload in shapeCandidates" :key="payload.id" :data-state="payloadIsCurrent(payload) ? 'selected' : undefined">
+              <TableCell class="whitespace-nowrap">{{ payloadIsCurrent(payload) ? 'Current' : '' }}</TableCell>
+              <TableCell v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
+                {{ payloadText(payload, column.id) }}
+              </TableCell>
+              <TableCell>
+                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="adoptListed(payload.id); shapeOpen = false">Adopt</Button>
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+    </DialogContent>
+  </Dialog>
+
+  <Dialog v-if="replaceOpen" :open="true" @update:open="replaceOpen = $event">
+    <DialogContent size="sm">
+      <DialogHeader>
+        <DialogTitle>Replace edits</DialogTitle>
+        <DialogDescription>The edits in the form will be replaced by the selected record.</DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button type="button" variant="outline" @click="replaceOpen = false">Back</Button>
+        <Button type="button" variant="primary" @click="replaceSelection">Replace</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>

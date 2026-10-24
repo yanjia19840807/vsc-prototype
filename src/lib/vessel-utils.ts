@@ -87,7 +87,7 @@ export function buildSlcSdcFileName(
   kind: 'SLC' | 'SDC',
   v: VesselRecord,
 ): string {
-  return `${kind}-${v.laraVoyage}-${v.vesselName}-${v.poolLocation}-${formatFileStamp()}.xlsx`
+  return `${kind}-${v.laraVoyage}-${v.vesselName}-${v.laraPoolLocation}-${formatFileStamp()}.xlsx`
 }
 
 export function downloadText(filename: string, content: string, mime = 'text/csv;charset=utf-8') {

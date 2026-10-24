@@ -1,14 +1,18 @@
+import { isLaraLinkSource } from '@/features/vessel-schedule/lara-link'
 import type { MatchingStatus, VesselRecord } from '@/types/vsp'
 
+import { isMainVoyage } from '@/domain/main-voyage'
 import {
   LARA_BRANDS,
   LARA_VESSEL_TYPES,
   LARA_VOYAGE_STATUSES,
 } from '@/features/vessel-schedule/manual-vessel-schemas'
 import {
+  COLUMN_GROUP_ORDER,
+  LOCKED_COLUMN_ID,
   SEARCH_COLUMNS,
+  columnGroup,
   columnHeaderLabel,
-  groupColumnOrder,
   matchingStatusLabel,
   searchCellText,
   searchSortValue,
@@ -21,13 +25,16 @@ import {
   loadFilters,
   loadSort,
   loadTime,
+  hideUnseenOptIn,
   normalizeFreezeThrough,
+  placeMissingColumns,
+  placeRestoredColumns,
   type ColumnPrefs,
   type SortRule,
   type TimeWindow,
 } from '@/features/vessel-search/schedule-prefs'
 
-export type FilterControlKind = 'text' | 'datetime' | 'multi' | 'lines'
+export type FilterControlKind = 'text' | 'datetime' | 'multi' | 'lines' | 'check'
 
 export type FilterOptionSource =
   | 'region'
@@ -72,6 +79,9 @@ export type ListSetting = {
   filters: FilterPref[]
   columns: ColumnPrefs
   sort: SortRule[]
+  watchedFields: string[]
+  /** Day thresholds for watched date columns. Missing or 0 means any difference counts. */
+  watchedDayThresholds?: Record<string, number>
 }
 
 export type UserListSettings = {
@@ -87,9 +97,37 @@ export const DEFAULT_VISIBLE_FILTERS = [
   'laraVoyage',
   'service',
   'mappingStatus',
+  'laraEtb',
 ] as const
 
-const CATALOG_REV = 3
+const CATALOG_REV = 6
+
+/** Within one source, choice lists, then free text, then dates, then the checkbox. */
+const FILTER_KIND_ORDER: FilterControlKind[] = ['multi', 'lines', 'text', 'datetime', 'check']
+
+export const DEFAULT_WATCHED_FIELDS = [
+  'laraEtb',
+  'laraEtd',
+  'terminalEtb',
+  'terminalEtd',
+  'terminalAtb',
+  'terminalAtd',
+  'localVoyageExport',
+  'localVoyageImport',
+  'mappingStatus',
+]
+
+/** Mapping status always stays watched. A saved list cannot turn it off. */
+const REQUIRED_WATCHED_FIELDS = ['mappingStatus']
+
+export function normalizeWatchedFields(ids: string[] | undefined) {
+  const known = new Set(SEARCH_COLUMNS.map((column) => column.id))
+  const next = !ids ? [...DEFAULT_WATCHED_FIELDS] : ids.filter((id) => known.has(id))
+  for (const id of REQUIRED_WATCHED_FIELDS) {
+    if (!next.includes(id)) next.push(id)
+  }
+  return next
+}
 
 const LINE_FIELDS = new Set([
   'vesselName',
@@ -117,10 +155,9 @@ const MAPPING_STATUSES: MatchingStatus[] = [
   'Auto matched',
   'Manual matched',
   'Multiple terminal records',
-  'ETD gap > 5 days',
+  'ETD gap > 3 days',
   'No external voyage',
   'No terminal record',
-  'Pending match',
 ]
 
 const TERMINAL_STATUSES = ['计划', '在港', '离港']
@@ -173,7 +210,7 @@ export function retainPointCodes(
   return pointCodes.filter((code) => allowed.has(code))
 }
 
-export function emptyFilterState(kind: FilterControlKind, on = true): FilterState {
+export function emptyFilterState(kind: FilterControlKind, on = kind !== 'check'): FilterState {
   return { text: '', from: '', to: '', values: [], on, dateMode: 'fixed', fromDays: null, toDays: null }
 }
 
@@ -227,13 +264,13 @@ export function resolveFilterDefault(field: FilterFieldDef, state: FilterState, 
 
 function normalizeStoredFilter(field: FilterFieldDef, raw: Partial<FilterState> | undefined): FilterState {
   const source = raw ?? {}
-  const base = emptyFilterState(field.kind, source.on ?? true)
+  const base = emptyFilterState(field.kind, source.on ?? field.kind !== 'check')
   base.text = field.kind === 'multi' || field.kind === 'lines' ? '' : (source.text ?? '')
   base.from = source.from ?? ''
   base.to = source.to ?? ''
   base.values = field.kind === 'lines'
     ? parseLineList((source.values ?? []).join('\n'))
-    : [...(source.values ?? [])]
+    : [...(source.values ?? [])].map((value) => (value === 'ETD gap > 5 days' ? 'ETD gap > 3 days' : value))
   if (field.kind !== 'datetime' || source.dateMode !== 'relative') return base
   return {
     ...base,
@@ -248,6 +285,7 @@ export function allPlaceholder(label: string) {
 }
 
 function defFromColumn(column: SearchColumn): FilterFieldDef {
+  if (column.id === 'isMainVoyage') return { id: column.id, label: 'Main voyages only', kind: 'check' }
   const label = columnHeaderLabel(column)
   if (LINE_FIELDS.has(column.id)) return { id: column.id, label, kind: 'lines' }
   const optionSource = MULTI_FIELDS[column.id]
@@ -256,30 +294,26 @@ function defFromColumn(column: SearchColumn): FilterFieldDef {
   return { id: column.id, label, kind: 'text' }
 }
 
+function filterCatalogRank(field: FilterFieldDef) {
+  const source = COLUMN_GROUP_ORDER.indexOf(columnGroup(field.id))
+  const kind = FILTER_KIND_ORDER.indexOf(field.kind)
+  const columnAt = SEARCH_COLUMNS.findIndex((column) => column.id === field.id)
+  return [source === -1 ? COLUMN_GROUP_ORDER.length : source, kind === -1 ? FILTER_KIND_ORDER.length : kind, columnAt]
+}
+
+/** Default filter order: LARA, Terminal, Platform, and control type within each source. */
 export function filterFieldCatalog(): FilterFieldDef[] {
-  const columnDefs = groupColumnOrder(SEARCH_COLUMNS.map((column) => column.id))
-    .map((id) => SEARCH_COLUMNS.find((column) => column.id === id))
-    .filter((column): column is SearchColumn => Boolean(column))
-    .map(defFromColumn)
   const byId = new Map<string, FilterFieldDef>()
-  for (const field of [...EXTRA_FIELDS, ...columnDefs]) byId.set(field.id, field)
-  const ordered: FilterFieldDef[] = []
-  for (const id of DEFAULT_VISIBLE_FILTERS) {
-    const field = byId.get(id)
-    if (field) {
-      ordered.push(field)
-      byId.delete(id)
+  for (const field of [...EXTRA_FIELDS, ...SEARCH_COLUMNS.map(defFromColumn)]) byId.set(field.id, field)
+  return [...byId.values()].sort((a, b) => {
+    const left = filterCatalogRank(a)
+    const right = filterCatalogRank(b)
+    for (let index = 0; index < left.length; index += 1) {
+      const diff = left[index]! - right[index]!
+      if (diff) return diff
     }
-  }
-  for (const field of columnDefs) {
-    const next = byId.get(field.id)
-    if (next) {
-      ordered.push(next)
-      byId.delete(next.id)
-    }
-  }
-  for (const field of byId.values()) ordered.push(field)
-  return ordered
+    return a.id.localeCompare(b.id)
+  })
 }
 
 const CATALOG = filterFieldCatalog()
@@ -347,23 +381,31 @@ export function createListSetting(
 ): ListSetting {
   const defaults = defaultColumnPrefs()
   const known = new Set(defaults.order)
-  const order = (source?.columns?.order ?? defaults.order).filter((id) => known.has(id))
+  const sourceOrder = source?.columns?.order ?? defaults.order
+  const order = sourceOrder.filter((id) => known.has(id))
   for (const id of defaults.order) {
     if (!order.includes(id)) order.push(id)
   }
+  placeMissingColumns(order, sourceOrder)
   const sort = (source?.sort ?? DEFAULT_SORT)
     .filter((rule) => known.has(rule.id))
     .map((rule) => ({ ...rule }))
+  const hidden = hideUnseenOptIn(
+    source?.columns?.order,
+    (source?.columns?.hidden ?? defaults.hidden).filter((id) => known.has(id) && id !== LOCKED_COLUMN_ID),
+  )
   return {
     id: source?.id ?? nextSettingId(),
     name,
     filters: normalizeFilterPrefs(source?.filters ?? defaultFilterPrefs()),
     columns: {
       order,
-      hidden: (source?.columns?.hidden ?? []).filter((id) => known.has(id) && id !== 'vesselName'),
+      hidden,
       freezeThrough: normalizeFreezeThrough(order, source?.columns?.freezeThrough),
     },
     sort: sort.length ? sort : DEFAULT_SORT.map((rule) => ({ ...rule })),
+    watchedFields: normalizeWatchedFields(source?.watchedFields),
+    watchedDayThresholds: { ...source?.watchedDayThresholds },
   }
 }
 
@@ -382,6 +424,8 @@ export function copyListSetting(setting: ListSetting): ListSetting {
       freezeThrough: setting.columns.freezeThrough ?? null,
     },
     sort: setting.sort.map((rule) => ({ ...rule })),
+    watchedFields: [...setting.watchedFields],
+    watchedDayThresholds: { ...setting.watchedDayThresholds },
   }
 }
 
@@ -398,6 +442,8 @@ export function cloneListSetting(setting: ListSetting, name: string): ListSettin
       freezeThrough: setting.columns.freezeThrough ?? null,
     },
     sort: setting.sort.map((rule) => ({ ...rule })),
+    watchedFields: [...setting.watchedFields],
+    watchedDayThresholds: { ...setting.watchedDayThresholds },
   })
 }
 
@@ -447,6 +493,7 @@ export function visibleFilterPrefs(setting: ListSetting) {
 
 export function isFilterFilled(field: FilterFieldDef, state: FilterState | undefined) {
   if (!state) return false
+  if (field.kind === 'check') return state.on
   if (field.kind === 'text') return Boolean(state.text.trim())
   if (field.kind === 'datetime') return Boolean(state.from || state.to)
   if (field.kind === 'multi' || field.kind === 'lines') return state.values.length > 0
@@ -473,6 +520,7 @@ function inDateRange(raw: string | number, from: string, to: string) {
 
 export function vesselMatchesFilters(vessel: VesselRecord, session: Record<string, FilterState>) {
   if (vessel.recordStatus === 'Inactive') return false
+  if (vessel.createdManually && isLaraLinkSource(vessel)) return false
   for (const field of CATALOG) {
     const state = session[field.id] ?? emptyFilterState(field.kind)
     if (!filterMatches(vessel, field, state)) return false
@@ -485,6 +533,7 @@ function filterMatches(vessel: VesselRecord, field: FilterFieldDef, state: Filte
     if (!state.values.length) return true
     return state.values.includes(vessel.region)
   }
+  if (field.kind === 'check') return !state.on || isMainVoyage(vessel)
   if (field.kind === 'datetime') {
     return inDateRange(searchSortValue(vessel, field.id), state.from, state.to)
   }
@@ -507,7 +556,7 @@ function filterMatches(vessel: VesselRecord, field: FilterFieldDef, state: Filte
     const text = searchCellText(vessel, field.id)
     if (field.id === 'mappingStatus') {
       return state.values.includes(vessel.matchingStatus)
-        || state.values.includes(matchingStatusLabel(vessel.matchingStatus, vessel.sharedTerminal))
+        || state.values.includes(matchingStatusLabel(vessel.matchingStatus))
         || state.values.includes(text)
     }
     return state.values.includes(raw) || state.values.includes(text)
@@ -522,7 +571,7 @@ function filterMatches(vessel: VesselRecord, field: FilterFieldDef, state: Filte
 export function staticFilterOptions(source: FilterOptionSource | undefined): string[] {
   switch (source) {
     case 'mappingStatus':
-      return [...MAPPING_STATUSES.map((status) => matchingStatusLabel(status)), 'Multiple LARA records']
+      return [...MAPPING_STATUSES.map((status) => matchingStatusLabel(status))]
         .filter((status, index, list) => list.indexOf(status) === index)
     case 'voyageStatus':
       return [...LARA_VOYAGE_STATUSES]
@@ -540,7 +589,7 @@ export function staticFilterOptions(source: FilterOptionSource | undefined): str
 const SETTINGS_KEY = 'vsp-list-settings-v1'
 const FILTER_KEY = 'vsp-schedule-filters'
 const TIME_KEY = 'vsp-schedule-time'
-const COLUMN_KEY = 'vsp-schedule-columns-v10'
+const COLUMN_KEY = 'vsp-schedule-columns-v12'
 const SORT_KEY = 'vsp-schedule-sort'
 
 function readJson<T>(key: string): T | null {
@@ -592,6 +641,26 @@ function clearSavedLineLists(filters: FilterPref[]): FilterPref[] {
   })
 }
 
+function promoteLaraTimeFilters(filters: FilterPref[]): FilterPref[] {
+  const ids = ['laraEta', 'laraEtb']
+  const picked = ids.flatMap((id) => {
+    const pref = filters.find((item) => item.id === id)
+    return pref ? [{ ...pref, visible: true }] : []
+  })
+  const rest = filters.filter((pref) => !ids.includes(pref.id))
+  const mappingAt = rest.findIndex((pref) => pref.id === 'mappingStatus')
+  rest.splice(mappingAt === -1 ? rest.length : mappingAt + 1, 0, ...picked)
+  return rest
+}
+
+function orderFiltersByCatalog(filters: FilterPref[]): FilterPref[] {
+  const byId = new Map(filters.map((pref) => [pref.id, pref]))
+  return CATALOG.flatMap((field) => {
+    const pref = byId.get(field.id)
+    return pref ? [pref] : []
+  })
+}
+
 function promoteMappingStatus(filters: FilterPref[]): FilterPref[] {
   const mapping = filters.find((pref) => pref.id === 'mappingStatus')
   if (!mapping) return filters
@@ -611,10 +680,18 @@ export function loadUserSettings(username: string): UserListSettings {
     )
     const catalogRev = saved.catalogRev ?? 1
     if (catalogRev < CATALOG_REV) {
-      items = items.map((item) => ({
-        ...item,
-        filters: clearSavedLineLists(catalogRev < 2 ? promoteMappingStatus(item.filters) : item.filters),
-      }))
+      items = items.map((item) => {
+        let filters = item.filters
+        if (catalogRev < 2) filters = promoteMappingStatus(filters)
+        if (catalogRev < 3) filters = clearSavedLineLists(filters)
+        if (catalogRev < 4) filters = promoteLaraTimeFilters(filters)
+        if (catalogRev < 5) filters = orderFiltersByCatalog(filters)
+        const columns = catalogRev < 6
+          ? { ...item.columns, order: [...item.columns.order] }
+          : item.columns
+        if (catalogRev < 6) placeRestoredColumns(columns.order)
+        return { ...item, filters, columns }
+      })
     }
     const activeId = items.some((item) => item.id === saved.activeId) ? saved.activeId : items[0]!.id
     const next = { activeId, items, catalogRev: CATALOG_REV }

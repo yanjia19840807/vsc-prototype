@@ -2,6 +2,8 @@ import { h } from 'vue'
 import type { ColumnDef } from '@tanstack/vue-table'
 
 import SearchResultCell from '@/features/vessel-search/SearchResultCell.vue'
+import { brandFromVoyage } from '@/domain/lara-brand'
+import { mainVoyageText } from '@/domain/main-voyage'
 import { laraLinkKey } from '@/features/vessel-schedule/lara-link'
 import { formatDateTime } from '@/lib/vessel-utils'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
@@ -11,6 +13,7 @@ import type { VesselRecord } from '@/types/vsp'
 /**
  * Vessel Search columns.
  * Visual order: LARA → Terminal → Platform.
+ * Vessel type and Terminal 9code are calculated, then stored, and shown at the end of LARA.
  */
 export type SearchColKind = 'text' | 'datetime' | 'number'
 export type ColumnSource = 'lara' | 'terminal' | 'platform'
@@ -39,26 +42,25 @@ export const COLUMN_GROUP_CLASS: Record<ColumnGroup, string> = {
 /** LARA, then Terminal, then Platform last. */
 export const COLUMN_GROUP_ORDER: ColumnGroup[] = ['lara', 'terminal', 'platform']
 
+/** Shown in the voyage cell. The list cannot hide this column. */
+export const LOCKED_COLUMN_ID = 'laraVoyage'
+
 export const SEARCH_COLUMNS: SearchColumn[] = [
-  // Platform — sync metadata + match state
-  { id: 'laraSyncTime', label: 'LARA sync time', kind: 'datetime', source: 'platform' },
-  { id: 'lastRefreshTime', label: 'Terminal sync time', kind: 'datetime', source: 'platform' },
   { id: 'mappingStatus', label: 'Mapping status', kind: 'text', source: 'platform' },
-  { id: 'laraLink', label: 'LARA link', kind: 'text', source: 'platform' },
-  { id: 'remark', label: 'Remark', kind: 'text', source: 'platform' },
-  // LARA (Voyage first, voyage status last)
+  // LARA fields from the schedule template. Calculated columns stay last.
   { id: 'laraVoyage', label: 'Voyage', kind: 'text', source: 'lara' },
-  { id: 'vesselName', label: 'Vessel name', kind: 'text', source: 'lara' },
   { id: 'pointCode', label: 'Point code', kind: 'text', source: 'lara' },
-  { id: 'vesselType', label: 'Vessel type', kind: 'text', source: 'lara' },
+  { id: 'laraPoolLocation', label: 'Pool location', kind: 'text', source: 'lara' },
+  { id: 'vesselName', label: 'Vessel name', kind: 'text', source: 'lara' },
   { id: 'brand', label: 'Brand', kind: 'text', source: 'lara' },
   { id: 'service', label: 'Service', kind: 'text', source: 'lara' },
-  { id: 'laraPoolLocation', label: 'Pool location', kind: 'text', source: 'lara' },
+  { id: 'laraEta', label: 'ETA', kind: 'datetime', source: 'lara' },
   { id: 'laraEtb', label: 'ETB', kind: 'datetime', source: 'lara' },
   { id: 'laraEtd', label: 'ETD', kind: 'datetime', source: 'lara' },
-  { id: 'voyageStatus', label: 'Voyage status', kind: 'text', source: 'lara' },
-  // Terminal — mirror LARA semantic order; no field merges
-  // Voyage → Vessel name (+ Ship) → Service/Line → Status → Pool/Terminal → times → extras
+  { id: 'vesselType', label: 'Vessel type', kind: 'text', source: 'lara' },
+  { id: 'terminal9code', label: 'Terminal', kind: 'text', source: 'lara' },
+  // Vessel operator, then every business field returned by the terminal schedule API.
+  { id: 'vesselOperator', label: 'Vessel operator', kind: 'text', source: 'terminal' },
   { id: 'localVoyageExport', label: 'Export voyage', kind: 'text', source: 'terminal' },
   { id: 'localVoyageImport', label: 'Import voyage', kind: 'text', source: 'terminal' },
   { id: 'vesselNameEn', label: 'Vessel name EN', kind: 'text', source: 'terminal' },
@@ -67,15 +69,13 @@ export const SEARCH_COLUMNS: SearchColumn[] = [
   { id: 'shipName', label: 'Ship name', kind: 'text', source: 'terminal' },
   { id: 'lineCode', label: 'Line code', kind: 'text', source: 'terminal' },
   { id: 'tmlVslStatus', label: 'Status', kind: 'text', source: 'terminal' },
-  { id: 'terminal9code', label: 'Terminal', kind: 'text', source: 'terminal' },
   { id: 'terminalName', label: 'Terminal name', kind: 'text', source: 'terminal' },
   { id: 'tmlEta', label: 'ETA', kind: 'datetime', source: 'terminal' },
+  { id: 'tmlAta', label: 'ATA', kind: 'datetime', source: 'terminal' },
   { id: 'terminalEtb', label: 'ETB', kind: 'datetime', source: 'terminal' },
   { id: 'terminalEtd', label: 'ETD', kind: 'datetime', source: 'terminal' },
-  { id: 'tmlAta', label: 'ATA', kind: 'datetime', source: 'terminal' },
   { id: 'terminalAtb', label: 'ATB', kind: 'datetime', source: 'terminal' },
   { id: 'terminalAtd', label: 'ATD', kind: 'datetime', source: 'terminal' },
-  { id: 'vesselOperator', label: 'Vessel operator', kind: 'text', source: 'terminal' },
   { id: 'agentCode', label: 'Agent code', kind: 'text', source: 'terminal' },
   { id: 'agentName', label: 'Agent name', kind: 'text', source: 'terminal' },
   { id: 'cyOpen', label: 'CY open', kind: 'datetime', source: 'terminal' },
@@ -89,12 +89,10 @@ export const SEARCH_COLUMNS: SearchColumn[] = [
 
 /** Columns that show an em dash when terminal data is missing or not confirmed. */
 const TERMINAL_COLUMNS = new Set([
-  'vesselOperator',
   'vesselNameCn',
   'localVoyageExport',
   'localVoyageImport',
   'vesselNameEn',
-  'terminal9code',
   'terminalName',
   'shipCode',
   'shipName',
@@ -147,6 +145,8 @@ const NOT_FOUND_ALIASES: Record<string, string[]> = {
 }
 
 export function historyFieldLabel(field: string) {
+  if (field === 'remark') return 'Remark'
+  if (field === 'voyageStatus') return 'LARA voyage status'
   const direct = SEARCH_COLUMNS.find((column) => column.id === field)
   if (direct) return columnHeaderLabel(direct)
   const aliased = SEARCH_COLUMNS.find((column) => (NOT_FOUND_ALIASES[column.id] ?? []).includes(field))
@@ -160,22 +160,11 @@ export function historyFieldMatches(field: string, columnId: string) {
 export const SEARCH_DEFAULT_SORT = [{ id: 'laraEtb', desc: true }]
 
 function brandOf(v: VesselRecord): string {
-  if (v.brand) return v.brand
-  const name = v.vesselName.toUpperCase()
-  if (name.startsWith('CMA CGM') || name.startsWith('CMA ')) return 'CMA'
-  if (name.startsWith('ANL ')) return 'ANL'
-  if (name.startsWith('APL ')) return 'APL'
-  if (name.startsWith('CNC ')) return 'CNC'
-  if (v.vesselOperator === 'CMA' || v.vesselOperator === 'CNC' || v.vesselOperator === 'ANL' || v.vesselOperator === 'APL') {
-    return v.vesselOperator
-  }
-  return ''
+  return brandFromVoyage(v.laraVoyage) || v.brand || ''
 }
 
 function vesselTypeLabel(v: VesselRecord): string {
-  if (v.groupKind === 'Partner Vessel') return 'Partner vsl'
-  if (v.groupKind === '3PF') return '3PF'
-  return 'Group vsl'
+  return v.vesselTypeLabel || ''
 }
 
 const VOYAGE_COLUMNS = new Set(['localVoyageExport', 'localVoyageImport'])
@@ -205,18 +194,29 @@ function unconfirmedOrTerminal(
   return value || ''
 }
 
+/** No terminal schedule was kept, so the Terminal pane must not borrow vessel-level defaults. */
+function terminalRecordAbsent(v: VesselRecord) {
+  return v.matchingStatus === 'No terminal record' && v.terminalSource !== 'manual'
+}
+
 export function isMissingExternalVoyage(v: VesselRecord) {
   return v.matchingStatus === 'No external voyage'
 }
 
 /** Match found but not confirmed. Terminal cells show an em dash. */
 export function isUnconfirmedMatch(v: VesselRecord) {
-  return v.matchingStatus === 'Multiple terminal records' || v.matchingStatus === 'ETD gap > 5 days'
+  return v.matchingStatus === 'Multiple terminal records' || v.matchingStatus === 'ETD gap > 3 days'
 }
 
 export function candidateCountLabel(v: VesselRecord) {
   const count = v.terminalCandidates.length
   return count === 1 ? '1 candidate' : `${count} candidates`
+}
+
+/** Remark beside Auto matched when several LARA calls share one terminal record. */
+export function sharedLaraRemark(count: number) {
+  if (count <= 1) return ''
+  return `${count} LARA records`
 }
 
 export function manualOverrideFor(v: VesselRecord, columnId: string) {
@@ -258,6 +258,7 @@ export function searchSortValue(v: VesselRecord, id: string): string | number {
     case 'vesselType':
       return vesselTypeLabel(v)
     case 'vesselOperator':
+      if (terminalRecordAbsent(v)) return ''
       return v.vesselOperator || ''
     case 'brand':
       return brandOf(v)
@@ -271,6 +272,14 @@ export function searchSortValue(v: VesselRecord, id: string): string | number {
       return v.laraSyncTime || ''
     case 'laraVoyage':
       return v.laraVoyage || ''
+    case 'visitNo':
+      return v.visitNo || ''
+    case 'multipleCallNumber':
+      return v.multipleCallNumber || ''
+    case 'acPartner':
+      return v.acPartner || ''
+    case 'cutoff':
+      return v.cutoff || ''
     case 'terminalUpdateTime':
       return unconfirmedOrTerminal(v, v.terminalSchedule?.updateTime)
     case 'localVoyageExport':
@@ -281,13 +290,12 @@ export function searchSortValue(v: VesselRecord, id: string): string | number {
       return v.terminalSchedule?.ivoyage || ''
     case 'voyageStatus':
       return v.omit || v.voyageStatus === 'Omit' ? 'omit' : v.voyageStatus
-    case 'remark':
-      return userRemarkText(v)
+    case 'isMainVoyage':
+      return mainVoyageText(v)
     case 'laraPoolLocation':
-      return v.poolLocation || ''
+      return v.laraPoolLocation || ''
     case 'terminal9code':
-      if (isUnconfirmedMatch(v) && !v.terminalSchedule) return candidateCountLabel(v)
-      return terminal.code || v.terminalSchedule?.terminal || ''
+      return v.terminal9code || ''
     case 'terminalName':
       if (isUnconfirmedMatch(v) && !v.terminalSchedule) return candidateCountLabel(v)
       return terminal.name
@@ -296,10 +304,12 @@ export function searchSortValue(v: VesselRecord, id: string): string | number {
     case 'vesselNameCn':
       return unconfirmedOrTerminal(v, v.terminalSchedule?.vesselNameCn)
     case 'shipCode':
+      if (terminalRecordAbsent(v)) return ''
       return unconfirmedOrTerminal(v, v.terminalSchedule?.shipCode ?? v.shipCode)
     case 'shipName':
       return unconfirmedOrTerminal(v, v.terminalSchedule?.shipName)
     case 'agentCode':
+      if (terminalRecordAbsent(v)) return ''
       return unconfirmedOrTerminal(v, v.terminalSchedule?.agentCode ?? v.agentCode)
     case 'agentName':
       return unconfirmedOrTerminal(v, v.terminalSchedule?.agentName)
@@ -308,7 +318,10 @@ export function searchSortValue(v: VesselRecord, id: string): string | number {
     case 'portsEn':
       return unconfirmedOrTerminal(v, v.terminalSchedule?.portsEn)
     case 'portsCn':
+      if (terminalRecordAbsent(v)) return ''
       return unconfirmedOrTerminal(v, v.terminalSchedule?.portsCn ?? v.portsOfCall)
+    case 'laraEta':
+      return v.laraEta || ''
     case 'laraEtb':
       return v.laraEtb || ''
     case 'laraEtd':
@@ -318,12 +331,19 @@ export function searchSortValue(v: VesselRecord, id: string): string | number {
     case 'tmlAta':
       return unconfirmedOrTerminal(v, v.terminalSchedule?.ata)
     case 'mappingStatus':
-      return matchingStatusLabel(v.matchingStatus, v.sharedTerminal)
+      return matchingStatusLabel(v.matchingStatus)
     case 'laraLink': {
-      const linkedId = v.laraLinkTargetId || v.laraLinkSourceId
-      if (!linkedId) return ''
-      const linked = useVesselStore().byId(linkedId)
-      return linked ? laraLinkKey(linked) : ''
+      const ids = v.laraLinkTargetIds?.length
+        ? v.laraLinkTargetIds
+        : [v.laraLinkTargetId || v.laraLinkSourceId].filter((id): id is string => Boolean(id))
+      if (!ids.length) return ''
+      return ids
+        .map((id) => {
+          const linked = useVesselStore().byId(id)
+          return linked ? laraLinkKey(linked) : ''
+        })
+        .filter(Boolean)
+        .join(', ')
     }
     case 'lastRefreshTime':
       return v.lastRefreshTime || ''
@@ -372,13 +392,8 @@ export function searchCellText(v: VesselRecord, id: string): string {
   return String(raw)
 }
 
-export function userRemarkText(v: VesselRecord): string {
-  return v.remark || ''
-}
-
-/** User-facing match status. Stored values are the labels, except shared Auto matched. */
-export function matchingStatusLabel(status: string, sharedTerminal = false): string {
-  if (status === 'Auto matched' && sharedTerminal) return 'Multiple LARA records'
+/** Mapping status labels are the stored values. */
+export function matchingStatusLabel(status: string): string {
   return status
 }
 
@@ -387,8 +402,27 @@ export function isWarningCellText(text: string, _columnId?: string) {
   return text === 'Unconfirmed' || text === 'Not found' || text === 'Not Found'
 }
 
+function logOriginal(log: VesselRecord['scheduleLogs'][number]) {
+  const match = Boolean(log.originalMatchResult || log.updatedMatchResult)
+  return (match ? log.originalMatchResult : log.originalValue).trim()
+}
+
+/** Later edits only. The first write from empty is the field arriving, not a change. */
+export function fieldChangeLogs(v: VesselRecord, id: string) {
+  const logs = (v.scheduleLogs ?? [])
+    .filter((log) => historyFieldMatches(log.field, id))
+    .slice()
+    .sort((left, right) => {
+      const time = new Date(left.updatedTime).getTime() - new Date(right.updatedTime).getTime()
+      if (time !== 0) return time
+      return Number(Boolean(logOriginal(right))) - Number(Boolean(logOriginal(left)))
+    })
+  if (logs[0] && !logOriginal(logs[0])) logs.shift()
+  return logs.reverse()
+}
+
 export function columnHasHistory(v: VesselRecord, id: string) {
-  return (v.scheduleLogs ?? []).some((log) => historyFieldMatches(log.field, id))
+  return fieldChangeLogs(v, id).length > 0
 }
 
 export function columnGroup(id: string): ColumnGroup {
@@ -436,6 +470,11 @@ export function groupColumnOrder(order: string[]): string[] {
   for (const column of SEARCH_COLUMNS) {
     if (!seen.has(column.id)) buckets[column.source].push(column.id)
   }
+  const laraTail = ['vesselType', 'terminal9code']
+  buckets.lara = [
+    ...buckets.lara.filter((id) => !laraTail.includes(id)),
+    ...laraTail.filter((id) => buckets.lara.includes(id)),
+  ]
   return COLUMN_GROUP_ORDER.flatMap((group) => buckets[group])
 }
 
@@ -444,7 +483,7 @@ function leafDef(column: SearchColumn): ColumnDef<any, any> {
     id: column.id,
     header: columnHeaderLabel(column),
     enableSorting: true,
-    enableHiding: column.id !== 'vesselName',
+    enableHiding: column.id !== LOCKED_COLUMN_ID,
     accessorFn: (row: VesselRecord) => searchSortValue(row, column.id),
     cell: ({ row }) => h(SearchResultCell, { vessel: row.original as VesselRecord, columnId: column.id }),
     ...(column.kind === 'datetime' ? { sortFn: 'datetime' as const } : {}),

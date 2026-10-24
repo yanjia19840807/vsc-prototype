@@ -3,17 +3,17 @@ import type { ScheduleState } from '@/domain/schedule-model/types'
 export function emptyScheduleState(): ScheduleState {
   return {
     seq: 1,
-    laraRuns: [],
-    laraRecords: [],
-    terminalBatches: [],
-    terminalQueries: [],
-    terminalCandidates: [],
     calls: [],
-    manualLaras: [],
-    manualTerminals: [],
-    bindings: [],
+    laraVersions: [],
+    terminalVersions: [],
+    matches: [],
+    fieldDecisions: [],
+    laraPayloads: [],
+    terminalPayloads: [],
+    laraRuns: [],
+    terminalSyncRuns: [],
+    terminalQueries: [],
     laraLinks: [],
-    fieldHistory: [],
   }
 }
 
@@ -22,21 +22,32 @@ export function nextId(state: ScheduleState, prefix: string): { state: ScheduleS
   return { state: { ...state, seq: state.seq + 1 }, id }
 }
 
-export function callKey(internalVoyage: string, poolLocation: string, portCode: string) {
-  return `${internalVoyage}\u0000${poolLocation}\u0000${portCode}`
+/** LARA call identity: voyage, point code, pool location, visit no. */
+export function callKey(laraVoyage: string, pointCode: string, laraPoolLocation: string, visitNo: string) {
+  return `${laraVoyage}\u0000${pointCode}\u0000${laraPoolLocation}\u0000${visitNo}`
 }
 
 export function isLinkSource(state: ScheduleState, callId: string) {
   return state.laraLinks.some((link) => link.sourceCallId === callId)
 }
 
-/** Same Voyage + Pool location + Point code, including an active manual row. Linked sources are skipped. */
-export function findLaraCall(state: ScheduleState, internalVoyage: string, poolLocation: string, portCode: string) {
+export function isLinkTarget(state: ScheduleState, callId: string) {
+  return state.laraLinks.some((link) => link.targetCallId === callId)
+}
+
+export function findCall(
+  state: ScheduleState,
+  laraVoyage: string,
+  pointCode: string,
+  laraPoolLocation: string,
+  visitNo: string,
+) {
   return state.calls.find(
     (call) =>
-      call.internalVoyage === internalVoyage
-      && call.poolLocation === poolLocation
-      && call.portCode === portCode
+      call.laraVoyage === laraVoyage
+      && call.pointCode === pointCode
+      && call.laraPoolLocation === laraPoolLocation
+      && call.visitNo === visitNo
       && !isLinkSource(state, call.id),
   )
 }

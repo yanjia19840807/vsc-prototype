@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import DataSection from '@/components/DataSection.vue'
@@ -9,7 +9,6 @@ import FilterField from '@/components/FilterField.vue'
 import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
 import QueryPanel from '@/components/QueryPanel.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
 import { DateRangePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { MultiSelect } from '@/components/ui/multi-select'
@@ -40,6 +39,7 @@ const router = useRouter()
 const store = useVesselStore()
 const vessel = computed(() => store.byId(String(route.params.id)))
 const selectedId = ref('')
+const detailRef = ref<HTMLElement | null>(null)
 const typeOptions = ACTIVITY_CATEGORIES.map((item) => item.label)
 
 function emptyLogQuery() {
@@ -129,6 +129,8 @@ watch(filtered, (rows) => {
 
 function selectItem(id: string) {
   selectedId.value = selectedId.value === id ? '' : id
+  if (!selectedId.value) return
+  void nextTick(() => detailRef.value?.scrollIntoView({ block: 'nearest' }))
 }
 
 function applyFilters() {
@@ -155,7 +157,7 @@ function clearFilters() {
     <div>
       <h1 class="text-xl font-semibold">Activity logs</h1>
       <p class="text-sm text-muted-foreground">
-        {{ vessel.vesselName }} · {{ vessel.laraVoyage }} · {{ vessel.poolLocation }}
+        {{ vessel.vesselName }} · {{ vessel.laraVoyage }} · {{ vessel.pointCode }} · {{ vessel.laraPoolLocation }} · {{ vessel.visitNo }}
       </p>
     </div>
 
@@ -196,26 +198,26 @@ function clearFilters() {
                 @clear-all-sort="table.setSorting([])"
               />
             </TableHead>
-            <TableHead class="w-24">Details</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           <TableRow
             v-for="row in tableRows"
             :key="row.id"
+            class="cursor-pointer"
+            tabindex="0"
             :data-state="selected?.id === row.original.id ? 'selected' : undefined"
+            :aria-expanded="selected?.id === row.original.id"
+            @click="selectItem(row.original.id)"
+            @keydown.enter.prevent="selectItem(row.original.id)"
+            @keydown.space.prevent="selectItem(row.original.id)"
           >
             <TableCell class="whitespace-nowrap">{{ formatDateTime(row.original.at) }}</TableCell>
             <TableCell class="whitespace-nowrap">{{ row.original.categoryLabel }}</TableCell>
             <TableCell>{{ row.original.description }}</TableCell>
             <TableCell class="whitespace-nowrap">{{ row.original.updatedBy || '—' }}</TableCell>
-            <TableCell>
-              <Button type="button" size="xs" variant="outline" @click="selectItem(row.original.id)">
-                {{ selectedId === row.original.id ? 'Hide' : 'View' }}
-              </Button>
-            </TableCell>
           </TableRow>
-          <TableEmpty v-if="!tableRows.length" :colspan="columns.length + 1" />
+          <TableEmpty v-if="!tableRows.length" :colspan="columns.length" />
         </TableBody>
       </Table>
     </div>
@@ -228,7 +230,7 @@ function clearFilters() {
       @update:page-size="(size) => table.setPageSize(size)"
     />
 
-    <div v-if="selected" class="space-y-4">
+    <div v-if="selected" ref="detailRef" class="space-y-4">
       <div>
         <h2 class="text-xl font-semibold">{{ formatDateTime(selected.at) }}</h2>
         <p class="text-sm text-muted-foreground">{{ activityCategoryLabel(selected.category) }} · {{ activityDescription(selected) }}</p>

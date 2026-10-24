@@ -24,16 +24,21 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { watchedColumnIds } from '@/features/vessel-schedule/sync-columns'
 import {
   SEARCH_COLUMNS,
+  COLUMN_GROUP_LABEL,
+  COLUMN_GROUP_ORDER,
   columnGroup,
   columnHeaderLabelById,
   groupColumnOrder,
+  LOCKED_COLUMN_ID,
 } from '@/features/vessel-search/search-columns'
 import SearchFilterControl from '@/features/vessel-search/SearchFilterControl.vue'
 import {
   copyListSetting,
   createListSetting,
+  DEFAULT_WATCHED_FIELDS,
   defaultFilterPrefs,
   filterFieldById,
   filterFields,
@@ -71,6 +76,13 @@ const unusedSortColumns = computed(() =>
   SEARCH_COLUMNS.filter((column) => !draft.value.sort.some((rule) => rule.id === column.id)),
 )
 const orderedColumnIds = computed(() => groupColumnOrder(draft.value.columns.order))
+const watchedGroups = computed(() =>
+  COLUMN_GROUP_ORDER.map((group) => ({
+    group,
+    label: COLUMN_GROUP_LABEL[group],
+    ids: watchedColumnIds().filter((id) => columnGroup(id) === group),
+  })).filter((section) => section.ids.length),
+)
 
 const regionOptions = computed(() => selectableRegions(coverage.regions).map((region) => regionLabel(region)))
 const selectedRegionCodes = computed(
@@ -185,16 +197,37 @@ function resetSort() {
   draft.value.sort = DEFAULT_SORT.map((rule) => ({ ...rule }))
 }
 
+function toggleWatched(id: string, on: boolean) {
+  if (id === 'mappingStatus') return
+  draft.value.watchedFields = on
+    ? [...draft.value.watchedFields, id]
+    : draft.value.watchedFields.filter((item) => item !== id)
+}
+
+function columnKind(id: string) {
+  return SEARCH_COLUMNS.find((column) => column.id === id)?.kind
+}
+
+function setDayThreshold(id: string, value: string | number) {
+  const days = Math.max(0, Math.floor(Number(value) || 0))
+  draft.value.watchedDayThresholds = { ...draft.value.watchedDayThresholds, [id]: days }
+}
+
+function resetWatched() {
+  draft.value.watchedFields = [...DEFAULT_WATCHED_FIELDS]
+  draft.value.watchedDayThresholds = {}
+}
+
 function resetFilters() {
   draft.value.filters = defaultFilterPrefs()
 }
 
 function visibleColumn(id: string) {
-  return id === 'vesselName' || !draft.value.columns.hidden.includes(id)
+  return id === LOCKED_COLUMN_ID || !draft.value.columns.hidden.includes(id)
 }
 
 function toggleColumn(id: string, on: boolean) {
-  if (id === 'vesselName') return
+  if (id === LOCKED_COLUMN_ID) return
   draft.value.columns.hidden = on
     ? draft.value.columns.hidden.filter((item) => item !== id)
     : [...draft.value.columns.hidden, id]
@@ -261,6 +294,8 @@ function save() {
       freezeThrough: draft.value.columns.freezeThrough,
     },
     sort: draft.value.sort.map((rule) => ({ ...rule })),
+    watchedFields: [...draft.value.watchedFields],
+    watchedDayThresholds: { ...draft.value.watchedDayThresholds },
   })
   toast.success('List setting saved')
 }
@@ -326,6 +361,7 @@ function cancel() {
               <TabsTrigger value="filters">Filters</TabsTrigger>
               <TabsTrigger value="columns">Columns</TabsTrigger>
               <TabsTrigger value="sort">Sort</TabsTrigger>
+              <TabsTrigger value="watched">Watched fields</TabsTrigger>
             </TabsList>
             <div class="flex flex-wrap justify-end gap-2">
               <Button v-if="tab === 'sort'" type="button" variant="outline" :disabled="!unusedSortColumns.length" @click="addSort">
@@ -346,6 +382,14 @@ function cancel() {
                 @click="resetColumns"
               >
                 Reset columns
+              </Button>
+              <Button
+                v-else-if="tab === 'watched'"
+                type="button"
+                variant="outline"
+                @click="resetWatched"
+              >
+                Reset watched fields
               </Button>
               <Button
                 v-else
@@ -418,7 +462,7 @@ function cancel() {
                   <GripVertical class="size-4 shrink-0 text-muted-foreground" />
                   <Checkbox
                     :model-value="visibleColumn(id)"
-                    :disabled="id === 'vesselName'"
+                    :disabled="id === LOCKED_COLUMN_ID"
                     @update:model-value="(value) => toggleColumn(id, value === true)"
                   />
                   <button
@@ -472,6 +516,42 @@ function cancel() {
                   <Trash2 class="size-4" />
                 </Button>
               </li>
+            </ul>
+          </TabsContent>
+
+          <TabsContent value="watched" class="min-h-0 overflow-auto">
+            <p class="mb-3 text-sm text-muted-foreground">
+              A watched field shows an alert when this sync changes it. Mapping status stays watched. For a date, a day threshold of 0 counts any difference. A larger number ignores a smaller gap. Other changes still highlight the row.
+            </p>
+            <ul class="overflow-hidden rounded-md border">
+              <template v-for="section in watchedGroups" :key="section.group">
+              <li class="border-b bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                {{ section.label }}
+              </li>
+              <li
+                v-for="id in section.ids"
+                :key="id"
+                class="flex h-12 items-center gap-3 border-b px-3 last:border-b-0"
+              >
+                <Checkbox
+                  :model-value="id === 'mappingStatus' || draft.watchedFields.includes(id)"
+                  :disabled="id === 'mappingStatus'"
+                  @update:model-value="(value) => toggleWatched(id, value === true)"
+                />
+                <span class="text-sm">{{ columnHeaderLabelById(id) }}</span>
+                <span v-if="id === 'mappingStatus'" class="text-xs text-muted-foreground">Required</span>
+                <label v-if="columnKind(id) === 'datetime' && draft.watchedFields.includes(id)" class="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+                  Days
+                  <Input
+                    type="number"
+                    min="0"
+                    class="h-8 w-16"
+                    :model-value="draft.watchedDayThresholds?.[id] ?? 0"
+                    @update:model-value="setDayThreshold(id, $event)"
+                  />
+                </label>
+              </li>
+              </template>
             </ul>
           </TabsContent>
         </Tabs>

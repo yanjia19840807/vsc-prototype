@@ -1,3 +1,7 @@
+import { applyStoredTerminal9code, applyStoredVesselType } from '@/domain/calculated-fields'
+import { manualLaraLogDetails } from '@/features/vessel-schedule/manual-vessel-actions'
+import { brandFromVoyage } from '@/domain/lara-brand'
+import { createSeedPorts } from '@/features/terminal-coverage/model'
 import { formatApiDateTime } from '@/lib/vessel-utils'
 import type {
   ActivityLogEntry,
@@ -13,9 +17,18 @@ import type {
 import { CURRENT_USER, portByCode } from './ports'
 import { tmlRowsForPort } from './tml-matrix'
 
+const coveragePorts = createSeedPorts()
+
 function daysFromNow(offset: number, hour = 10): string {
   const d = new Date()
   d.setDate(d.getDate() + offset)
+  d.setHours(hour, 0, 0, 0)
+  return d.toISOString()
+}
+
+function daysBefore(iso: string, days: number, hour: number) {
+  const d = new Date(iso)
+  d.setDate(d.getDate() - days)
   d.setHours(hour, 0, 0, 0)
   return d.toISOString()
 }
@@ -150,8 +163,10 @@ function laraArrival(vessel: VesselRecord, etd: string) {
     ['laraVoyage', '', vessel.laraVoyage],
     ['vesselName', '', vessel.vesselName],
     ['pointCode', '', vessel.pointCode],
-    ['laraPoolLocation', '', vessel.poolLocation],
+    ['laraPoolLocation', '', vessel.laraPoolLocation],
+    ['visitNo', '', vessel.visitNo],
     ['service', '', vessel.service],
+    ['laraEta', '', shown(vessel.laraEta)],
     ['laraEtb', '', shown(vessel.laraEtb)],
     ['laraEtd', '', etd],
     ['voyageStatus', '', vessel.voyageStatus],
@@ -182,6 +197,7 @@ function seedActivity(
             ['laraVoyage', '', vessel.laraVoyage],
             ['vesselName', '', vessel.vesselName],
             ['pointCode', '', vessel.pointCode],
+            ['laraEta', '', shown(vessel.laraEta)],
             ['laraEtb', '', shown(vessel.laraEtb)],
             ['laraEtd', '', shown(vessel.laraEtd)],
             ['remark', '', vessel.remark],
@@ -340,7 +356,7 @@ export function refreshSharedTerminal(vessels: VesselRecord[]) {
   }
   for (const vessel of vessels) {
     const key = keyOf(vessel)
-    vessel.sharedTerminal = !!key && (counts.get(key) ?? 0) > 1
+    vessel.sharedLaraCount = key ? (counts.get(key) ?? 0) : 0
   }
 }
 
@@ -374,6 +390,7 @@ function build(seed: Seed): VesselRecord {
   const apiCovered = seed.apiCovered ?? port?.apiCovered ?? false
   const etbOff = seed.laraEtb ? 0 : -1
   const etb = seed.laraEtb ?? daysFromNow(etbOff, 8)
+  const laraEta = seed.laraEta ?? daysBefore(etb, 1, 7)
   const etd = seed.laraEtd ?? daysFromNow(etbOff + 1, 18)
   const ext = seed.blankVoyages
     ? ''
@@ -392,9 +409,9 @@ function build(seed: Seed): VesselRecord {
   const atd = seed.tmlAtd ?? ''
   const cyOpen = seed.cyOpen ?? daysFromNow(etbOff - 3, 0)
   const cyClosing = seed.cyCutoff ?? daysFromNow(etbOff - 1, 12)
-  const noTerminalStatuses = new Set(['No terminal record', 'Pending match'])
+  const noTerminalStatuses = new Set(['No terminal record'])
   const hasTerminal =
-    !seed.createdManually &&
+    (!seed.createdManually || seed.matchingStatus === 'Auto matched') &&
     !seed.rowNotFound &&
     !noTerminalStatuses.has(seed.matchingStatus) &&
     apiCovered &&
@@ -450,21 +467,30 @@ function build(seed: Seed): VesselRecord {
     department: seed.department ?? 'Ops support',
     vesselName: seed.vesselName,
     vesselType: seed.vesselType ?? 'MV',
+    vesselTypeLabel: '',
     vesselOperator: seed.vesselOperator ?? 'CMA',
+    brand: brandFromVoyage(seed.laraVoyage ?? '0BDP9W1MA') || seed.brand,
+    acPartner: seed.acPartner ?? '',
     service: seed.service ?? 'FAL1',
     oaFlag: seed.oaFlag ?? 'OA',
     groupKind: seed.groupKind ?? 'Group Vessel',
     region: port?.region ?? seed.region,
     pointCode: seed.pointCode,
+    visitNo: seed.visitNo ?? '1',
     terminalName: seed.terminalName ?? 'SCT',
-    poolLocation: seed.poolLocation ?? `${seed.pointCode}DSCT`,
+    terminal9code: '',
+    laraPoolLocation: seed.laraPoolLocation ?? `${seed.pointCode}DSCT`,
+    multipleCallNumber: seed.multipleCallNumber ?? '0',
     laraVoyage: seed.laraVoyage ?? '0BDP9W1MA',
+    mainVoyage: seed.mainVoyage ?? seed.laraVoyage ?? '0BDP9W1MA',
     externalVoyage: selected?.evoyage ?? '',
     localVoyage: selected?.evoyage ?? seed.localVoyage ?? '',
     externalImportVoyage: selected?.ivoyage ?? '',
     externalExportVoyage: selected?.evoyage ?? '',
+    laraEta,
     laraEtb: etb,
     laraEtd: etd,
+    cutoff: seed.cutoff ?? '',
     tmlEta: selected?.eta ?? '',
     tmlAta: selected?.ata ?? '',
     tmlEtb: selected?.etb ?? '',
@@ -481,7 +507,7 @@ function build(seed: Seed): VesselRecord {
     agentCode: seed.agentCode ?? '',
     portsOfCall: seed.portsOfCall ?? '',
     matchingStatus: seed.matchingStatus,
-    sharedTerminal: false,
+    sharedLaraCount: 0,
     terminalSource: selected ? 'freightower' : null,
     voyageStatus: seed.voyageStatus ?? 'Active',
     workflowStatus: seed.workflowStatus,
@@ -519,7 +545,7 @@ function build(seed: Seed): VesselRecord {
   const seededHistory = traced.history
   const latestLara = seededHistory.filter((item) => item.type === 'LARA sync').map((item) => item.at).sort().at(-1)
   const latestTerminal = seededHistory.filter((item) => item.type === 'Terminal sync').map((item) => item.at).sort().at(-1)
-  return {
+  const record: VesselRecord = {
     ...base,
     ...seed,
     volumes: seed.volumes ?? base.volumes,
@@ -546,13 +572,20 @@ function build(seed: Seed): VesselRecord {
     laraSyncTime: seed.laraSyncTime ?? (latestLara ? fmtShort(latestLara) : ''),
     lastRefreshTime: seed.lastRefreshTime ?? (latestTerminal ? fmtShort(latestTerminal) : ''),
     scheduleLogs: [],
-    sharedTerminal: false,
+    sharedLaraCount: 0,
     terminalSource: base.terminalSource,
     apiCovered,
     region: port?.region ?? seed.region,
     createdManually: seed.createdManually ?? false,
     laraLinked: seed.laraLinked ?? false,
+    vesselTypeLabel: '',
+    terminal9code: '',
   }
+  applyStoredVesselType(record)
+  applyStoredTerminal9code(record, coveragePorts)
+  const created = record.history.find((entry) => entry.type === 'Manual create')
+  if (created) created.details = manualLaraLogDetails(record)
+  return record
 }
 
 export function createInitialVessels(): VesselRecord[] {
@@ -568,6 +601,8 @@ export function createInitialVessels(): VesselRecord[] {
       owner: CURRENT_USER,
       takeBy: CURRENT_USER,
       takeTime: daysFromNow(-1, 9),
+      externalVoyage: '015E',
+      terminalCode: 'SCT',
       laraEtb: daysFromNow(1, 8),
       laraEtd: daysFromNow(2, 18),
       tasks: postSailingTask('In Progress', 1),
@@ -577,9 +612,10 @@ export function createInitialVessels(): VesselRecord[] {
       vesselName: 'APL MIAMI',
       pointCode: 'CNSHK',
       region: 'SC',
-      poolLocation: 'CNSHKDSCT',
+      laraPoolLocation: 'CNSHKDSCT',
       laraVoyage: '0FFDLW1MA',
       externalVoyage: '015E',
+      terminalCode: 'SCT',
       matchingStatus: 'Auto matched',
       workflowStatus: 'Completed',
       tmlAtd: daysFromNow(-2, 11),
@@ -595,7 +631,7 @@ export function createInitialVessels(): VesselRecord[] {
       vesselName: 'COSCO SHIPPING ARGENTINA',
       pointCode: 'CNSHK',
       region: 'SC',
-      matchingStatus: 'ETD gap > 5 days',
+      matchingStatus: 'ETD gap > 3 days',
       workflowStatus: 'Pending',
       externalVoyage: '011W',
       externalImportVoyage: 'E011',
@@ -641,6 +677,7 @@ export function createInitialVessels(): VesselRecord[] {
       pointCode: 'CNYTN',
       region: 'SC',
       matchingStatus: 'Manual matched',
+      remark: 'Matched, then one terminal field changed after a user edit.',
       manualRemediation: 'reviewMatch',
       workflowStatus: 'In Progress',
       owner: CURRENT_USER,
@@ -796,7 +833,7 @@ export function createInitialVessels(): VesselRecord[] {
       vesselName: 'PIL SINGAPORE',
       pointCode: 'HKHKG',
       region: 'HK',
-      matchingStatus: 'ETD gap > 5 days',
+      matchingStatus: 'ETD gap > 3 days',
       workflowStatus: 'Pending',
       externalVoyage: '088W',
       unbound: true,
@@ -848,10 +885,11 @@ export function createInitialVessels(): VesselRecord[] {
       matchingStatus: 'Auto matched',
       workflowStatus: 'New',
       laraVoyage: '0BDP9W1NC',
+      mainVoyage: '0BDP9W1MA',
       externalVoyage: '011W',
       externalImportVoyage: 'E068',
       terminalCode: 'YS01',
-      poolLocation: 'CNSHADYAN',
+      laraPoolLocation: 'CNSHADYAN',
       laraEtb: daysFromNow(2, 8),
       laraEtd: daysFromNow(3, 18),
     }),
@@ -893,7 +931,7 @@ export function createInitialVessels(): VesselRecord[] {
       externalVoyage: '011W',
       externalImportVoyage: 'E068',
       terminalCode: 'YS01',
-      poolLocation: 'CNSHADYAN',
+      laraPoolLocation: 'CNSHADYAN',
       laraEtb: daysFromNow(2, 8),
       laraEtd: daysFromNow(3, 18),
     }),
@@ -903,8 +941,9 @@ export function createInitialVessels(): VesselRecord[] {
       pointCode: 'CNXMN',
       region: 'SC',
       matchingStatus: 'Manual matched',
+      remark: 'Matched and edited, then this sync returned several terminal records.',
       manualRemediation: 'selectMatch',
-      extraCandidates: [{ evoyage: '044W', ivoyage: 'E045' }],
+      extraCandidates: [{ evoyage: '044W', ivoyage: 'E045', terminal: 'XMN2' }],
       workflowStatus: 'In Progress',
       owner: CURRENT_USER,
       externalVoyage: '044E',
@@ -946,6 +985,7 @@ export function createInitialVessels(): VesselRecord[] {
       pointCode: 'CNNGB',
       region: 'CC',
       matchingStatus: 'Auto matched',
+      remark: 'Matched, then this sync found no terminal record.',
       workflowStatus: 'In Progress',
       owner: CURRENT_USER,
       tasks: cargoOpsTasks(true),
@@ -955,7 +995,7 @@ export function createInitialVessels(): VesselRecord[] {
       vesselName: 'CMA CGM THALASSA',
       pointCode: 'CNSHK',
       region: 'SC',
-      matchingStatus: 'Pending match',
+      matchingStatus: 'No terminal record',
       workflowStatus: 'New',
       createdManually: true,
       laraVoyage: '9MANUAL1',
@@ -963,7 +1003,64 @@ export function createInitialVessels(): VesselRecord[] {
       laraEtd: daysFromNow(2, 18),
       remark: 'Added at terminal before LARA voyage exists.',
     }),
+    build({
+      id: 'v31',
+      vesselName: 'COSCO SHIPPING ARGENTINA',
+      pointCode: 'CNSHA',
+      region: 'CC',
+      matchingStatus: 'Auto matched',
+      workflowStatus: 'New',
+      createdManually: true,
+      laraVoyage: '0BDP9W1NC',
+      laraPoolLocation: 'CNSHADYAN',
+      service: 'FAL8',
+      externalVoyage: '099E',
+      laraEtb: daysFromNow(4, 8),
+      laraEtd: daysFromNow(5, 18),
+      remark: 'Temporary vessel waiting to link with the formal schedule.',
+    }),
   ]
   refreshSharedTerminal(vessels)
+  assignVisitNumbers(vessels)
   return vessels
+}
+
+function callIdentity(vessel: VesselRecord, visit: string) {
+  return [vessel.laraVoyage, vessel.pointCode, vessel.laraPoolLocation, visit]
+    .map((part) => part.trim().toUpperCase())
+    .join('\0')
+}
+
+/**
+ * Formal rows keep a unique voyage, point code, pool location, and visit no.
+ * A temporary row may reuse a formal row's key: that pair is the same call.
+ * Two temporary rows still take different visit numbers.
+ */
+function assignVisitNumbers(vessels: VesselRecord[]) {
+  const formalKeys = new Set<string>()
+  const manualKeys = new Set<string>()
+  const nextVisit = (vessel: VesselRecord, taken: Set<string>) => {
+    let n = Number(vessel.visitNo || '1')
+    if (!Number.isFinite(n) || n < 1) n = 1
+    let visit = String(n)
+    let key = callIdentity(vessel, visit)
+    while (taken.has(key)) {
+      n += 1
+      visit = String(n)
+      key = callIdentity(vessel, visit)
+    }
+    return { visit, key }
+  }
+  for (const vessel of vessels) {
+    if (vessel.createdManually) continue
+    const assigned = nextVisit(vessel, formalKeys)
+    vessel.visitNo = assigned.visit
+    formalKeys.add(assigned.key)
+  }
+  for (const vessel of vessels) {
+    if (!vessel.createdManually) continue
+    const assigned = nextVisit(vessel, manualKeys)
+    vessel.visitNo = assigned.visit
+    if (!formalKeys.has(assigned.key)) manualKeys.add(assigned.key)
+  }
 }

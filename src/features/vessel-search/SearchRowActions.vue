@@ -4,7 +4,7 @@ import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
 import type { ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import type { VesselRecord } from '@/types/vsp'
 
-defineProps<{
+const props = defineProps<{
   vessel: VesselRecord
 }>()
 

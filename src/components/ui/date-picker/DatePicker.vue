@@ -78,7 +78,7 @@ function clear() {
         :data-placeholder="date ? undefined : ''"
         :class="
           cn(
-            'min-w-[160px] justify-start text-left font-normal',
+            'min-w-[160px] justify-start bg-card text-left font-normal data-placeholder:bg-background',
             !date && 'text-muted-foreground',
             props.class,
           )

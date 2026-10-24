@@ -14,30 +14,30 @@ export type LaraVoyageStatus = (typeof LARA_VOYAGE_STATUSES)[number]
 
 export type ManualVesselInput = {
   voyage: string
+  visitNo: string
   vesselName: string
   pointCode: string
-  vesselType: LaraVesselType
-  brand: LaraBrand
+  brand?: LaraBrand | ''
   service: string
-  poolLocation: string
+  laraPoolLocation: string
+  eta: string
   etb: string
   etd: string
-  voyageStatus: LaraVoyageStatus
   remark?: string
 }
 
 export const addVesselSchema = toTypedSchema(
   z.object({
     voyage: requiredText('Voyage is required'),
+    visitNo: requiredText('Visit no is required'),
     vesselName: requiredText('Vessel name is required'),
     pointCode: requiredText('Point code is required'),
-    vesselType: z.enum(LARA_VESSEL_TYPES, { message: 'Vessel type is required' }),
-    brand: z.enum(LARA_BRANDS, { message: 'Brand is required' }),
-    service: requiredText('Service is required'),
-    poolLocation: requiredText('Pool location is required'),
-    etb: requiredText('ETB is required'),
-    etd: requiredText('ETD is required'),
-    voyageStatus: z.enum(LARA_VOYAGE_STATUSES, { message: 'Voyage status is required' }),
+    brand: z.union([z.enum(LARA_BRANDS), z.literal('')]).optional(),
+    service: z.string(),
+    laraPoolLocation: z.string(),
+    eta: z.string(),
+    etb: z.string(),
+    etd: z.string(),
     remark: z.string(),
   }),
 )

@@ -26,6 +26,24 @@ const router = createRouter({
       meta: { title: 'Port terminal setting', flush: true },
     },
     {
+      path: '/temporary-vessels',
+      name: 'temporary-vessels',
+      component: () => import('@/pages/TemporaryVesselListPage.vue'),
+      meta: { title: 'Temporary Vessel', flush: true },
+    },
+    {
+      path: '/temporary-vessels/new',
+      name: 'temporary-vessel-new',
+      component: () => import('@/pages/TemporaryVesselFormPage.vue'),
+      meta: { title: 'New temporary vessel' },
+    },
+    {
+      path: '/temporary-vessels/:id',
+      name: 'temporary-vessel-edit',
+      component: () => import('@/pages/TemporaryVesselFormPage.vue'),
+      meta: { title: 'Temporary vessel' },
+    },
+    {
       path: '/vessels/:id/view',
       name: 'vessel-detail-view',
       component: () => import('@/pages/VesselDetailViewPage.vue'),
@@ -42,12 +60,6 @@ const router = createRouter({
       name: 'vessel-review',
       component: () => import('@/pages/ReviewPage.vue'),
       meta: { title: 'Review' },
-    },
-    {
-      path: '/vessels/:id/link-lara',
-      name: 'vessel-link-lara',
-      component: () => import('@/pages/LinkToLaraPage.vue'),
-      meta: { title: 'Link to LARA' },
     },
   ],
 })

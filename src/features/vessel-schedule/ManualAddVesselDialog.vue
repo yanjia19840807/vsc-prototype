@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useForm } from 'vee-validate'
 import { toast } from 'vue-sonner'
 
-import { Button } from '@/components/ui/button'
+import { brandFromVoyage } from '@/domain/lara-brand'
+
+import SearchSelect from '@/components/SearchSelect.vue'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Dialog,
   DialogContent,
@@ -23,13 +26,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
+import { duplicateScheduleCallMessage, findScheduleCall } from '@/features/vessel-schedule/manual-vessel-actions'
 import {
   addVesselSchema,
   LARA_BRANDS,
-  LARA_VESSEL_TYPES,
   type LaraBrand,
-  type LaraVesselType,
-  type LaraVoyageStatus,
 } from '@/features/vessel-schedule/manual-vessel-schemas'
 import { datetimeInputValue, datetimeToIso } from '@/features/vessel-schedule/mismatch-fields'
 import { DIALOG_CONFIRM_DESCRIPTION } from '@/lib/dialog-copy'
@@ -56,17 +57,19 @@ const title = computed(() => (editing.value ? 'Edit vessel' : 'Add vessel'))
 
 const emptyValues = {
   voyage: '',
+  visitNo: '1',
   vesselName: '',
   pointCode: '',
-  vesselType: 'Group vsl' as LaraVesselType,
   brand: undefined as LaraBrand | undefined,
   service: '',
-  poolLocation: '',
+  laraPoolLocation: '',
+  eta: '',
   etb: '',
   etd: '',
-  voyageStatus: 'Active' as LaraVoyageStatus,
   remark: '',
 }
+
+const callError = ref('')
 
 const { handleSubmit, resetForm, values, setFieldValue, errors, submitCount } = useForm({
   validationSchema: addVesselSchema,
@@ -92,34 +95,31 @@ const pointCodeOptions = computed(() =>
 )
 
 function brandOf(vessel: VesselRecord): LaraBrand | undefined {
+  const derived = brandFromVoyage(vessel.laraVoyage)
+  if (LARA_BRANDS.includes(derived as LaraBrand)) return derived as LaraBrand
   if (LARA_BRANDS.includes(vessel.brand as LaraBrand)) return vessel.brand as LaraBrand
   return undefined
-}
-
-function vesselTypeOf(vessel: VesselRecord): LaraVesselType {
-  if (vessel.groupKind === 'Partner Vessel') return 'Partner vsl'
-  if (vessel.groupKind === '3PF') return '3PF'
-  return 'Group vsl'
 }
 
 watch(
   () => [props.open, props.vessel?.id] as const,
   ([open]) => {
     if (!open) return
+    callError.value = ''
     if (props.vessel?.createdManually) {
       const v = props.vessel
       resetForm({
         values: {
           voyage: v.laraVoyage,
+          visitNo: v.visitNo || '1',
           vesselName: v.vesselName,
           pointCode: v.pointCode,
-          vesselType: vesselTypeOf(v),
           brand: brandOf(v),
           service: v.service,
-          poolLocation: v.poolLocation,
+          laraPoolLocation: v.laraPoolLocation,
+          eta: datetimeInputValue(v.laraEta),
           etb: datetimeInputValue(v.laraEtb),
           etd: datetimeInputValue(v.laraEtd),
-          voyageStatus: v.voyageStatus === 'Omit' ? 'Omit' : 'Active',
           remark: v.laraLinked ? '' : v.remark?.startsWith('Manually added') ? '' : (v.remark ?? ''),
         },
         errors: {},
@@ -138,41 +138,62 @@ watch(
 )
 
 const onSubmit = handleSubmit((form) => {
+  const visitNo = editing.value ? props.vessel?.visitNo || '1' : '1'
+  const duplicate = findScheduleCall(
+    store.vessels,
+    { voyage: form.voyage, pointCode: form.pointCode, poolLocation: form.laraPoolLocation, visitNo },
+    props.vessel?.id,
+  )
+  if (duplicate) {
+    callError.value = duplicateScheduleCallMessage(form.voyage, form.pointCode, form.laraPoolLocation, visitNo)
+    toast.error(callError.value)
+    return
+  }
+  callError.value = ''
   const payload = {
     voyage: form.voyage.trim(),
+    visitNo,
     vesselName: form.vesselName.trim(),
     pointCode: form.pointCode,
-    vesselType: form.vesselType,
     brand: form.brand,
     service: form.service.trim(),
-    poolLocation: form.poolLocation.trim(),
+    laraPoolLocation: form.laraPoolLocation.trim(),
+    eta: datetimeToIso(form.eta),
     etb: datetimeToIso(form.etb),
     etd: datetimeToIso(form.etd),
-    voyageStatus: form.voyageStatus,
     remark: form.remark?.trim() ?? '',
   }
   if (editing.value && props.vessel) {
-    store.updateManualVessel(props.vessel.id, payload)
+    if (!store.updateManualVessel(props.vessel.id, payload)) {
+      callError.value = duplicateScheduleCallMessage(form.voyage, form.pointCode, form.laraPoolLocation, visitNo)
+      toast.error(callError.value)
+      return
+    }
     toast.success('Vessel updated')
     emit('update:open', false)
     return
   }
   const created = store.addManualVessel(payload)
+  if (!created) {
+    callError.value = duplicateScheduleCallMessage(form.voyage, form.pointCode, form.laraPoolLocation, visitNo)
+    toast.error(callError.value)
+    return
+  }
   toast.success('Vessel created')
   emit('created', created)
   emit('update:open', false)
 }, ({ errors: formErrors }) => {
   toastFormErrors(formErrors, [
     'voyage',
+    'visitNo',
     'vesselName',
     'pointCode',
-    'vesselType',
     'brand',
     'service',
-    'poolLocation',
+    'laraPoolLocation',
+    'eta',
     'etb',
     'etd',
-    'voyageStatus',
   ])
 })
 
@@ -192,8 +213,12 @@ function close() {
         <DialogDescription>{{ DIALOG_CONFIRM_DESCRIPTION }}</DialogDescription>
       </DialogHeader>
       <p class="text-sm">
-        Create a schedule row when the vessel is at the terminal but LARA has no voyage yet. Manual vessel records stay after sync. Link to LARA later when the formal voyage appears to avoid duplicates.
+        Create a schedule row when the vessel is at the terminal but LARA has no voyage yet. A matching formal schedule uses the same voyage, point code, pool location, and visit no.
       </p>
+
+      <Alert v-if="callError" variant="destructive">
+        <AlertDescription>{{ callError }}</AlertDescription>
+      </Alert>
 
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Field :data-invalid="fieldError('voyage') ? true : undefined">
@@ -218,38 +243,14 @@ function close() {
 
         <Field :data-invalid="fieldError('pointCode') ? true : undefined">
           <FieldLabel>Point code</FieldLabel>
-          <Select
-            :model-value="values.pointCode || undefined"
-            @update:model-value="(v) => setValue('pointCode', String(v ?? ''))"
-          >
-            <SelectTrigger class="w-full">
-              <SelectValue placeholder="Select point code" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="port in pointCodeOptions" :key="port.portCode" :value="port.portCode">
-                {{ port.portCode }} · {{ port.portName }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
+          <SearchSelect
+            :model-value="values.pointCode"
+            :options="pointCodeOptions.map((port) => ({ value: port.portCode, label: `${port.portCode} · ${port.portName}` }))"
+            placeholder="Select point code"
+            search-placeholder="Search point code"
+            @update:model-value="setValue('pointCode', $event)"
+          />
           <FieldError v-if="fieldError('pointCode')">{{ fieldError('pointCode') }}</FieldError>
-        </Field>
-
-        <Field :data-invalid="fieldError('vesselType') ? true : undefined">
-          <FieldLabel>Vessel type</FieldLabel>
-          <Select
-            :model-value="values.vesselType"
-            @update:model-value="(v) => setValue('vesselType', String(v ?? 'Group vsl'))"
-          >
-            <SelectTrigger class="w-full">
-              <SelectValue placeholder="Select type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="type in LARA_VESSEL_TYPES" :key="type" :value="type">
-                {{ type }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <FieldError v-if="fieldError('vesselType')">{{ fieldError('vesselType') }}</FieldError>
         </Field>
 
         <Field :data-invalid="fieldError('brand') ? true : undefined">
@@ -280,14 +281,24 @@ function close() {
           <FieldError v-if="fieldError('service')">{{ fieldError('service') }}</FieldError>
         </Field>
 
-        <Field :data-invalid="fieldError('poolLocation') ? true : undefined">
+        <Field :data-invalid="fieldError('laraPoolLocation') ? true : undefined">
           <FieldLabel>Pool location</FieldLabel>
           <Input
-            :model-value="values.poolLocation"
+            :model-value="values.laraPoolLocation"
             class="h-8"
-            @update:model-value="setValue('poolLocation', String($event))"
+            @update:model-value="setValue('laraPoolLocation', String($event))"
           />
-          <FieldError v-if="fieldError('poolLocation')">{{ fieldError('poolLocation') }}</FieldError>
+          <FieldError v-if="fieldError('laraPoolLocation')">{{ fieldError('laraPoolLocation') }}</FieldError>
+        </Field>
+
+        <Field :data-invalid="fieldError('eta') ? true : undefined">
+          <FieldLabel>ETA</FieldLabel>
+          <DateTimePicker
+            :model-value="values.eta"
+            class="w-full"
+            @update:model-value="setValue('eta', $event ?? '')"
+          />
+          <FieldError v-if="fieldError('eta')">{{ fieldError('eta') }}</FieldError>
         </Field>
 
         <Field :data-invalid="fieldError('etb') ? true : undefined">
@@ -308,11 +319,6 @@ function close() {
             @update:model-value="setValue('etd', $event ?? '')"
           />
           <FieldError v-if="fieldError('etd')">{{ fieldError('etd') }}</FieldError>
-        </Field>
-
-        <Field>
-          <FieldLabel>Voyage status</FieldLabel>
-          <Input :model-value="values.voyageStatus || 'Active'" class="h-8" disabled />
         </Field>
 
         <Field class="sm:col-span-2 lg:col-span-3">

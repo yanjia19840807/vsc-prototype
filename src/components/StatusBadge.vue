@@ -6,6 +6,7 @@ import type { BadgeVariants } from '@/components/ui/badge'
 
 const props = defineProps<{
   status: string
+  size?: BadgeVariants['size']
 }>()
 
 const isWarningText = computed(() => {
@@ -19,13 +20,12 @@ const variant = computed<BadgeVariants['variant'] | null>(() => {
   if (
     [
       'Matched',
+      'Linked',
       'Active',
       'Available',
       'Manual Matched',
       'Manual matched',
       'Auto matched',
-      'Multiple LARA → one terminal',
-      'Multiple LARA records',
     ].includes(status)
   ) {
     return 'success'
@@ -36,10 +36,9 @@ const variant = computed<BadgeVariants['variant'] | null>(() => {
   if (
     [
       'Multiple terminal records',
-      'ETD gap > 5 days',
+      'ETD gap > 3 days',
       'No external voyage',
       'No terminal record',
-      'Pending match',
     ].includes(status)
   ) {
     return 'warning'
@@ -50,7 +49,7 @@ const variant = computed<BadgeVariants['variant'] | null>(() => {
 </script>
 
 <template>
-  <Badge v-if="variant" :variant="variant">{{ status }}</Badge>
+  <Badge v-if="variant" :variant="variant" :size="size">{{ status }}</Badge>
   <span v-else-if="isWarningText" class="text-amber-800">{{ status }}</span>
   <template v-else>{{ status }}</template>
 </template>

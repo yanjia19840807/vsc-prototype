@@ -175,8 +175,8 @@ function keepNested(event: Event) {
               </TableCell>
               <TableCell class="align-top">
                 <div class="flex h-8 items-center gap-1">
-                  <Button type="button" size="xs" variant="primary" @click="saveDraft">Save</Button>
                   <Button type="button" size="xs" variant="outline" @click="resetEditor">Cancel</Button>
+                  <Button type="button" size="xs" variant="primary" @click="saveDraft">Save</Button>
                 </div>
               </TableCell>
             </TableRow>
@@ -199,8 +199,8 @@ function keepNested(event: Event) {
                 </TableCell>
                 <TableCell class="align-top">
                   <div class="flex h-8 items-center gap-1">
-                    <Button type="button" size="xs" variant="primary" @click="saveDraft">Save</Button>
                     <Button type="button" size="xs" variant="outline" @click="resetEditor">Cancel</Button>
+                    <Button type="button" size="xs" variant="primary" @click="saveDraft">Save</Button>
                     <Button
                       v-if="region.active"
                       type="button"

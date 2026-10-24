@@ -1,6 +1,6 @@
 import type { ScheduleActivityLog, ScheduleRefresh, TerminalSchedule, VesselRecord } from '@/types/vsp'
 import { laraLinkKey } from '@/features/vessel-schedule/lara-link'
-import { historyFieldLabel, historyFieldMatches, SEARCH_COLUMNS, searchCellText } from '@/features/vessel-search/search-columns'
+import { historyFieldLabel, historyFieldMatches, SEARCH_COLUMNS, searchCellText, type ColumnSource } from '@/features/vessel-search/search-columns'
 
 export type ActivityCategory =
   | 'lara-sync'
@@ -64,20 +64,11 @@ export type ActivityLogItem = {
 }
 
 const LARA_SNAPSHOT_FIELDS = [
-  'laraVoyage',
-  'vesselName',
-  'pointCode',
-  'laraPoolLocation',
-  'poolLocation',
-  'service',
-  'brand',
-  'vesselType',
-  'laraEtb',
-  'laraEtd',
-  'voyageStatus',
+  ...SEARCH_COLUMNS.filter((column) => column.source === 'lara').map((column) => column.id),
+  'remark',
 ]
 
-function columnSource(field: string): 'lara' | 'terminal' | 'platform' {
+function columnSource(field: string): ColumnSource {
   const direct = SEARCH_COLUMNS.find((column) => column.id === field)
   if (direct) return direct.source
   const aliased = SEARCH_COLUMNS.find((column) => historyFieldMatches(field, column.id))
@@ -92,10 +83,15 @@ function isMatchLog(log: ScheduleActivityLog) {
   return log.field === 'Match' || Boolean(log.originalMatchResult || log.updatedMatchResult)
 }
 
-function callKey(log: Pick<ScheduleActivityLog, 'internalVoyage' | 'poolLocation'>, vessel: VesselRecord) {
-  const voyage = log.internalVoyage || vessel.laraVoyage
-  const pool = log.poolLocation || vessel.poolLocation
-  return [voyage, pool].filter(Boolean).join(' · ') || '—'
+function callKey(
+  log: Pick<ScheduleActivityLog, 'laraVoyage' | 'pointCode' | 'laraPoolLocation' | 'visitNo'>,
+  vessel: VesselRecord,
+) {
+  const voyage = log.laraVoyage || vessel.laraVoyage
+  const point = log.pointCode || vessel.pointCode
+  const pool = log.laraPoolLocation || vessel.laraPoolLocation
+  const visit = log.visitNo || vessel.visitNo
+  return [voyage, point, pool, visit].filter(Boolean).join(' · ') || '—'
 }
 
 function blankValue(value: string) {
@@ -139,9 +135,10 @@ export function activityLogsOf(
       updatedBy: 'System',
       result: 'Success',
       failureSource: '',
-      internalVoyage: vessel.laraVoyage,
-      port: vessel.pointCode,
-      poolLocation: vessel.poolLocation,
+      laraVoyage: vessel.laraVoyage,
+      pointCode: vessel.pointCode,
+      visitNo: vessel.visitNo,
+      laraPoolLocation: vessel.laraPoolLocation,
       vesselId: vessel.id,
     }, vessel))
   }
@@ -333,8 +330,7 @@ function applyLaraSnapshots(items: ActivityLogItem[]) {
       continue
     }
     for (const change of item.changes) state.set(change.field, change.value)
-    const fields = [...new Set([...LARA_SNAPSHOT_FIELDS, ...state.keys()])]
-    const present = fields.filter((field) => state.has(field))
+    const present = LARA_SNAPSHOT_FIELDS.filter((field) => state.has(field))
     item.domainTables = [{
       id: `${item.id}:lara`,
       title: 'LARA',
@@ -363,7 +359,9 @@ function terminalItem(
     || (logs.length === 0 && vessel.terminalCandidates.length === 0)
   const result = failed ? 'Failed' : notFound ? 'Not found' : 'Found'
   const at = refresh?.refreshTime || first?.updatedTime || ''
-  const key = first ? callKey(first, vessel) : [vessel.laraVoyage, vessel.poolLocation].filter(Boolean).join(' · ')
+  const key = first
+    ? callKey(first, vessel)
+    : [vessel.laraVoyage, vessel.pointCode, vessel.laraPoolLocation, vessel.visitNo].filter(Boolean).join(' · ')
   return {
     id,
     category: 'terminal-sync',
@@ -624,16 +622,25 @@ export function activityDescription(item: ActivityLogItem) {
   const key = fact('Primary key')
   const present = (value?: string) => (value && value !== '—' ? value : '')
   if (item.category === 'lara-sync') {
-    return [present(fact('Scope')), present(fact('Result')), present(key)].filter(Boolean).join(' · ')
+    return withReason([present(fact('Scope')), present(fact('Result')), present(key)].filter(Boolean).join(' · '), item.reason)
   }
-  if (item.category === 'terminal-match') return present(fact('Match')) || item.headline
+  if (item.category === 'terminal-match') return withReason(present(fact('Match')) || item.headline, item.reason)
   if (item.category === 'terminal-sync') {
-    return [present(fact('Result')), present(fact('Records')) ? `${fact('Records')} records` : '', present(key)].filter(Boolean).join(' · ')
+    return withReason(
+      [present(fact('Result')), present(fact('Records')) ? `${fact('Records')} records` : '', present(key)].filter(Boolean).join(' · '),
+      item.reason,
+    )
   }
   if (item.category === 'lara-link') {
-    return [item.headline, present(fact('Counterparty'))].filter(Boolean).join(' · ')
+    return withReason([item.headline, present(fact('Counterparty'))].filter(Boolean).join(' · '), item.reason)
   }
-  return item.reason ? `${item.headline} · ${item.reason}` : item.headline
+  return withReason(item.headline, item.reason)
+}
+
+function withReason(text: string, reason: string) {
+  const note = reason.trim()
+  if (!note || text.includes(note)) return text
+  return text ? `${text} · ${note}` : note
 }
 
 export function activityCategoryShowsField(category: ActivityCategory) {

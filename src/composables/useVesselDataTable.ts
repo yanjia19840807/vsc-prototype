@@ -45,7 +45,7 @@ export function useVesselDataTable<TData extends { id: string }>(options: {
   const sorting = ref<SortingState>(options.initialSorting ?? [])
   const pagination = ref<PaginationState>({
     pageIndex: 0,
-    pageSize: options.initialPageSize ?? 10,
+    pageSize: options.initialPageSize ?? 100,
   })
   const localVisibility = ref<ColumnVisibilityState>({})
   const columnVisibility = options.columnVisibility ?? localVisibility

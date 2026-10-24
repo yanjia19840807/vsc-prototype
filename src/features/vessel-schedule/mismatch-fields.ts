@@ -86,8 +86,6 @@ export function terminalPanelColumns(): SearchColumn[] {
   for (const column of TERMINAL_SEARCH_COLUMNS) {
     const key = COLUMN_TO_DRAFT[column.id]
     if (!key || seen.has(key)) continue
-    // Prefer terminal9code label "Terminal" over terminalName for the code slot
-    if (key === 'terminal' && column.id === 'terminalName') continue
     seen.add(key)
     columns.push(column)
   }
@@ -198,7 +196,7 @@ export function datetimeToIso(local: string) {
   return Number.isNaN(date.getTime()) ? local : date.toISOString()
 }
 
-/** Highlight ETD when the LARA–terminal ETD gap exceeds 5 days. */
+/** Highlight ETD when the LARA–terminal ETD gap exceeds 3 days. */
 export function reviewWarnKeys(vessel: VesselRecord, schedule: TerminalSchedule | null | undefined): Set<TerminalDraftKey> {
   if (isMissingExternalVoyage(vessel)) return new Set<TerminalDraftKey>(['evoyage', 'ivoyage'])
   const warn = new Set<TerminalDraftKey>()
@@ -215,7 +213,7 @@ export function reviewWarnKeys(vessel: VesselRecord, schedule: TerminalSchedule 
     return Math.abs(a - b) / dayMs
   }
   const etdGap = gapDays(vessel.laraEtd, schedule.etd)
-  if (etdGap == null || etdGap > 5) warn.add('etd')
+  if (etdGap == null || etdGap > 3) warn.add('etd')
   return warn
 }
 
@@ -235,4 +233,4 @@ export function reviewAlertText(vessel: VesselRecord, schedule: TerminalSchedule
 }
 
 const MISMATCH_ALERT_REVIEW =
-  'The LARA ETD and terminal ETD differ by more than 5 days. Review and confirm or edit terminal data.'
+  'The LARA ETD and terminal ETD differ by more than 3 days. Review and confirm or edit terminal data.'

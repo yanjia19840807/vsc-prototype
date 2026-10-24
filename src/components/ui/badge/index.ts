@@ -19,9 +19,14 @@ export const badgeVariants = cva(
         ghost: 'hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50',
         link: 'text-primary underline-offset-4 hover:underline',
       },
+      size: {
+        default: '',
+        sm: 'h-4 gap-0.5 px-1.5 py-0 text-[0.625rem]',
+      },
     },
     defaultVariants: {
       variant: 'default',
+      size: 'default',
     },
   },
 )

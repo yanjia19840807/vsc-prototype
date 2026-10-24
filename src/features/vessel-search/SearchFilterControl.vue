@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { Checkbox } from '@/components/ui/checkbox'
 import { DateRangePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { MultiSelect } from '@/components/ui/multi-select'
@@ -129,6 +130,12 @@ const preview = computed(() => relativeDateLabel(props.state.fromDays ?? null, p
     :search-placeholder="`Search ${field.label.toLowerCase()}…`"
     class="w-[220px]"
     @update:model-value="patch({ values: $event })"
+  />
+  <Checkbox
+    v-else-if="field.kind === 'check'"
+    :model-value="state.on"
+    :aria-label="field.label"
+    @update:model-value="patch({ on: $event === true })"
   />
   <Input
     v-else

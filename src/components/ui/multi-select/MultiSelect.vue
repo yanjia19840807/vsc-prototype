@@ -88,7 +88,7 @@ function clear() {
         :data-placeholder="modelValue.length ? undefined : ''"
         :class="
           cn(
-            'w-full justify-between px-3 font-normal text-foreground data-placeholder:text-muted-foreground',
+            'w-full justify-between bg-card px-3 font-normal text-foreground data-placeholder:bg-background data-placeholder:text-muted-foreground',
             props.class,
           )
         "

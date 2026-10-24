@@ -100,7 +100,7 @@ function onOpen(next: boolean) {
         :data-placeholder="label ? undefined : ''"
         :class="
           cn(
-            'min-w-[280px] justify-start text-left font-normal',
+            'min-w-[280px] justify-start bg-card text-left font-normal data-placeholder:bg-background',
             !label && 'text-muted-foreground',
             props.class,
           )
