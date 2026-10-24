@@ -192,7 +192,7 @@ const onSubmit = handleSubmit((form) => {
   <div class="flex w-full flex-col gap-4">
     <PageBreadcrumb
       :items="[
-        { label: 'Temporary Vessel', to: '/temporary-vessels' },
+        { label: 'Temporary vessel', to: '/temporary-vessels' },
         { label: title },
       ]"
     />

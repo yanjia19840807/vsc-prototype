@@ -51,7 +51,7 @@ function close() {
         <DialogDescription>{{ DIALOG_CONFIRM_DESCRIPTION }}</DialogDescription>
       </DialogHeader>
       <p class="text-sm">
-        Remove this temporary vessel. After it is linked, the row stays in Temporary Vessel and cannot be deleted.
+        Remove this temporary vessel. After it is linked, the row stays in Temporary vessel and cannot be deleted.
       </p>
       <p v-if="vessel" class="text-sm text-muted-foreground">
         {{ vessel.vesselName }} · {{ vessel.pointCode }} · {{ vessel.laraVoyage || '—' }}

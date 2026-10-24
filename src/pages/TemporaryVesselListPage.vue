@@ -84,8 +84,8 @@ function openView(vessel: VesselRecord) {
   <div class="flex min-h-0 flex-1 flex-col gap-4 p-4">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <PageBreadcrumb :items="[{ label: 'Temporary Vessel' }]" />
-        <h1 class="text-xl font-semibold">Temporary Vessel</h1>
+        <PageBreadcrumb :items="[{ label: 'Temporary vessel' }]" />
+        <h1 class="text-xl font-semibold">Temporary vessel</h1>
         <p class="text-sm text-muted-foreground">
           Schedules added before LARA has the voyage. Unlinked rows also appear in vessel schedule search.
         </p>

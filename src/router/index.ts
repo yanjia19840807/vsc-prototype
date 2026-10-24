@@ -23,13 +23,13 @@ const router = createRouter({
       path: '/coverage',
       name: 'terminal-coverage',
       component: () => import('@/pages/TerminalCoveragePage.vue'),
-      meta: { title: 'Port terminal setting', flush: true },
+      meta: { title: 'Port terminal', flush: true },
     },
     {
       path: '/temporary-vessels',
       name: 'temporary-vessels',
       component: () => import('@/pages/TemporaryVesselListPage.vue'),
-      meta: { title: 'Temporary Vessel', flush: true },
+      meta: { title: 'Temporary vessel', flush: true },
     },
     {
       path: '/temporary-vessels/new',
