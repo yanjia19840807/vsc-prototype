@@ -1,7 +1,5 @@
 import { applyLaraPayload } from '@/domain/schedule-model/sync-diff'
 import {
-  callKey,
-  findCall,
   inRange,
   isLinkSource,
   isLinkTarget,
@@ -28,10 +26,7 @@ export function openLaraRun(
     etaTo?: string | null
     etbFrom?: string | null
     etbTo?: string | null
-    laraVoyage?: string | null
-    pointCode?: string | null
-    laraPoolLocation?: string | null
-    visitNo?: string | null
+    callId?: string | null
   },
 ) {
   const issued = nextId(state, 'lara-run')
@@ -45,10 +40,7 @@ export function openLaraRun(
     etaTo: single ? null : (input.etaTo ?? null),
     etbFrom: single ? null : (input.etbFrom ?? null),
     etbTo: single ? null : (input.etbTo ?? null),
-    laraVoyage: single ? (input.laraVoyage ?? null) : null,
-    pointCode: single ? (input.pointCode ?? null) : null,
-    laraPoolLocation: single ? (input.laraPoolLocation ?? null) : null,
-    visitNo: single ? (input.visitNo ?? null) : null,
+    callId: single ? (input.callId ?? null) : null,
     requestedAt: input.requestedAt,
     respondedAt: null,
     failureReason: '',
@@ -79,25 +71,31 @@ export function completeLaraRun(
   let next = replaceRun(state, { ...run, status: 'SUCCEEDED', respondedAt: input.respondedAt, failureReason: '', recordCount: records.length })
   const seen = new Set<string>()
   for (const record of records) {
-    const key = callKey(record.laraVoyage, record.pointCode, record.laraPoolLocation, record.visitNo)
-    seen.add(key)
-    let call = findCall(next, record.laraVoyage, record.pointCode, record.laraPoolLocation, record.visitNo)
+    const requestedId = record.callId || (run.scope === 'SINGLE' ? run.callId ?? undefined : undefined)
+    let call = requestedId ? next.calls.find((item) => item.id === requestedId) : undefined
+    if (requestedId && !call) throw new Error('Vessel call was not found')
+    const attributes = {
+      laraVoyage: record.laraVoyage,
+      pointCode: record.pointCode,
+      laraPoolLocation: record.laraPoolLocation,
+    }
     if (!call) {
       const issued = nextId(next, 'call')
       const created: VesselCall = {
         id: issued.id,
         createdFrom: 'LARA',
-        laraVoyage: record.laraVoyage,
-        pointCode: record.pointCode,
-        visitNo: record.visitNo,
-        laraPoolLocation: record.laraPoolLocation,
+        ...attributes,
+        visitNo: '1',
         platformOmit: false,
         laraVersionId: null,
         matchId: null,
       }
       next = { ...issued.state, calls: [...issued.state.calls, created] }
       call = created
+    } else {
+      next = updateCall(next, call.id, attributes)
     }
+    seen.add(call.id)
     if (isLinkSource(next, call.id) || isLinkTarget(next, call.id)) continue
     const payloadIssued = nextId(next, 'lara-payload')
     const payload: LaraPayload = { ...record, id: payloadIssued.id, runId: run.id, callId: call.id, capturedAt: input.respondedAt }
@@ -114,9 +112,8 @@ function markOmissions(state: ScheduleState, run: LaraSyncRun, seen: Set<string>
   if (!previous) return state
   let next = state
   for (const payload of state.laraPayloads.filter((item) => item.runId === previous.id)) {
-    const key = callKey(payload.laraVoyage, payload.pointCode, payload.laraPoolLocation, payload.visitNo)
-    if (seen.has(key)) continue
-    const call = findCall(next, payload.laraVoyage, payload.pointCode, payload.laraPoolLocation, payload.visitNo)
+    if (seen.has(payload.callId)) continue
+    const call = next.calls.find((item) => item.id === payload.callId)
     if (!call || isLinkSource(next, call.id) || call.platformOmit) continue
     const stillInside = inRange(payload.laraEta, run.etaFrom, run.etaTo) || inRange(payload.laraEtb, run.etbFrom, run.etbTo)
     if (!stillInside) continue

@@ -22,7 +22,7 @@ import type {
 import type { ManualVesselInput } from '@/features/vessel-schedule/manual-vessel-schemas'
 import { appendScheduleLogs, changesFromDetails, createRefresh, traceFromHistory } from '@/domain/schedule-trace'
 import { isLaraLinkSource, laraLinkKey } from '@/features/vessel-schedule/lara-link'
-import { findScheduleCall, manualLaraLogDetails } from '@/features/vessel-schedule/manual-vessel-actions'
+import { manualLaraLogDetails } from '@/features/vessel-schedule/manual-vessel-actions'
 import { buildTemporaryLinkReview, temporaryLinkKey } from '@/features/vessel-schedule/temporary-link'
 import { tmlRowsForPort } from '@/mock/tml-matrix'
 import { formatApiDateTime, formatDateTime } from '@/lib/vessel-utils'
@@ -243,20 +243,30 @@ export const useVesselStore = defineStore('vessels', () => {
 
   function patchDisplay(
     id: string,
-    fields: Partial<Pick<VesselRecord, 'laraVoyage' | 'pointCode' | 'visitNo' | 'laraPoolLocation' | 'multipleCallNumber' | 'vesselName' | 'vesselOperator' | 'brand' | 'service' | 'acPartner' | 'laraEta' | 'laraEtb' | 'laraEtd' | 'cutoff' | 'tmlEta' | 'tmlEtb' | 'tmlEtd' | 'tmlAtb' | 'tmlAtd' | 'externalVoyage' | 'externalExportVoyage' | 'externalImportVoyage' | 'localVoyage'>>,
+    fields: Partial<Pick<VesselRecord, 'laraVoyage' | 'pointCode' | 'laraPoolLocation' | 'multipleCallNumber' | 'vesselName' | 'vesselOperator' | 'brand' | 'service' | 'acPartner' | 'laraEta' | 'laraEtb' | 'laraEtd' | 'cutoff' | 'tmlEta' | 'tmlAta' | 'tmlEtb' | 'tmlAtb' | 'tmlEtd' | 'tmlAtd' | 'cyOpen' | 'cyCutoff' | 'terminalName' | 'terminalScheduleStatus' | 'externalVoyage' | 'externalExportVoyage' | 'externalImportVoyage' | 'localVoyage'>> & {
+      vesselNameCn?: string
+      terminalUpdateTime?: string
+    },
   ) {
     const vessel = byId(id)
     if (!vessel) return
-    Object.assign(vessel, fields)
+    const { vesselNameCn, terminalUpdateTime, ...vesselFields } = fields
+    Object.assign(vessel, vesselFields)
     refreshCalculated(vessel)
     if (!vessel.terminalSchedule) return
     if (fields.externalVoyage) vessel.terminalSchedule.evoyage = fields.externalVoyage
     if (fields.externalImportVoyage) vessel.terminalSchedule.ivoyage = fields.externalImportVoyage
     if (fields.tmlEta) vessel.terminalSchedule.eta = fields.tmlEta
+    if (fields.tmlAta) vessel.terminalSchedule.ata = fields.tmlAta
     if (fields.tmlEtb) vessel.terminalSchedule.etb = fields.tmlEtb
-    if (fields.tmlEtd) vessel.terminalSchedule.etd = fields.tmlEtd
     if (fields.tmlAtb) vessel.terminalSchedule.atb = fields.tmlAtb
+    if (fields.tmlEtd) vessel.terminalSchedule.etd = fields.tmlEtd
     if (fields.tmlAtd) vessel.terminalSchedule.atd = fields.tmlAtd
+    if (fields.cyOpen) vessel.terminalSchedule.cyOpen = fields.cyOpen
+    if (fields.cyCutoff) vessel.terminalSchedule.cyClosing = fields.cyCutoff
+    if (fields.terminalScheduleStatus) vessel.terminalSchedule.status = fields.terminalScheduleStatus
+    if (vesselNameCn != null) vessel.terminalSchedule.vesselNameCn = vesselNameCn
+    if (terminalUpdateTime != null) vessel.terminalSchedule.updateTime = terminalUpdateTime
     refreshCalculated(vessel)
   }
 
@@ -313,7 +323,7 @@ export const useVesselStore = defineStore('vessels', () => {
         updateSource: 'System Sync',
         refreshId: refresh.id,
         updatedTime: input.at,
-        updatedBy: 'System',
+        updatedBy: refresh.updatedBy,
         reason: input.reason,
       },
     )
@@ -481,6 +491,67 @@ export const useVesselStore = defineStore('vessels', () => {
     return 'Unconfirmed'
   }
 
+  function alreadyMatched(v: VesselRecord) {
+    return v.matchingStatus === 'Manual matched' || v.matchingStatus === 'Auto matched'
+  }
+
+  /** A field edit on the bound row changes the label without changing which record is matched. */
+  function shouldLogMatch(wasMatched: boolean, from: string, to: string, sameRecord: boolean) {
+    if (from === to) return false
+    if (sameRecord && wasMatched) return false
+    return true
+  }
+
+  function scheduleBeforeEdits(schedule: TerminalSchedule, changes: HistoryDetail[]) {
+    const copy: TerminalSchedule = { ...schedule }
+    for (const change of changes) {
+      if (!(change.field in copy)) continue
+      const key = change.field as keyof TerminalSchedule
+      copy[key] = (change.from.trim() || null) as never
+    }
+    return copy
+  }
+
+  function sameTerminalRecord(left: TerminalSchedule | null | undefined, right: TerminalSchedule | null | undefined) {
+    if (!left || !right) return false
+    const keys: Array<keyof TerminalSchedule> = ['evoyage', 'ivoyage', 'terminal', 'eta', 'etb', 'etd']
+    return keys.every((key) => (left[key] ?? '') === (right[key] ?? ''))
+  }
+
+  function writeLinkState(temporary: VesselRecord, officials: VesselRecord[], by: string, reason: string) {
+    const next = officials.map((official) => laraLinkKey(official)).filter(Boolean).join(', ')
+    if (!next) return
+    const latest = (temporary.scheduleLogs ?? []).find((log) => log.field === 'linkState' || log.field === 'laraLink')
+    const from = latest?.updatedValue.trim() || 'Unlink'
+    if (from === next) return
+    appendScheduleLogs(temporary, [{ field: 'linkState', from, to: next }], {
+      updateSource: by === 'System' ? 'System Sync' : 'Manual Update',
+      updatedTime: new Date().toISOString(),
+      updatedBy: by,
+      reason: by === 'System' ? '' : reason,
+    })
+  }
+
+  const TERMINAL_SNAPSHOT_KEYS = [
+    'status', 'vesselNameCn', 'terminal', 'eta', 'ata', 'etb', 'atb', 'etd', 'atd',
+    'cyOpen', 'cyClosing', 'portCloseDate', 'customsCloseDate', 'updateTime', 'ivoyage', 'evoyage',
+  ] as const satisfies ReadonlyArray<keyof TerminalSchedule>
+
+  function terminalSnapshotDetails(schedule: TerminalSchedule): HistoryDetail[] {
+    return TERMINAL_SNAPSHOT_KEYS.flatMap((key) => {
+      const to = String(schedule[key] ?? '')
+      return to ? [{ field: key, from: '', to }] : []
+    })
+  }
+
+  function terminalFieldDiffs(previous: TerminalSchedule, schedule: TerminalSchedule): HistoryDetail[] {
+    return TERMINAL_SNAPSHOT_KEYS.flatMap((key) => {
+      const from = String(previous[key] ?? '')
+      const to = String(schedule[key] ?? '')
+      return from === to ? [] : [{ field: key, from, to }]
+    })
+  }
+
   function rememberMatch(v: VesselRecord, from: string, to: string, reason: string, at: string) {
     if (from === to) return
     const change: MatchChange = {
@@ -512,6 +583,8 @@ export const useVesselStore = defineStore('vessels', () => {
     if (!v) return
     const reason = input.reason.trim()
     const at = new Date().toISOString()
+    const wasMatched = alreadyMatched(v)
+    const previousSchedule = v.terminalSchedule
     const fromSelection = previousMatchLabel(v)
     const fieldChanges = (input.fieldChanges ?? []).filter((change) => change.from !== change.to)
     for (const change of fieldChanges) {
@@ -528,8 +601,9 @@ export const useVesselStore = defineStore('vessels', () => {
         : [input.candidate]
     v.terminalCandidates = nextCandidates.map((row) => ({ ...row }))
     const toSelection = selectionLabel(v.terminalSchedule)
+    const sameRecord = wasMatched && sameTerminalRecord(previousSchedule, scheduleBeforeEdits({ ...input.candidate }, fieldChanges))
     const details: HistoryDetail[] = [...fieldChanges]
-    if (fromSelection !== toSelection) {
+    if (shouldLogMatch(wasMatched, fromSelection, toSelection, sameRecord)) {
       details.push({ field: 'Match', from: fromSelection, to: toSelection })
       rememberMatch(v, fromSelection, toSelection, reason, at)
     }
@@ -784,12 +858,6 @@ export const useVesselStore = defineStore('vessels', () => {
 
   function addManualVessel(input: ManualVesselInput) {
     const visitNo = '1'
-    if (findScheduleCall(vessels.value, {
-      voyage: input.voyage,
-      pointCode: input.pointCode,
-      poolLocation: input.laraPoolLocation,
-      visitNo,
-    })) return null
     const id = `manual-${Date.now()}`
     const remark =
       input.remark?.trim() || 'Manually added — pending link to LARA'
@@ -882,14 +950,14 @@ export const useVesselStore = defineStore('vessels', () => {
     }
     applyStoredVesselType(record)
     vessels.value.unshift(record)
-    pullTerminalForTemporary(record)
-    refreshSharedTerminal(vessels.value)
     pushHistory(record, {
       type: 'Manual create',
       reason: input.remark?.trim() || undefined,
       summary: 'Vessel created manually',
       details: manualLaraLogDetails(record),
     })
+    pullTerminalForTemporary(record)
+    refreshSharedTerminal(vessels.value)
     pushLog(record, 'Manual add vessel', remark)
     reconcileTemporaryLinks()
     return record
@@ -899,12 +967,6 @@ export const useVesselStore = defineStore('vessels', () => {
     const v = byId(id)
     if (!v?.createdManually) return false
     const visitNo = v.visitNo || '1'
-    if (findScheduleCall(vessels.value, {
-      voyage: input.voyage,
-      pointCode: input.pointCode,
-      poolLocation: input.laraPoolLocation,
-      visitNo,
-    }, v.id)) return false
     const details: HistoryDetail[] = []
     const assign = (field: string, from: string, to: string) => {
       if (from === to) return
@@ -1014,6 +1076,7 @@ export const useVesselStore = defineStore('vessels', () => {
       ['cyClosing', previous?.cyClosing ?? '', schedule.cyClosing ?? ''],
     ]
     const fromSelection = previousMatchLabel(v)
+    const wasMatched = alreadyMatched(v)
     const at = new Date().toISOString()
     const details: HistoryDetail[] = []
     for (const [field, source, manual] of fields) {
@@ -1025,7 +1088,7 @@ export const useVesselStore = defineStore('vessels', () => {
     v.terminalCandidates = []
     v.terminalName = info.terminal || v.terminalName
     const toSelection = selectionLabel(v.terminalSchedule)
-    if (fromSelection !== toSelection) {
+    if (shouldLogMatch(wasMatched, fromSelection, toSelection, wasMatched)) {
       details.push({ field: 'Match', from: fromSelection, to: toSelection })
       rememberMatch(v, fromSelection, toSelection, reason, at)
     }
@@ -1052,7 +1115,15 @@ export const useVesselStore = defineStore('vessels', () => {
   }
 
   function applyLaraField(v: VesselRecord, change: HistoryDetail) {
-    if (change.field === 'vesselName') v.vesselName = change.to
+    if (change.field === 'laraVoyage') {
+      if (v.mainVoyage === v.laraVoyage) v.mainVoyage = change.to
+      v.laraVoyage = change.to
+    } else if (change.field === 'pointCode') {
+      v.pointCode = change.to
+      v.region = maintainedRegion(change.to)
+      v.apiCovered = useTerminalCoverageStore().ports.find((row) => row.portCode === change.to)?.apiCovered ?? v.apiCovered
+    } else if (change.field === 'laraPoolLocation') v.laraPoolLocation = change.to
+    else if (change.field === 'vesselName') v.vesselName = change.to
     else if (change.field === 'service') v.service = change.to
     else if (change.field === 'brand') v.brand = change.to
     else if (change.field === 'laraEta') v.laraEta = change.to
@@ -1195,12 +1266,13 @@ export const useVesselStore = defineStore('vessels', () => {
         reason,
         summary: 'Terminal row updated',
         details: input.terminalUpdated,
-        at: new Date(Date.parse(at) + 1).toISOString(),
+        at,
       })
     }
     for (const sync of input.syncs) recordReviewSync(v, { ...sync, reason })
-    for (const match of input.matches) recordReviewMatch(v, { ...match, reason })
+    for (const match of input.matches) recordReviewMatch(v, { ...match, at, reason })
     refreshCalculated(v)
+    reconcileTemporaryLinks()
     refreshSharedTerminal(vessels.value)
   }
 
@@ -1220,6 +1292,7 @@ export const useVesselStore = defineStore('vessels', () => {
     if (!v) return
     const reason = input.reason.trim()
     const at = new Date().toISOString()
+    const wasMatched = alreadyMatched(v)
     const fromSelection = previousMatchLabel(v)
     const previous = v.terminalSchedule
     const next = { ...input.schedule }
@@ -1245,7 +1318,7 @@ export const useVesselStore = defineStore('vessels', () => {
       v.manualRemediation = 'addTerminal'
     }
     const toSelection = selectionLabel(v.terminalSchedule)
-    if (fromSelection !== toSelection) {
+    if (shouldLogMatch(wasMatched, fromSelection, toSelection, wasMatched)) {
       details.push({ field: 'Match', from: fromSelection, to: toSelection })
       rememberMatch(v, fromSelection, toSelection, reason, at)
     }
@@ -1270,6 +1343,7 @@ export const useVesselStore = defineStore('vessels', () => {
     if (!v) return
     const reason = input.reason.trim()
     const at = new Date().toISOString()
+    const wasMatched = alreadyMatched(v)
     const fromSelection = previousMatchLabel(v)
     const previous = v.terminalSchedule
     const schedule = { ...input.schedule }
@@ -1293,7 +1367,7 @@ export const useVesselStore = defineStore('vessels', () => {
     v.terminalCandidates = []
     if (schedule.terminal) v.terminalName = schedule.terminal
     const toSelection = selectionLabel(v.terminalSchedule)
-    if (fromSelection !== toSelection) {
+    if (shouldLogMatch(wasMatched, fromSelection, toSelection, wasMatched)) {
       details.push({ field: 'Match', from: fromSelection, to: toSelection })
       rememberMatch(v, fromSelection, toSelection, reason, at)
     }
@@ -1333,7 +1407,17 @@ export const useVesselStore = defineStore('vessels', () => {
     vessel.matchingStatus = 'Auto matched'
     if (row?.nameZh) vessel.terminalName = row.nameZh
     vessel.lastRefreshTime = at
-    recordTerminalRefresh(vessel, { trigger: 'Manual', at, reason: 'Temporary vessel created' })
+    appendScheduleLogs(vessel, terminalSnapshotDetails(schedule), {
+      updateSource: 'System Sync',
+      updatedTime: at,
+      updatedBy: 'System',
+    })
+    appendScheduleLogs(vessel, [{ field: 'Match', from: 'Unconfirmed', to: selectionLabel(vessel.terminalSchedule) }], {
+      updateSource: 'System Sync',
+      updatedTime: at,
+      updatedBy: 'System',
+      match: true,
+    })
   }
 
   function clearLinkReviews(temporaryId: string) {
@@ -1342,8 +1426,14 @@ export const useVesselStore = defineStore('vessels', () => {
     }
   }
 
-  function finishTemporaryLink(temporary: VesselRecord, officials: VesselRecord[]) {
+  function finishTemporaryLink(
+    temporary: VesselRecord,
+    officials: VesselRecord[],
+    note?: { by: string; reason: string },
+  ) {
     if (officials.some((official) => official.linkReview?.temporaryId === temporary.id)) return
+    const by = note?.by ?? 'System'
+    writeLinkState(temporary, officials, by, note?.reason ?? '')
     temporary.laraLinked = true
     temporary.laraLinkTargetIds = officials.map((official) => official.id)
     temporary.laraLinkTargetId = officials[0]?.id
@@ -1395,6 +1485,7 @@ export const useVesselStore = defineStore('vessels', () => {
       values?: Record<string, string>
       terminalId: string | null
       terminalSchedule?: TerminalSchedule | null
+      reason?: string
     },
   ) {
     const official = byId(officialId)
@@ -1403,6 +1494,7 @@ export const useVesselStore = defineStore('vessels', () => {
     const temporary = byId(review.temporaryId)
     if (!temporary) return false
     if (!review.terminalMatched && !review.terminalChoices.some((choice) => choice.id === input.terminalId)) return false
+    const note = input.reason?.trim() ?? ''
     const details: HistoryDetail[] = []
     for (const diff of review.laraDiffs) {
       const next = input.values?.[diff.field] ?? (input.fields[diff.field] === 'temporary' ? diff.temporary : diff.official)
@@ -1414,25 +1506,36 @@ export const useVesselStore = defineStore('vessels', () => {
     if (!review.terminalMatched) {
       const choice = review.terminalChoices.find((item) => item.id === input.terminalId)
       if (!choice) return false
-      const before = selectionLabel(official.terminalSchedule)
+      const wasMatched = alreadyMatched(official)
+      const previous = official.terminalSchedule
+      const before = selectionLabel(previous)
       const schedule = input.terminalSchedule ?? choice.schedule
       bindSchedule(official, { ...schedule }, choice.source === 'Temporary' ? 'manual' : 'freightower')
       official.terminalCandidates = [{ ...schedule }]
       official.matchingStatus = 'Manual matched'
       const after = selectionLabel(official.terminalSchedule)
-      if (before !== after) details.push({ field: 'Match', from: before, to: after })
+      const keptBound = wasMatched && choice.source !== 'Temporary'
+      if (keptBound && previous) {
+        details.push(...terminalFieldDiffs(previous, schedule))
+      } else if (shouldLogMatch(wasMatched, before, after, keptBound)) {
+        details.push({ field: 'Match', from: before, to: after })
+        details.push(...terminalSnapshotDetails(schedule))
+      }
     }
     official.linkReview = undefined
-    pushHistory(official, {
-      type: 'Manual edit',
-      summary: 'Temporary vessel link review',
-      details,
-    })
+    if (details.length) {
+      pushHistory(official, {
+        type: 'Manual edit',
+        reason: note,
+        summary: 'Temporary vessel link review',
+        details,
+      })
+    }
     pushLog(official, 'Temporary vessel link review', laraLinkKey(temporary))
     const officials = vessels.value.filter(
       (vessel) => !vessel.createdManually && temporaryLinkKey(vessel) === temporaryLinkKey(temporary),
     )
-    finishTemporaryLink(temporary, officials)
+    finishTemporaryLink(temporary, officials, { by: CURRENT_USER, reason: note })
     return true
   }
 

@@ -16,9 +16,26 @@ export type TerminalDraft = Record<TerminalDraftKey, string>
 
 export const LARA_COLUMNS = SEARCH_COLUMNS.filter((column) => column.source === 'lara')
 
-export const TERMINAL_SEARCH_COLUMNS = SEARCH_COLUMNS.filter((column) => column.source === 'terminal')
+/** Terminal fields written by a sync. Order matches the terminal record. */
+export const TERMINAL_SYNC_COLUMN_IDS = [
+  'vesselOperator',
+  'localVoyageExport',
+  'localVoyageImport',
+  'vesselNameCn',
+  'terminalName',
+  'tmlEta',
+  'tmlAta',
+  'terminalEtb',
+  'terminalAtb',
+  'terminalEtd',
+  'terminalAtd',
+  'cyOpen',
+  'cyCutoff',
+  'tmlVslStatus',
+  'terminalUpdateTime',
+] as const
 
-/** Columns shown in Multiple terminal records candidate table (Feituo-aligned). */
+/** Columns shown when choosing among terminal sync records. */
 export const CANDIDATE_COLUMN_DEFS: Array<{
   id: keyof TerminalSchedule
   label: string
@@ -26,27 +43,17 @@ export const CANDIDATE_COLUMN_DEFS: Array<{
 }> = [
   { id: 'evoyage', label: 'Export voyage', kind: 'text' },
   { id: 'ivoyage', label: 'Import voyage', kind: 'text' },
-  { id: 'vesselNameEn', label: 'Vessel name EN', kind: 'text' },
   { id: 'vesselNameCn', label: 'Vessel name Cn', kind: 'text' },
-  { id: 'shipCode', label: 'Ship code', kind: 'text' },
-  { id: 'shipName', label: 'Ship name', kind: 'text' },
-  { id: 'lineCode', label: 'Line code', kind: 'text' },
-  { id: 'status', label: 'Status', kind: 'text' },
-  { id: 'terminal', label: 'Terminal', kind: 'text' },
+  { id: 'terminal', label: 'Terminal name', kind: 'text' },
   { id: 'eta', label: 'ETA', kind: 'datetime' },
-  { id: 'etb', label: 'ETB', kind: 'datetime' },
-  { id: 'etd', label: 'ETD', kind: 'datetime' },
   { id: 'ata', label: 'ATA', kind: 'datetime' },
+  { id: 'etb', label: 'ETB', kind: 'datetime' },
   { id: 'atb', label: 'ATB', kind: 'datetime' },
+  { id: 'etd', label: 'ETD', kind: 'datetime' },
   { id: 'atd', label: 'ATD', kind: 'datetime' },
-  { id: 'agentCode', label: 'Agent code', kind: 'text' },
-  { id: 'agentName', label: 'Agent name', kind: 'text' },
   { id: 'cyOpen', label: 'CY open', kind: 'datetime' },
   { id: 'cyClosing', label: 'CY closing', kind: 'datetime' },
-  { id: 'portCloseDate', label: 'Port close date', kind: 'datetime' },
-  { id: 'customsCloseDate', label: 'Customs close date', kind: 'datetime' },
-  { id: 'portsEn', label: 'Ports EN', kind: 'text' },
-  { id: 'portsCn', label: 'Ports CN', kind: 'text' },
+  { id: 'status', label: 'Status', kind: 'text' },
   { id: 'updateTime', label: 'Update time', kind: 'datetime' },
 ]
 
@@ -79,17 +86,13 @@ const COLUMN_TO_DRAFT: Partial<Record<string, TerminalDraftKey>> = {
   terminalUpdateTime: 'updateTime',
 }
 
-/** Panel fields: one slot per terminal search column (terminal name shares code slot once). */
+/** Panel fields: the terminal values a sync writes, in record order. */
 export function terminalPanelColumns(): SearchColumn[] {
-  const seen = new Set<TerminalDraftKey>()
-  const columns: SearchColumn[] = []
-  for (const column of TERMINAL_SEARCH_COLUMNS) {
-    const key = COLUMN_TO_DRAFT[column.id]
-    if (!key || seen.has(key)) continue
-    seen.add(key)
-    columns.push(column)
-  }
-  return columns
+  return TERMINAL_SYNC_COLUMN_IDS.map((id) => {
+    const column = SEARCH_COLUMNS.find((item) => item.id === id)
+    if (!column) throw new Error(`Missing terminal column ${id}`)
+    return column
+  })
 }
 
 export function draftKeyForColumn(columnId: string): TerminalDraftKey | undefined {

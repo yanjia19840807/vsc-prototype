@@ -31,11 +31,6 @@ function tabTitle(to: RouteLocationNormalizedLoaded) {
     const vessel = useVesselStore().byId(String(to.params.id))
     return vessel ? `Review · ${vessel.vesselName}` : 'Review'
   }
-  if (to.name === 'temporary-vessel-new') return 'New temporary vessel'
-  if (to.name === 'temporary-vessel-edit') {
-    const vessel = useVesselStore().byId(String(to.params.id))
-    return vessel ? `Temporary · ${vessel.vesselName}` : 'Temporary vessel'
-  }
   return typeof to.meta.title === 'string' ? to.meta.title : 'Page'
 }
 
@@ -63,8 +58,6 @@ export const useTabsStore = defineStore('tabs', () => {
       && to.name !== 'vessel-review'
       && to.name !== 'terminal-coverage'
       && to.name !== 'temporary-vessels'
-      && to.name !== 'temporary-vessel-new'
-      && to.name !== 'temporary-vessel-edit'
     ) return
     ensureHome()
     const id = tabId(to)

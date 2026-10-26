@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { Plus } from '@lucide/vue'
 
 import DataTablePagination from '@/components/DataTablePagination.vue'
@@ -15,18 +14,21 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { tableActionsCell, tableActionsHead } from '@/components/ui/table/chrome'
 import DeleteManualVesselDialog from '@/features/vessel-schedule/DeleteManualVesselDialog.vue'
+import TemporaryVesselDialog from '@/features/vessel-schedule/TemporaryVesselDialog.vue'
 import TemporaryMark from '@/features/vessel-schedule/TemporaryMark.vue'
 import { brandFromVoyage } from '@/domain/lara-brand'
-import { isLaraLinkSource } from '@/features/vessel-schedule/lara-link'
+import { isLaraLinkSource, temporaryLinkStatusLabel } from '@/features/vessel-schedule/lara-link'
 import { temporaryLinkKey } from '@/features/vessel-schedule/temporary-link'
 import { formatDateTime } from '@/lib/vessel-utils'
 import { useVesselStore } from '@/stores/vessels'
 import type { VesselRecord } from '@/types/vsp'
 
 const store = useVesselStore()
-const router = useRouter()
 const deleteTarget = ref<VesselRecord | null>(null)
+const editorOpen = ref(false)
+const editorId = ref<string | null>(null)
 const pageIndex = ref(0)
 const pageSize = ref(20)
 
@@ -51,10 +53,6 @@ const duplicateKeys = computed(() => {
   return [...counts.values()].some((count) => count > 1)
 })
 
-function linkLabel(vessel: VesselRecord) {
-  return isLaraLinkSource(vessel) ? 'Linked' : 'Unlink'
-}
-
 function textOrDash(value: string) {
   return value.trim() || '—'
 }
@@ -68,40 +66,36 @@ function createdMeta(vessel: VesselRecord) {
 }
 
 function openNew() {
-  void router.push('/temporary-vessels/new')
+  editorId.value = null
+  editorOpen.value = true
 }
 
 function openEdit(vessel: VesselRecord) {
-  void router.push(`/temporary-vessels/${vessel.id}`)
-}
-
-function openView(vessel: VesselRecord) {
-  void router.push(`/vessels/${vessel.id}/view`)
+  editorId.value = vessel.id
+  editorOpen.value = true
 }
 </script>
 
 <template>
-  <div class="flex min-h-0 flex-1 flex-col gap-4 p-4">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <PageBreadcrumb :items="[{ label: 'Temporary vessel' }]" />
-        <h1 class="text-xl font-semibold">Temporary vessel</h1>
-        <p class="text-sm text-muted-foreground">
-          Schedules added before LARA has the voyage. Unlinked rows also appear in vessel schedule search.
-        </p>
-      </div>
+  <div class="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 overflow-hidden py-4">
+    <div class="flex shrink-0 flex-wrap items-center justify-between gap-3">
+      <PageBreadcrumb :items="[{ label: 'Temporary vessel' }]" />
       <Button type="button" variant="primary" @click="openNew">
         <Plus class="size-3.5" /> Add vessel
       </Button>
     </div>
+    <p class="shrink-0 text-sm text-muted-foreground">
+      Schedules added before LARA has the voyage. Unlinked rows also appear in vessel schedule search.
+    </p>
 
-    <p v-if="duplicateKeys" class="text-sm text-amber-800">
+    <p v-if="duplicateKeys" class="shrink-0 text-sm text-amber-800">
       Two unlinked temporary vessels share the same voyage, point code, pool location, and visit no. They stay unlinked until only one remains.
     </p>
 
-    <div class="min-h-0 flex-1 overflow-auto rounded-md border">
-      <Table>
-        <TableHeader>
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border">
+      <div class="min-h-0 flex-1 overflow-auto">
+      <Table :scrollable="false" class="min-w-max">
+        <TableHeader pinned>
           <TableRow>
             <TableHead>Vessel name</TableHead>
             <TableHead>Voyage</TableHead>
@@ -119,11 +113,11 @@ function openView(vessel: VesselRecord) {
             <TableHead>Link status</TableHead>
             <TableHead>Created by</TableHead>
             <TableHead>Created time</TableHead>
-            <TableHead />
+            <TableHead :class="tableActionsHead">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          <TableRow v-for="vessel in pagedRows" :key="vessel.id">
+          <TableRow v-for="vessel in pagedRows" :key="vessel.id" class="group">
             <TableCell>{{ vessel.vesselName }}</TableCell>
             <TableCell>
               <span class="inline-flex items-center gap-1.5">
@@ -137,31 +131,30 @@ function openView(vessel: VesselRecord) {
             <TableCell>{{ textOrDash(vessel.laraPoolLocation) }}</TableCell>
             <TableCell>{{ textOrDash(vessel.visitNo) }}</TableCell>
             <TableCell>{{ textOrDash(vessel.vesselTypeLabel) }}</TableCell>
-            <TableCell>{{ vessel.omit || vessel.voyageStatus === 'Omit' ? 'omit' : vessel.voyageStatus }}</TableCell>
+            <TableCell>{{ vessel.omit || vessel.voyageStatus === 'Omit' ? 'omit' : '—' }}</TableCell>
             <TableCell>{{ vessel.laraEta ? formatDateTime(vessel.laraEta) : '—' }}</TableCell>
             <TableCell>{{ vessel.laraEtb ? formatDateTime(vessel.laraEtb) : '—' }}</TableCell>
             <TableCell>{{ vessel.laraEtd ? formatDateTime(vessel.laraEtd) : '—' }}</TableCell>
             <TableCell>{{ textOrDash(vessel.remark) }}</TableCell>
-            <TableCell><StatusBadge :status="linkLabel(vessel)" /></TableCell>
+            <TableCell><StatusBadge :status="temporaryLinkStatusLabel(vessel)" /></TableCell>
             <TableCell>{{ createdMeta(vessel).by }}</TableCell>
             <TableCell>{{ createdMeta(vessel).at }}</TableCell>
-            <TableCell>
+            <TableCell :class="tableActionsCell">
               <div class="flex justify-end gap-1">
-                <Button type="button" size="xs" variant="outline" @click="openView(vessel)">View</Button>
                 <Button
+                  v-if="!isLaraLinkSource(vessel)"
                   type="button"
                   size="xs"
                   variant="outline"
-                  :disabled="isLaraLinkSource(vessel)"
                   @click="openEdit(vessel)"
                 >
                   Edit
                 </Button>
                 <Button
+                  v-if="!isLaraLinkSource(vessel)"
                   type="button"
                   size="xs"
                   variant="destructive"
-                  :disabled="isLaraLinkSource(vessel)"
                   @click="deleteTarget = vessel"
                 >
                   Delete
@@ -174,14 +167,22 @@ function openView(vessel: VesselRecord) {
           </TableRow>
         </TableBody>
       </Table>
+      </div>
     </div>
     <DataTablePagination
+      class="shrink-0"
       :total="rows.length"
       :page-index="pageIndex"
       :page-size="pageSize"
       :page-count="pageCount"
       @update:page-index="pageIndex = $event"
       @update:page-size="pageSize = $event; pageIndex = 0"
+    />
+
+    <TemporaryVesselDialog
+      :open="editorOpen"
+      :vessel-id="editorId"
+      @update:open="(open) => { editorOpen = open; if (!open) editorId = null }"
     />
 
     <DeleteManualVesselDialog

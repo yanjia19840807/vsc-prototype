@@ -33,15 +33,15 @@ const router = createRouter({
     },
     {
       path: '/temporary-vessels/new',
-      name: 'temporary-vessel-new',
-      component: () => import('@/pages/TemporaryVesselFormPage.vue'),
-      meta: { title: 'New temporary vessel' },
+      redirect: { name: 'temporary-vessels' },
+    },
+    {
+      path: '/temporary-vessels/:id/view',
+      redirect: { name: 'temporary-vessels' },
     },
     {
       path: '/temporary-vessels/:id',
-      name: 'temporary-vessel-edit',
-      component: () => import('@/pages/TemporaryVesselFormPage.vue'),
-      meta: { title: 'Temporary vessel' },
+      redirect: { name: 'temporary-vessels' },
     },
     {
       path: '/vessels/:id/view',

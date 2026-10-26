@@ -307,18 +307,14 @@ function cancel() {
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-    <PageBreadcrumb
-      :items="[
-        { label: 'Vessel schedule search', to: '/search' },
-        { label: 'List settings' },
-      ]"
-    />
-    <div class="flex shrink-0 flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 class="text-xl font-semibold">List settings</h1>
-        <p class="text-sm text-muted-foreground">Save more than one list layout and activate one at a time.</p>
-      </div>
-      <div class="flex flex-wrap gap-2">
+    <div class="flex shrink-0 flex-wrap items-center justify-between gap-3">
+      <PageBreadcrumb
+        :items="[
+          { label: 'Vessel schedule search', to: '/search' },
+          { label: 'List settings' },
+        ]"
+      />
+      <div class="flex flex-wrap items-center gap-2">
         <Button type="button" variant="outline" @click="openName('new')">
           <Plus class="size-3.5" /> New
         </Button>
@@ -337,6 +333,7 @@ function cancel() {
         </Button>
       </div>
     </div>
+    <p class="shrink-0 text-sm text-muted-foreground">Save more than one list layout and activate one at a time.</p>
 
     <div class="grid min-h-0 flex-1 gap-4 lg:grid-cols-[16rem_1fr]">
       <div class="max-h-full self-start overflow-y-auto overflow-hidden rounded-md border">
@@ -345,7 +342,7 @@ function cancel() {
           :key="item.id"
           type="button"
           class="flex w-full items-center justify-between gap-2 border-b px-3 py-2 text-left text-sm last:border-b-0"
-          :class="item.id === selectedId ? 'bg-muted' : 'hover:bg-muted/50'"
+          :class="item.id === selectedId ? 'bg-muted' : 'hover:bg-muted'"
           @click="selectSetting(item.id)"
         >
           <span class="truncate font-medium">{{ item.name }}</span>
@@ -414,7 +411,7 @@ function cancel() {
                 <li
                   v-for="(pref, index) in draft.filters"
                   :key="pref.id"
-                  class="flex items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted/50"
+                  class="flex items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted"
                   draggable="true"
                   @dragstart="dragFilter = index"
                   @dragover.prevent
@@ -453,7 +450,7 @@ function cancel() {
                   v-for="(id, index) in orderedColumnIds"
                   :key="id"
                   class="flex items-center gap-3 border-b px-3 py-2 last:border-b-0"
-                  :class="inFreezeRange(index) ? 'bg-muted hover:bg-muted' : 'hover:bg-muted/50'"
+                  :class="inFreezeRange(index) ? 'bg-muted hover:bg-muted' : 'hover:bg-muted'"
                   draggable="true"
                   @dragstart="dragColumn = index"
                   @dragover.prevent
@@ -487,7 +484,7 @@ function cancel() {
               <li
                 v-for="(rule, index) in draft.sort"
                 :key="`${rule.id}-${index}`"
-                class="flex items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted/50"
+                class="flex items-center gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted"
                 draggable="true"
                 @dragstart="dragSort = index"
                 @dragover.prevent

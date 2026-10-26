@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { Button } from '@/components/ui/button'
 
-defineProps<{
-  title?: string
-}>()
+withDefaults(
+  defineProps<{
+    title?: string
+    searchVariant?: 'primary' | 'outline'
+  }>(),
+  { searchVariant: 'primary' },
+)
 
 const emit = defineEmits<{
   search: []
@@ -22,7 +26,7 @@ function onSubmit(e: Event) {
       <slot />
       <div class="ml-auto flex flex-wrap items-center gap-2">
         <Button type="button" variant="ghost" @click="emit('clear')">Clear</Button>
-        <Button type="submit" variant="primary">Search</Button>
+        <Button type="submit" :variant="searchVariant">Search</Button>
         <slot name="actions" />
       </div>
     </form>

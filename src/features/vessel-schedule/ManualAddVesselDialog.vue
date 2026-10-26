@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useForm } from 'vee-validate'
 import { toast } from 'vue-sonner'
 
 import { brandFromVoyage } from '@/domain/lara-brand'
 
 import SearchSelect from '@/components/SearchSelect.vue'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Dialog,
   DialogContent,
@@ -26,7 +25,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { duplicateScheduleCallMessage, findScheduleCall } from '@/features/vessel-schedule/manual-vessel-actions'
 import {
   addVesselSchema,
   LARA_BRANDS,
@@ -69,8 +67,6 @@ const emptyValues = {
   remark: '',
 }
 
-const callError = ref('')
-
 const { handleSubmit, resetForm, values, setFieldValue, errors, submitCount } = useForm({
   validationSchema: addVesselSchema,
   validateOnMount: false,
@@ -105,7 +101,6 @@ watch(
   () => [props.open, props.vessel?.id] as const,
   ([open]) => {
     if (!open) return
-    callError.value = ''
     if (props.vessel?.createdManually) {
       const v = props.vessel
       resetForm({
@@ -139,17 +134,6 @@ watch(
 
 const onSubmit = handleSubmit((form) => {
   const visitNo = editing.value ? props.vessel?.visitNo || '1' : '1'
-  const duplicate = findScheduleCall(
-    store.vessels,
-    { voyage: form.voyage, pointCode: form.pointCode, poolLocation: form.laraPoolLocation, visitNo },
-    props.vessel?.id,
-  )
-  if (duplicate) {
-    callError.value = duplicateScheduleCallMessage(form.voyage, form.pointCode, form.laraPoolLocation, visitNo)
-    toast.error(callError.value)
-    return
-  }
-  callError.value = ''
   const payload = {
     voyage: form.voyage.trim(),
     visitNo,
@@ -164,21 +148,13 @@ const onSubmit = handleSubmit((form) => {
     remark: form.remark?.trim() ?? '',
   }
   if (editing.value && props.vessel) {
-    if (!store.updateManualVessel(props.vessel.id, payload)) {
-      callError.value = duplicateScheduleCallMessage(form.voyage, form.pointCode, form.laraPoolLocation, visitNo)
-      toast.error(callError.value)
-      return
-    }
+    if (!store.updateManualVessel(props.vessel.id, payload)) return
     toast.success('Vessel updated')
     emit('update:open', false)
     return
   }
   const created = store.addManualVessel(payload)
-  if (!created) {
-    callError.value = duplicateScheduleCallMessage(form.voyage, form.pointCode, form.laraPoolLocation, visitNo)
-    toast.error(callError.value)
-    return
-  }
+  if (!created) return
   toast.success('Vessel created')
   emit('created', created)
   emit('update:open', false)
@@ -215,10 +191,6 @@ function close() {
       <p class="text-sm">
         Create a schedule row when the vessel is at the terminal but LARA has no voyage yet. A matching formal schedule uses the same voyage, point code, pool location, and visit no.
       </p>
-
-      <Alert v-if="callError" variant="destructive">
-        <AlertDescription>{{ callError }}</AlertDescription>
-      </Alert>
 
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Field :data-invalid="fieldError('voyage') ? true : undefined">

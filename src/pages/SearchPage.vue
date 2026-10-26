@@ -6,6 +6,7 @@ import { toast } from 'vue-sonner'
 import { FlexRender, type ColumnVisibilityState } from '@tanstack/vue-table'
 
 import FilterField from '@/components/FilterField.vue'
+import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
 import QueryPanel from '@/components/QueryPanel.vue'
 import DataTableColumnHeader from '@/components/DataTableColumnHeader.vue'
 import DataTablePagination from '@/components/DataTablePagination.vue'
@@ -26,7 +27,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { tableActionsEdge } from '@/components/ui/table/chrome'
 import { useVesselDataTable } from '@/composables/useVesselDataTable'
+import { vesselDetailPath } from '@/features/vessel-schedule/lara-link'
 import type { ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import { reviewForColumn } from '@/features/vessel-schedule/sync-columns'
 import { syncCellKey, syncPendingKey } from '@/features/vessel-schedule/sync-review'
@@ -35,6 +38,7 @@ import SearchFilterControl from '@/features/vessel-search/SearchFilterControl.vu
 import SearchRowActions from '@/features/vessel-search/SearchRowActions.vue'
 import {
   COLUMN_GROUP_CLASS,
+  COLUMN_GROUP_MARK,
   COLUMN_GROUP_LABEL,
   COLUMN_GROUP_ORDER,
   columnGroup,
@@ -76,7 +80,7 @@ provide(syncCellKey, (callId, columnId) => {
   const watched = listSettings.active?.watchedFields ?? []
   if (!watched.includes(columnId)) return null
   const field = reviewForColumn(schedule.review(callId).fields, columnId)
-  if (!field) return null
+  if (!field || field.status !== 'pending') return null
   return { field }
 })
 provide(syncPendingKey, (callId) => schedule.review(callId).pending)
@@ -244,9 +248,9 @@ function exportCsv() {
   toast.success(`Exported ${rows.length} row(s)`)
 }
 
-const ACTIONS_STICKY = 'sticky right-0 z-20 border-l-2 border-l-[#8aa0bb] shadow-[-8px_0_8px_-6px_rgba(20,35,58,0.18)]'
-const ACTIONS_HEAD = 'right-0 z-50 h-auto border-l-2 border-l-[#8aa0bb] bg-card text-left align-middle shadow-[-8px_0_8px_-6px_rgba(20,35,58,0.18)]'
-const FREEZE_SHADOW = 'shadow-[8px_0_8px_-6px_rgba(20,35,58,0.18)]'
+const ACTIONS_STICKY = `sticky right-0 z-20 ${tableActionsEdge}`
+const ACTIONS_HEAD = `right-0 z-50 h-auto border-t-3 border-t-transparent bg-card text-left align-middle ${tableActionsEdge}`
+const FREEZE_SHADOW = 'shadow-[8px_0_8px_-6px_var(--border)]'
 
 const frozenIds = computed(() =>
   frozenColumnIds({
@@ -308,12 +312,18 @@ function headerFreezeClass(id: string) {
   return id === frozenIds.value.at(-1) ? ['z-40', FREEZE_SHADOW] : 'z-40'
 }
 
-function watchedChangeClass(vessel: VesselRecord) {
-  return schedule.review(vessel.id).changed ? 'bg-yellow-100' : ''
+function rowChanged(vessel: VesselRecord) {
+  return schedule.review(vessel.id).pending
 }
 
 function rowClass(vessel: VesselRecord) {
-  return watchedChangeClass(vessel)
+  return rowChanged(vessel) ? 'bg-accent hover:bg-secondary' : ''
+}
+
+function stickySurface(vessel: VesselRecord) {
+  return rowChanged(vessel)
+    ? 'bg-accent group-hover:bg-secondary'
+    : 'bg-card group-hover:bg-muted'
 }
 
 function cellFreezeClass(id: string, vessel: VesselRecord) {
@@ -321,8 +331,7 @@ function cellFreezeClass(id: string, vessel: VesselRecord) {
   return [
     'sticky z-10',
     id === frozenIds.value.at(-1) ? FREEZE_SHADOW : '',
-    watchedChangeClass(vessel) || 'bg-card',
-    'group-hover:bg-muted',
+    stickySurface(vessel),
   ]
 }
 
@@ -331,7 +340,7 @@ function leafHeaderClass(id: string) {
 }
 
 function openVessel(vessel: VesselRecord) {
-  void router.push(`/vessels/${vessel.id}/view`)
+  void router.push(vesselDetailPath(vessel))
 }
 
 function openQuickAction(vessel: VesselRecord, action: ScheduleQuickAction) {
@@ -354,7 +363,9 @@ const visibleColCount = computed(
 
 <template>
   <div class="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 overflow-hidden py-4">
-    <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+    <div class="flex shrink-0 flex-wrap items-center justify-between gap-3">
+      <PageBreadcrumb :items="[{ label: 'Vessel schedule search' }]" />
+      <div class="flex flex-wrap items-center gap-2">
       <FilterField label="List setting">
         <Select :model-value="listSettings.activeId" @update:model-value="(value) => typeof value === 'string' && activateSetting(value)">
           <SelectTrigger class="h-8 w-52" aria-label="List setting">
@@ -373,6 +384,7 @@ const visibleColCount = computed(
       <Button type="button" variant="outline" @click="exportCsv">
         <Download class="size-3.5" /> Export
       </Button>
+      </div>
     </div>
 
     <div class="shrink-0">
@@ -409,15 +421,15 @@ const visibleColCount = computed(
           class="inline-flex items-center gap-1.5"
         >
           <span
-            class="size-3 shrink-0 rounded-sm border border-black/10"
-            :class="COLUMN_GROUP_CLASS[group]"
+            class="size-3 shrink-0 rounded-sm"
+            :class="COLUMN_GROUP_MARK[group]"
           />
           {{ COLUMN_GROUP_LABEL[group] }}
         </span>
       </div>
       <div class="min-h-0 flex-1 overflow-auto">
-        <Table :scrollable="false" class="min-w-max border-separate border-spacing-0 [&_td]:border-b [&_th]:border-b">
-          <TableHeader class="sticky top-0 z-30">
+        <Table :scrollable="false" class="min-w-max">
+          <TableHeader pinned>
             <TableRow v-for="headerGroup in headerGroups" :key="headerGroup.id">
               <template v-for="header in headerGroup.headers" :key="header.id">
                 <TableHead
@@ -426,7 +438,7 @@ const visibleColCount = computed(
                   :rowspan="header.rowSpan > 1 ? header.rowSpan : undefined"
                   :data-freeze-id="frozenIds.includes(header.column.id) ? header.column.id : undefined"
                   :style="freezeStyle(header.column.id)"
-                  class="sticky top-0 whitespace-nowrap"
+                  class="whitespace-nowrap"
                   :class="header.column.id === 'actions' ? ACTIONS_HEAD : [leafHeaderClass(header.column.id), headerFreezeClass(header.column.id)]"
                 >
                   <DataTableColumnHeader
@@ -456,7 +468,7 @@ const visibleColCount = computed(
                 class="whitespace-nowrap"
                 :style="freezeStyle(cell.column.id)"
                 :class="cell.column.id === 'actions'
-                  ? [ACTIONS_STICKY, watchedChangeClass(row.original) || 'bg-card', 'group-hover:bg-muted']
+                  ? [ACTIONS_STICKY, stickySurface(row.original)]
                   : cellFreezeClass(cell.column.id, row.original)"
               >
                 <FlexRender :cell="cell" />

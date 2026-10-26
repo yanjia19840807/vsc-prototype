@@ -31,10 +31,8 @@ export type LaraSyncRun = {
   etaTo: string | null
   etbFrom: string | null
   etbTo: string | null
-  laraVoyage: string | null
-  pointCode: string | null
-  laraPoolLocation: string | null
-  visitNo: string | null
+  /** Set for a single-call run. Batch runs leave this empty. */
+  callId: string | null
   requestedAt: string
   respondedAt: string | null
   failureReason: string
@@ -74,7 +72,6 @@ export type TerminalQuery = {
 export type LaraSnapshot = {
   laraVoyage: string
   pointCode: string
-  visitNo: string
   laraPoolLocation: string
   multipleCallNumber: string
   vesselName: string
@@ -91,19 +88,21 @@ export type LaraSnapshot = {
 }
 
 export type TerminalSnapshot = {
-  importVoyage: string
+  vesselOperator: string
   exportVoyage: string
-  localVoyage: string
-  terminalCode: string
+  importVoyage: string
+  vesselNameCn: string
   terminalName: string
-  vesselStatus: string
   eta: string
+  ata: string
   etb: string
-  etd: string
   atb: string
+  etd: string
   atd: string
   cyOpen: string
   cyCutoff: string
+  vesselStatus: string
+  updateTime: string
 }
 
 export type LaraPayload = LaraSnapshot & {
@@ -141,7 +140,7 @@ export type TerminalVersion = TerminalSnapshot & {
   updatedAt: string
 }
 
-/** One LARA call. Identity is laraVoyage, pointCode, laraPoolLocation, and visitNo. */
+/** One LARA call. The primary key is `id`. Visit no stays on the call and is not written by LARA sync. */
 export type VesselCall = {
   id: string
   createdFrom: CallOrigin
@@ -202,6 +201,9 @@ export type ScheduleState = {
   laraLinks: LaraLink[]
 }
 
-export type LaraPayloadInput = Omit<LaraPayload, 'id' | 'runId' | 'callId' | 'capturedAt'>
+export type LaraPayloadInput = Omit<LaraPayload, 'id' | 'runId' | 'callId' | 'capturedAt'> & {
+  /** Existing call to update. A record without this creates a new call. */
+  callId?: string
+}
 
 export type TerminalPayloadInput = Omit<TerminalPayload, 'id' | 'queryId' | 'callId'>

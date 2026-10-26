@@ -32,11 +32,18 @@ export const COLUMN_GROUP_LABEL: Record<ColumnGroup, string> = {
   platform: 'Platform',
 }
 
-/** Header swatches. Shared by the search table and its source legend. */
+/** Solid source mark from the theme palette. Shared by the legend and the header rule. */
+export const COLUMN_GROUP_MARK: Record<ColumnGroup, string> = {
+  lara: 'bg-source-lara',
+  terminal: 'bg-source-terminal',
+  platform: 'bg-source-platform',
+}
+
+/** Neutral header with a solid source rule. The row surface stays free for hover and highlights. */
 export const COLUMN_GROUP_CLASS: Record<ColumnGroup, string> = {
-  lara: 'bg-[#d1e1d3]',
-  terminal: 'bg-[#cfecf7]',
-  platform: 'bg-secondary',
+  lara: 'bg-card border-t-3 border-source-lara',
+  terminal: 'bg-card border-t-3 border-source-terminal',
+  platform: 'bg-card border-t-3 border-source-platform',
 }
 
 /** LARA, then Terminal, then Platform last. */
@@ -47,6 +54,8 @@ export const LOCKED_COLUMN_ID = 'laraVoyage'
 
 export const SEARCH_COLUMNS: SearchColumn[] = [
   { id: 'mappingStatus', label: 'Mapping status', kind: 'text', source: 'platform' },
+  { id: 'lastUpdateBy', label: 'Last modify by', kind: 'text', source: 'platform' },
+  { id: 'lastUpdateAt', label: 'Last modify at', kind: 'datetime', source: 'platform' },
   // LARA fields from the schedule template. Calculated columns stay last.
   { id: 'laraVoyage', label: 'Voyage', kind: 'text', source: 'lara' },
   { id: 'pointCode', label: 'Point code', kind: 'text', source: 'lara' },
@@ -59,48 +68,31 @@ export const SEARCH_COLUMNS: SearchColumn[] = [
   { id: 'laraEtd', label: 'ETD', kind: 'datetime', source: 'lara' },
   { id: 'vesselType', label: 'Vessel type', kind: 'text', source: 'lara' },
   { id: 'terminal9code', label: 'Terminal', kind: 'text', source: 'lara' },
-  // Vessel operator, then every business field returned by the terminal schedule API.
+  // Terminal fields written by a sync, in display order.
   { id: 'vesselOperator', label: 'Vessel operator', kind: 'text', source: 'terminal' },
   { id: 'localVoyageExport', label: 'Export voyage', kind: 'text', source: 'terminal' },
   { id: 'localVoyageImport', label: 'Import voyage', kind: 'text', source: 'terminal' },
-  { id: 'vesselNameEn', label: 'Vessel name EN', kind: 'text', source: 'terminal' },
   { id: 'vesselNameCn', label: 'Vessel name Cn', kind: 'text', source: 'terminal' },
-  { id: 'shipCode', label: 'Ship code', kind: 'text', source: 'terminal' },
-  { id: 'shipName', label: 'Ship name', kind: 'text', source: 'terminal' },
-  { id: 'lineCode', label: 'Line code', kind: 'text', source: 'terminal' },
-  { id: 'tmlVslStatus', label: 'Status', kind: 'text', source: 'terminal' },
   { id: 'terminalName', label: 'Terminal name', kind: 'text', source: 'terminal' },
   { id: 'tmlEta', label: 'ETA', kind: 'datetime', source: 'terminal' },
   { id: 'tmlAta', label: 'ATA', kind: 'datetime', source: 'terminal' },
   { id: 'terminalEtb', label: 'ETB', kind: 'datetime', source: 'terminal' },
-  { id: 'terminalEtd', label: 'ETD', kind: 'datetime', source: 'terminal' },
   { id: 'terminalAtb', label: 'ATB', kind: 'datetime', source: 'terminal' },
+  { id: 'terminalEtd', label: 'ETD', kind: 'datetime', source: 'terminal' },
   { id: 'terminalAtd', label: 'ATD', kind: 'datetime', source: 'terminal' },
-  { id: 'agentCode', label: 'Agent code', kind: 'text', source: 'terminal' },
-  { id: 'agentName', label: 'Agent name', kind: 'text', source: 'terminal' },
   { id: 'cyOpen', label: 'CY open', kind: 'datetime', source: 'terminal' },
   { id: 'cyCutoff', label: 'CY closing', kind: 'datetime', source: 'terminal' },
-  { id: 'portCloseDate', label: 'Port close date', kind: 'datetime', source: 'terminal' },
-  { id: 'customsCloseDate', label: 'Customs close date', kind: 'datetime', source: 'terminal' },
-  { id: 'portsEn', label: 'Ports EN', kind: 'text', source: 'terminal' },
-  { id: 'portsCn', label: 'Ports CN', kind: 'text', source: 'terminal' },
+  { id: 'tmlVslStatus', label: 'Status', kind: 'text', source: 'terminal' },
   { id: 'terminalUpdateTime', label: 'Update time', kind: 'datetime', source: 'terminal' },
 ]
 
 /** Columns that show an em dash when terminal data is missing or not confirmed. */
 const TERMINAL_COLUMNS = new Set([
+  'vesselOperator',
   'vesselNameCn',
   'localVoyageExport',
   'localVoyageImport',
-  'vesselNameEn',
   'terminalName',
-  'shipCode',
-  'shipName',
-  'agentCode',
-  'agentName',
-  'lineCode',
-  'portsEn',
-  'portsCn',
   'tmlEta',
   'tmlAta',
   'terminalEtb',
@@ -109,10 +101,8 @@ const TERMINAL_COLUMNS = new Set([
   'terminalAtd',
   'cyOpen',
   'cyCutoff',
-  'portCloseDate',
-  'customsCloseDate',
-  'terminalUpdateTime',
   'tmlVslStatus',
+  'terminalUpdateTime',
 ])
 
 const NOT_FOUND_ALIASES: Record<string, string[]> = {
@@ -145,6 +135,7 @@ const NOT_FOUND_ALIASES: Record<string, string[]> = {
 }
 
 export function historyFieldLabel(field: string) {
+  if (field === 'linkState' || field === 'laraLink') return 'Link State'
   if (field === 'remark') return 'Remark'
   if (field === 'voyageStatus') return 'LARA voyage status'
   const direct = SEARCH_COLUMNS.find((column) => column.id === field)
@@ -250,6 +241,35 @@ export function brdTerminal(v: VesselRecord): { code: string; name: string } {
   }
 }
 
+function updateStamp(value: string) {
+  const parsed = Date.parse(value)
+  if (!Number.isNaN(parsed)) return parsed
+  const normalized = Date.parse(value.replace(' ', 'T'))
+  return Number.isNaN(normalized) ? Number.NEGATIVE_INFINITY : normalized
+}
+
+function isSystemActor(by: string) {
+  return by.trim().toLowerCase() === 'system'
+}
+
+/** Latest schedule write. A system sync is shown as an empty value. */
+function lastScheduleUpdate(v: VesselRecord) {
+  let by = ''
+  let at = ''
+  let time = Number.NEGATIVE_INFINITY
+  const consider = (nextBy: string, nextAt: string) => {
+    const next = updateStamp(nextAt)
+    if (!nextAt || next < time) return
+    time = next
+    by = nextBy
+    at = nextAt
+  }
+  for (const entry of v.history ?? []) consider(entry.by, entry.at)
+  for (const log of v.scheduleLogs ?? []) consider(log.updatedBy, log.updatedTime)
+  if (isSystemActor(by)) return { by: '', at: '' }
+  return { by, at }
+}
+
 /** Sortable raw value. Datetimes stay ISO; empty text sorts as ''. */
 export function searchSortValue(v: VesselRecord, id: string): string | number {
   if (isApiFieldHidden(v, id)) return ''
@@ -332,6 +352,10 @@ export function searchSortValue(v: VesselRecord, id: string): string | number {
       return unconfirmedOrTerminal(v, v.terminalSchedule?.ata)
     case 'mappingStatus':
       return matchingStatusLabel(v.matchingStatus)
+    case 'lastUpdateBy':
+      return lastScheduleUpdate(v).by
+    case 'lastUpdateAt':
+      return lastScheduleUpdate(v).at
     case 'laraLink': {
       const ids = v.laraLinkTargetIds?.length
         ? v.laraLinkTargetIds

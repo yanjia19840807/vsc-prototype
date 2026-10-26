@@ -1,6 +1,6 @@
 import type { VesselRecord } from '@/types/vsp'
 
-/** Business key shown for a LARA call: Voyage · Point code · Pool location · Visit no. */
+/** Display label for a LARA call. The record's primary key is its id. */
 export function laraLinkKey(
   vessel: Pick<VesselRecord, 'laraVoyage' | 'pointCode' | 'laraPoolLocation' | 'visitNo'>,
 ) {
@@ -16,4 +16,14 @@ export function isInactiveRecord(vessel: Pick<VesselRecord, 'recordStatus'>) {
 
 export function isLaraLinkSource(vessel: Pick<VesselRecord, 'laraLinkTargetId' | 'laraLinked'>) {
   return Boolean(vessel.laraLinkTargetId) || Boolean(vessel.laraLinked)
+}
+
+/** Link status shown on the temporary vessel list and edit page. */
+export function temporaryLinkStatusLabel(vessel: Pick<VesselRecord, 'laraLinkTargetId' | 'laraLinked'>) {
+  return isLaraLinkSource(vessel) ? 'Linked' : 'Unlink'
+}
+
+/** Schedule detail. Temporary vessels use this from vessel schedule search. */
+export function vesselDetailPath(vessel: Pick<VesselRecord, 'id'>) {
+  return `/vessels/${vessel.id}/view`
 }

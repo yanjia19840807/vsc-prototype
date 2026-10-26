@@ -66,12 +66,14 @@ const DATE_KEYS = new Set([
   'LARA:laraEtd',
   'LARA:cutoff',
   'TERMINAL:eta',
+  'TERMINAL:ata',
   'TERMINAL:etb',
-  'TERMINAL:etd',
   'TERMINAL:atb',
+  'TERMINAL:etd',
   'TERMINAL:atd',
   'TERMINAL:cyOpen',
   'TERMINAL:cyCutoff',
+  'TERMINAL:updateTime',
 ])
 
 const DEFAULT_WATCHED = new Set([
@@ -698,7 +700,6 @@ function matchLabel(snapshot: TerminalSnapshot | null | undefined) {
 function sameIdentity(left: TerminalSnapshot, right: TerminalSnapshot) {
   return left.exportVoyage === right.exportVoyage
     && left.importVoyage === right.importVoyage
-    && left.terminalCode === right.terminalCode
     && left.terminalName === right.terminalName
 }
 

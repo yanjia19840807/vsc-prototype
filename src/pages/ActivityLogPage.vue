@@ -11,7 +11,6 @@ import QueryPanel from '@/components/QueryPanel.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { DateRangePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
-import { MultiSelect } from '@/components/ui/multi-select'
 import {
   Table,
   TableBody,
@@ -22,15 +21,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { datetimeColumn, textColumn, useVesselDataTable } from '@/composables/useVesselDataTable'
-import {
-  ACTIVITY_CATEGORIES,
-  activityCategoryLabel,
-  activityDescription,
-  activityLogsOf,
-  activityPriority,
-  itemTouchesField,
-} from '@/features/vessel-schedule/activity-log'
-import { allPlaceholder } from '@/features/vessel-search/list-setting-model'
+import { activityLogsOf, itemTouchesField } from '@/features/vessel-schedule/activity-log'
+import { vesselDetailPath } from '@/features/vessel-schedule/lara-link'
 import { formatDateTime } from '@/lib/vessel-utils'
 import { useVesselStore } from '@/stores/vessels'
 
@@ -40,10 +32,9 @@ const store = useVesselStore()
 const vessel = computed(() => store.byId(String(route.params.id)))
 const selectedId = ref('')
 const detailRef = ref<HTMLElement | null>(null)
-const typeOptions = ACTIVITY_CATEGORIES.map((item) => item.label)
 
 function emptyLogQuery() {
-  return { types: [] as string[], field: '', updatedBy: '', from: '', to: '' }
+  return { field: '', updatedBy: '', from: '', to: '' }
 }
 
 const form = reactive(emptyLogQuery())
@@ -74,45 +65,24 @@ const filtered = computed(() => {
   const updatedBy = applied.value.updatedBy.trim().toLowerCase()
   const from = applied.value.from ? localDay(applied.value.from, false) : Number.NEGATIVE_INFINITY
   const to = applied.value.to ? localDay(applied.value.to, true) : Number.POSITIVE_INFINITY
-  const types = new Set(applied.value.types)
   return logs.value
-    .filter((item) => !types.size || types.has(activityCategoryLabel(item.category)))
     .filter((item) => itemTouchesField(item, applied.value.field))
     .filter((item) => !updatedBy || item.updatedBy.toLowerCase().includes(updatedBy))
     .filter((item) => {
       const at = new Date(item.at).getTime()
       return !Number.isFinite(at) || (at >= from && at <= to)
     })
-    .sort((a, b) => {
-      const time = new Date(b.at).getTime() - new Date(a.at).getTime()
-      if (time !== 0) return time
-      return activityPriority(b.category) - activityPriority(a.category)
-    })
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
 })
 
-const tableRowsSource = computed(() =>
-  filtered.value.map((item) => ({
-    ...item,
-    categoryLabel: activityCategoryLabel(item.category),
-    description: activityDescription(item),
-    priority: activityPriority(item.category),
-  })),
-)
+const tableRowsSource = computed(() => filtered.value.map((item) => ({ ...item })))
 
 const selected = computed(() => filtered.value.find((item) => item.id === selectedId.value) ?? null)
 
 const columns = [
-  {
-    ...datetimeColumn('at', 'Time'),
-    sortFn: (rowA: { original: { at: string; priority: number } }, rowB: { original: { at: string; priority: number } }) => {
-      const time = new Date(rowA.original.at).getTime() - new Date(rowB.original.at).getTime()
-      if (time !== 0) return time
-      return rowA.original.priority - rowB.original.priority
-    },
-  },
-  textColumn('categoryLabel', 'Type'),
-  textColumn('description', 'Description'),
-  textColumn('updatedBy', 'Updated by'),
+  textColumn('updatedBy', 'Trigger by'),
+  datetimeColumn('at', 'Trigger At'),
+  textColumn('remark', 'Remark'),
 ]
 
 const { table, tableRows, rowCount, pageCount, headerGroups, pagination, resetPage } = useVesselDataTable({
@@ -134,7 +104,7 @@ function selectItem(id: string) {
 }
 
 function applyFilters() {
-  applied.value = { ...form, types: [...form.types] }
+  applied.value = { ...form }
 }
 
 function clearFilters() {
@@ -150,33 +120,18 @@ function clearFilters() {
     <PageBreadcrumb
       :items="[
         { label: 'Vessel schedule search', to: '/search' },
-        { label: vessel.vesselName, to: `/vessels/${vessel.id}/view` },
+        { label: vessel.vesselName, to: vesselDetailPath(vessel) },
         { label: 'Activity logs' },
       ]"
     />
-    <div>
-      <h1 class="text-xl font-semibold">Activity logs</h1>
-      <p class="text-sm text-muted-foreground">
-        {{ vessel.vesselName }} · {{ vessel.laraVoyage }} · {{ vessel.pointCode }} · {{ vessel.laraPoolLocation }} · {{ vessel.visitNo }}
-      </p>
-    </div>
+    <p class="text-sm text-muted-foreground">{{ vessel.pointCode }} · {{ vessel.laraVoyage }}</p>
 
     <QueryPanel @search="applyFilters" @clear="clearFilters">
-      <FilterField label="Type">
-        <MultiSelect
-          :model-value="form.types"
-          :options="typeOptions"
-          :placeholder="allPlaceholder('Type')"
-          aria-label="Type"
-          class="w-[220px]"
-          @update:model-value="form.types = $event"
-        />
-      </FilterField>
       <FilterField label="Field">
         <Input v-model="form.field" class="h-8 w-52" aria-label="Field" />
       </FilterField>
-      <FilterField label="Updated by">
-        <Input v-model="form.updatedBy" class="h-8 w-52" aria-label="Updated by" />
+      <FilterField label="Trigger by">
+        <Input v-model="form.updatedBy" class="h-8 w-52" aria-label="Trigger by" />
       </FilterField>
       <FilterField label="Time">
         <DateRangePicker v-model:from="form.from" v-model:to="form.to" />
@@ -212,10 +167,9 @@ function clearFilters() {
             @keydown.enter.prevent="selectItem(row.original.id)"
             @keydown.space.prevent="selectItem(row.original.id)"
           >
-            <TableCell class="whitespace-nowrap">{{ formatDateTime(row.original.at) }}</TableCell>
-            <TableCell class="whitespace-nowrap">{{ row.original.categoryLabel }}</TableCell>
-            <TableCell>{{ row.original.description }}</TableCell>
             <TableCell class="whitespace-nowrap">{{ row.original.updatedBy || '—' }}</TableCell>
+            <TableCell class="whitespace-nowrap">{{ formatDateTime(row.original.at) }}</TableCell>
+            <TableCell>{{ row.original.remark || '—' }}</TableCell>
           </TableRow>
           <TableEmpty v-if="!tableRows.length" :colspan="columns.length" />
         </TableBody>
@@ -232,31 +186,13 @@ function clearFilters() {
 
     <div v-if="selected" ref="detailRef" class="space-y-4">
       <div>
-        <h2 class="text-xl font-semibold">{{ formatDateTime(selected.at) }}</h2>
-        <p class="text-sm text-muted-foreground">{{ activityCategoryLabel(selected.category) }} · {{ activityDescription(selected) }}</p>
+        <h2 class="text-xl font-semibold">Field Change</h2>
+        <p class="text-sm text-muted-foreground">
+          {{ selected.updatedBy || '—' }} · {{ formatDateTime(selected.at) }}
+          <template v-if="selected.remark"> · {{ selected.remark }}</template>
+        </p>
       </div>
       <p v-if="selected.resultNote" class="text-sm text-muted-foreground">{{ selected.resultNote }}</p>
-
-      <DataSection v-for="domain in selected.domainTables" :key="domain.id" :title="domain.title">
-        <div class="overflow-x-auto rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead v-for="column in domain.columns" :key="column.id" class="whitespace-nowrap">
-                  {{ column.label }}
-                </TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow v-for="record in domain.records" :key="record.id">
-                <TableCell v-for="(value, index) in record.values" :key="`${record.id}-${index}`" class="whitespace-nowrap">
-                  {{ value }}
-                </TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </DataSection>
 
       <DataSection v-if="selected.changes.length" title="Changes">
         <div class="overflow-hidden rounded-md border">

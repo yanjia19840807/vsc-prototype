@@ -17,7 +17,10 @@ const props = withDefaults(
     data-slot="table-container"
     :class="cn('relative w-full max-w-full min-w-0', props.scrollable && 'overflow-x-auto')"
   >
-    <table data-slot="table" :class="cn('w-full caption-bottom text-sm', props.class)">
+    <table
+      data-slot="table"
+      :class="cn('w-full caption-bottom border-separate border-spacing-0 text-sm [&_td]:border-b [&_th]:border-b', props.class)"
+    >
       <slot />
     </table>
   </div>

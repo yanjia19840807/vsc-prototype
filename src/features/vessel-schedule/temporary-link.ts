@@ -1,6 +1,6 @@
 import type { LinkLaraDiff, LinkReview, LinkTerminalChoice, TerminalSchedule, VesselRecord } from '@/types/vsp'
 
-/** Same call when voyage, point code, pool location, and visit no match. */
+/** Formal rows a temporary vessel can link to. Each row is still identified by its id. */
 export function temporaryLinkKey(
   vessel: Pick<VesselRecord, 'laraVoyage' | 'pointCode' | 'laraPoolLocation' | 'visitNo'>,
 ) {

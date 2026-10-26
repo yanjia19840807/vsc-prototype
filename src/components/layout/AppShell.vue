@@ -247,7 +247,7 @@ const copyrightYear = new Date().getFullYear()
         class="inline-flex h-9 shrink-0 items-center border-b-2 px-2.5 text-sm font-medium transition-colors"
         :class="
           isMenuItemActive(item, route.path)
-            ? 'border-foreground text-foreground'
+            ? 'border-brand-red text-foreground'
             : 'border-transparent text-foreground/60 hover:text-foreground'
         "
       >

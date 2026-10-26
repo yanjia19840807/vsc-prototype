@@ -156,7 +156,6 @@ export const useScheduleStore = defineStore('schedule', () => {
     const fields: Parameters<typeof vessels.patchDisplay>[1] = {
       laraVoyage: lara.laraVoyage,
       pointCode: lara.pointCode,
-      visitNo: lara.visitNo,
       laraPoolLocation: lara.laraPoolLocation,
       multipleCallNumber: lara.multipleCallNumber,
       vesselName: lara.vesselName,
@@ -171,21 +170,35 @@ export const useScheduleStore = defineStore('schedule', () => {
     }
     const versionId = state.value.matches.find((match) => match.id === call.matchId)?.terminalVersionId
     if (versionId) {
+      fields.vesselOperator = terminal.vesselOperator
       fields.tmlEta = terminal.eta
+      fields.tmlAta = terminal.ata
       fields.tmlEtb = terminal.etb
-      fields.tmlEtd = terminal.etd
       fields.tmlAtb = terminal.atb
+      fields.tmlEtd = terminal.etd
       fields.tmlAtd = terminal.atd
+      fields.cyOpen = terminal.cyOpen
+      fields.cyCutoff = terminal.cyCutoff
+      fields.terminalName = terminal.terminalName
+      fields.terminalScheduleStatus = terminal.vesselStatus
+      fields.vesselNameCn = terminal.vesselNameCn
+      fields.terminalUpdateTime = terminal.updateTime
       fields.externalVoyage = terminal.exportVoyage
       fields.externalExportVoyage = terminal.exportVoyage
       fields.externalImportVoyage = terminal.importVoyage
-      fields.localVoyage = terminal.localVoyage || terminal.exportVoyage
+      fields.localVoyage = terminal.exportVoyage
     } else if (clearTerminal) {
       fields.tmlEta = ''
+      fields.tmlAta = ''
       fields.tmlEtb = ''
-      fields.tmlEtd = ''
       fields.tmlAtb = ''
+      fields.tmlEtd = ''
       fields.tmlAtd = ''
+      fields.cyOpen = ''
+      fields.cyCutoff = ''
+      fields.terminalScheduleStatus = ''
+      fields.vesselNameCn = ''
+      fields.terminalUpdateTime = ''
       fields.externalVoyage = ''
       fields.externalExportVoyage = ''
       fields.externalImportVoyage = ''

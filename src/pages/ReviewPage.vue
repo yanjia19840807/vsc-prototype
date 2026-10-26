@@ -28,6 +28,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
+import { vesselDetailPath } from '@/features/vessel-schedule/lara-link'
 import { mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
 import { type ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import ScheduleRecordHeading from '@/features/vessel-schedule/ScheduleRecordHeading.vue'
@@ -62,14 +63,17 @@ const store = useVesselStore()
 const schedule = useScheduleStore()
 provide(syncCellKey, (callId, columnId) => {
   const field = reviewForColumn(schedule.review(callId).fields, columnId)
-  if (!field || field.side === 'MATCH') return null
+  if (!field || field.side === 'MATCH' || field.status !== 'pending') return null
   return { field }
 })
 const coverage = useTerminalCoverageStore()
 const tabs = useTabsStore()
-const vessel = computed(() => store.byId(String(route.params.id)))
+const vessel = computed(() => {
+  const current = store.byId(String(route.params.id))
+  if (!current || current.linkReview) return current
+  return store.vessels.find((item) => item.linkReview?.temporaryId === current.id) ?? current
+})
 
-const LARA_KEY = new Set(['laraVoyage', 'pointCode', 'laraPoolLocation', 'visitNo'])
 const CALCULATED_LARA = new Set(['voyageStatus', 'vesselType', 'terminal9code'])
 const HIDDEN_LARA = new Set(['voyageStatus'])
 
@@ -77,7 +81,6 @@ const LARA_COLUMNS: { id: string; label: string; kind: 'text' | 'datetime' }[] =
   { id: 'laraVoyage', label: 'Voyage', kind: 'text' },
   { id: 'pointCode', label: 'Port', kind: 'text' },
   { id: 'laraPoolLocation', label: 'Pool location', kind: 'text' },
-  { id: 'visitNo', label: 'Visit no', kind: 'text' },
   { id: 'vesselName', label: 'Vessel name', kind: 'text' },
   { id: 'brand', label: 'Brand', kind: 'text' },
   { id: 'service', label: 'Service', kind: 'text' },
@@ -149,7 +152,6 @@ function laraRaw(current: VesselRecord, id: string) {
   if (id === 'laraVoyage') return current.laraVoyage
   if (id === 'pointCode') return current.pointCode
   if (id === 'laraPoolLocation') return current.laraPoolLocation
-  if (id === 'visitNo') return current.visitNo
   if (id === 'multipleCallNumber') return current.multipleCallNumber
   if (id === 'vesselOperator') return current.vesselOperator
   if (id === 'acPartner') return current.acPartner
@@ -167,7 +169,6 @@ function laraRaw(current: VesselRecord, id: string) {
 }
 
 function laraLatest(current: VesselRecord, id: string) {
-  if (LARA_KEY.has(id)) return laraRaw(current, id)
   return current.manualOverrides[id]?.source ?? laraRaw(current, id)
 }
 
@@ -239,7 +240,7 @@ function matchLabel(row: TerminalRow | null | undefined) {
 }
 
 function diffLara(from: Record<string, string>, to: Record<string, string>): HistoryDetail[] {
-  return LARA_COLUMNS.filter((column) => !LARA_KEY.has(column.id) && !CALCULATED_LARA.has(column.id))
+  return LARA_COLUMNS.filter((column) => !CALCULATED_LARA.has(column.id))
     .filter((column) => (from[column.id] ?? '') !== (to[column.id] ?? ''))
     .map((column) => ({
       field: column.id,
@@ -390,10 +391,10 @@ const mappingAlert = computed(() => {
   if (!current) return null
   const review = schedule.review(current.id)
   if (review.shape) return null
-  const field = review.fields.find((item) => item.side === 'MATCH')
+  const field = review.fields.find((item) => item.side === 'MATCH' && item.status === 'pending')
   if (!field) return null
   return {
-    variant: field.status === 'pending' ? 'warning' as const : 'info' as const,
+    variant: 'warning' as const,
     title: 'Mapping status',
     text: `${field.previousValue || '—'} → ${field.incomingValue || '—'}`,
   }
@@ -430,19 +431,22 @@ function offerLabel(value: string, kind: string) {
   return kind === 'datetime' ? formatDateTime(value) : value
 }
 
-function payloadText(payload: { exportVoyage: string; importVoyage: string; terminalCode: string; terminalName: string; vesselStatus: string; eta: string; etb: string; etd: string; atb: string; atd: string; cyOpen: string; cyCutoff: string }, columnId: string) {
+function payloadText(payload: { exportVoyage: string; importVoyage: string; vesselNameCn: string; terminalName: string; vesselStatus: string; eta: string; ata: string; etb: string; atb: string; etd: string; atd: string; cyOpen: string; cyCutoff: string; updateTime: string }, columnId: string) {
   const raw: Record<string, string> = {
     evoyage: payload.exportVoyage,
     ivoyage: payload.importVoyage,
-    terminal: payload.terminalName || payload.terminalCode,
+    vesselNameCn: payload.vesselNameCn,
+    terminal: payload.terminalName,
     status: payload.vesselStatus,
     eta: payload.eta,
+    ata: payload.ata,
     etb: payload.etb,
-    etd: payload.etd,
     atb: payload.atb,
+    etd: payload.etd,
     atd: payload.atd,
     cyOpen: payload.cyOpen,
     cyClosing: payload.cyCutoff,
+    updateTime: payload.updateTime,
   }
   const value = raw[columnId] ?? ''
   if (!value) return '—'
@@ -450,10 +454,10 @@ function payloadText(payload: { exportVoyage: string; importVoyage: string; term
   return column?.kind === 'datetime' ? formatDateTime(value) : value
 }
 
-function payloadIsCurrent(payload: { exportVoyage: string; terminalCode: string; etd: string }) {
+function payloadIsCurrent(payload: { exportVoyage: string; terminalName: string; etd: string }) {
   const row = activeRow.value
   if (!row) return false
-  return payload.exportVoyage === row.draft.evoyage && (payload.terminalCode === row.draft.terminal || !payload.terminalCode) && payload.etd === row.draft.etd
+  return payload.exportVoyage === row.draft.evoyage && (!payload.terminalName || payload.terminalName === row.draft.terminal) && payload.etd === row.draft.etd
 }
 
 function rememberChoice(field: { side: string; field: string }, value: string) {
@@ -571,7 +575,7 @@ function lockedFields() {
 function applyLaraSync() {
   const next = { ...laraValues.value }
   for (const column of LARA_COLUMNS) {
-    if (LARA_KEY.has(column.id) || CALCULATED_LARA.has(column.id)) continue
+    if (CALCULATED_LARA.has(column.id)) continue
     if (comparable.value && offerForColumn(column.id)) continue
     next[column.id] = laraSource.value[column.id] ?? next[column.id]
     laraBaseline.value[column.id] = next[column.id] ?? ''
@@ -757,7 +761,17 @@ function updatedDetails() {
 }
 
 function manualMatch(): PendingMatch | null {
-  const to = matchLabel(selectedRow.value)
+  const current = vessel.value
+  const selected = selectedRow.value
+  const to = matchLabel(selected)
+  if (
+    comparable.value
+    && current
+    && selected?.baseline
+    && sameSchedule(current.terminalSchedule, selected.baseline)
+  ) {
+    return null
+  }
   if (to === loggedMatchLabel.value) return null
   return {
     at: new Date().toISOString(),
@@ -845,7 +859,13 @@ function commitLinkReview(current: VesselRecord) {
     const choice = review.terminalChoices.find((item) => item.id === terminalId)
     terminalSchedule = draftToSchedule(row.draft, choice?.schedule)
   }
-  const saved = store.confirmTemporaryLink(current.id, { fields, values, terminalId, terminalSchedule })
+  const saved = store.confirmTemporaryLink(current.id, {
+    fields,
+    values,
+    terminalId,
+    terminalSchedule,
+    reason: remark.value,
+  })
   if (!saved) {
     toast.error('Link review could not be saved')
     confirmOpen.value = false
@@ -873,7 +893,8 @@ function openHistory() {
 }
 
 function openVessel(id: string) {
-  void router.push(`/vessels/${id}/view`)
+  const row = store.byId(id)
+  void router.push(row ? vesselDetailPath(row) : `/vessels/${id}/view`)
 }
 
 function onVesselDeleted() {
@@ -962,17 +983,15 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
 
 <template>
   <div v-if="vessel" class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-    <PageBreadcrumb
-      class="shrink-0"
-      :items="[
-        { label: 'Vessel schedule search', to: '/search' },
-        { label: vessel.vesselName, to: `/vessels/${vessel.id}/view` },
-        { label: 'Review' },
-      ]"
-    />
-    <div class="flex shrink-0 flex-wrap items-start justify-between gap-3">
-      <ScheduleRecordHeading :vessel="vessel" />
-      <div class="flex flex-wrap gap-2">
+    <div class="flex shrink-0 flex-wrap items-center justify-between gap-3">
+      <PageBreadcrumb
+        :items="[
+          { label: 'Vessel schedule search', to: '/search' },
+          { label: vessel.vesselName, to: vesselDetailPath(vessel) },
+          { label: 'Review' },
+        ]"
+      />
+      <div class="flex flex-wrap items-center gap-2">
         <Button v-if="linkTarget" type="button" variant="outline" @click="openVessel(linkTarget.id)">
           Active LARA record
         </Button>
@@ -982,6 +1001,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
         <Button type="button" variant="outline" @click="requestSync('Terminal')">Sync latest Terminal</Button>
       </div>
     </div>
+    <ScheduleRecordHeading class="shrink-0" :vessel="vessel" />
     <div class="min-h-0 flex-1 space-y-4 overflow-auto">
     <Alert v-if="headerAlert" :variant="headerAlert.variant">
       <AlertTitle>{{ headerAlert.title }}</AlertTitle>
@@ -1013,7 +1033,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
         <dl>
           <template v-for="column in LARA_COLUMNS" :key="column.id">
             <template v-if="!HIDDEN_LARA.has(column.id)">
-            <ReadonlyField v-if="LARA_KEY.has(column.id) || CALCULATED_LARA.has(column.id)" layout="row" :label="column.label" :value="displayLara(column.id, column.kind)" />
+            <ReadonlyField v-if="CALCULATED_LARA.has(column.id)" layout="row" :label="column.label" :value="displayLara(column.id, column.kind)" />
             <div v-else class="grid gap-1 border-b py-2 sm:grid-cols-[11rem_1fr] sm:items-center">
               <div class="flex items-center gap-1 text-sm text-muted-foreground">
                 {{ column.label }}
@@ -1027,13 +1047,13 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
               <Input v-else :model-value="laraValues[column.id]" class="h-8" @update:model-value="onLaraInput(column.id, String($event))" />
               <p v-if="offerForColumn(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
                 <span>Latest {{ offerLabel(offerForColumn(column.id)!.incomingValue, column.kind) }}</span>
-                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useLatest(column.id)">Use latest</Button>
                 <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepCurrent(column.id)">Keep current</Button>
+                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useLatest(column.id)">Use latest</Button>
               </p>
               <p v-if="linkOffer(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
                 <span>Temporary {{ offerLabel(linkOffer(column.id)!.temporary, column.kind) }}</span>
-                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useTemporary(column.id)">Use temporary</Button>
                 <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepFormal(column.id)">Keep formal</Button>
+                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useTemporary(column.id)">Use temporary</Button>
               </p>
             </div>
             </template>
@@ -1088,8 +1108,8 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
                 />
                 <p v-if="offerForColumn(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
                   <span>Latest {{ offerLabel(offerForColumn(column.id)!.incomingValue, column.kind) }}</span>
-                  <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useLatest(column.id)">Use latest</Button>
                   <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepCurrent(column.id)">Keep current</Button>
+                  <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useLatest(column.id)">Use latest</Button>
                 </p>
               </div>
             </template>

@@ -3,7 +3,6 @@ import type { LaraSnapshot, TerminalSnapshot } from '@/domain/schedule-model/typ
 export const LARA_FIELDS = [
   'laraVoyage',
   'pointCode',
-  'visitNo',
   'laraPoolLocation',
   'multipleCallNumber',
   'vesselName',
@@ -20,19 +19,21 @@ export const LARA_FIELDS = [
 ] as const
 
 export const TERMINAL_FIELDS = [
-  'importVoyage',
+  'vesselOperator',
   'exportVoyage',
-  'localVoyage',
-  'terminalCode',
+  'importVoyage',
+  'vesselNameCn',
   'terminalName',
-  'vesselStatus',
   'eta',
+  'ata',
   'etb',
-  'etd',
   'atb',
+  'etd',
   'atd',
   'cyOpen',
   'cyCutoff',
+  'vesselStatus',
+  'updateTime',
 ] as const
 
 export type LaraField = (typeof LARA_FIELDS)[number]
@@ -44,7 +45,6 @@ export function emptyLaraSnapshot(): LaraSnapshot {
   return {
     laraVoyage: '',
     pointCode: '',
-    visitNo: '',
     laraPoolLocation: '',
     multipleCallNumber: '0',
     vesselName: '',
@@ -63,19 +63,21 @@ export function emptyLaraSnapshot(): LaraSnapshot {
 
 export function emptyTerminalSnapshot(): TerminalSnapshot {
   return {
-    importVoyage: '',
+    vesselOperator: '',
     exportVoyage: '',
-    localVoyage: '',
-    terminalCode: '',
+    importVoyage: '',
+    vesselNameCn: '',
     terminalName: '',
-    vesselStatus: '',
     eta: '',
+    ata: '',
     etb: '',
-    etd: '',
     atb: '',
+    etd: '',
     atd: '',
     cyOpen: '',
     cyCutoff: '',
+    vesselStatus: '',
+    updateTime: '',
   }
 }
 

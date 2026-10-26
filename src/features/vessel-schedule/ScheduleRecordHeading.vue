@@ -16,13 +16,13 @@ const recordState = computed(() => (props.vessel.omit || props.vessel.voyageStat
 
 <template>
   <div>
-    <h1 class="text-xl font-semibold">{{ vessel.vesselName }}</h1>
     <p class="text-sm text-muted-foreground">{{ vessel.pointCode }} · {{ vessel.laraVoyage }}</p>
+    <p v-if="vessel.remark" class="mt-1 max-w-3xl text-sm text-muted-foreground">{{ vessel.remark }}</p>
     <div class="mt-2 flex flex-wrap items-center gap-2">
       <StatusBadge :status="vessel.matchingStatus" />
       <span v-if="remark" class="text-xs text-muted-foreground">{{ remark }}</span>
       <TemporaryMark v-if="vessel.createdManually" />
-      <StatusBadge :status="recordState" />
+      <StatusBadge v-if="!vessel.createdManually || recordState === 'omit'" :status="recordState" />
     </div>
   </div>
 </template>

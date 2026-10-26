@@ -42,7 +42,7 @@ const covered = computed(() => isPortApiCovered(props.vessel))
   <span v-else-if="columnId === 'laraVoyage'" class="inline-flex flex-col items-start gap-1">
     <span :class="isWarningCellText(text, columnId) ? 'text-amber-800' : undefined">{{ text }}</span>
     <span class="inline-flex items-center gap-1">
-      <StatusBadge :status="voyageStatus" size="sm" />
+      <StatusBadge v-if="!vessel.createdManually || voyageStatus === 'omit'" :status="voyageStatus" size="sm" />
       <TemporaryMark v-if="vessel.createdManually" size="sm" />
     </span>
   </span>

@@ -16,6 +16,7 @@ import {
   matchingStatusLabel,
   searchCellText,
   searchSortValue,
+  type ColumnSource,
   type SearchColumn,
 } from '@/features/vessel-search/search-columns'
 import {
@@ -29,6 +30,7 @@ import {
   normalizeFreezeThrough,
   placeMissingColumns,
   placeRestoredColumns,
+  seatSourceColumns,
   type ColumnPrefs,
   type SortRule,
   type TimeWindow,
@@ -100,7 +102,7 @@ export const DEFAULT_VISIBLE_FILTERS = [
   'laraEtb',
 ] as const
 
-const CATALOG_REV = 6
+const CATALOG_REV = 8
 
 /** Within one source, choice lists, then free text, then dates, then the checkbox. */
 const FILTER_KIND_ORDER: FilterControlKind[] = ['multi', 'lines', 'text', 'datetime', 'check']
@@ -132,9 +134,7 @@ export function normalizeWatchedFields(ids: string[] | undefined) {
 const LINE_FIELDS = new Set([
   'vesselName',
   'laraVoyage',
-  'vesselNameEn',
   'vesselNameCn',
-  'shipName',
   'localVoyageExport',
   'localVoyageImport',
 ])
@@ -653,6 +653,20 @@ function promoteLaraTimeFilters(filters: FilterPref[]): FilterPref[] {
   return rest
 }
 
+function seatSourceFilters(filters: FilterPref[], source: ColumnSource): FilterPref[] {
+  const ids = SEARCH_COLUMNS.filter((column) => column.source === source).map((column) => column.id)
+  const idSet = new Set(ids)
+  const first = filters.findIndex((pref) => idSet.has(pref.id))
+  const block = ids.flatMap((id) => {
+    const pref = filters.find((item) => item.id === id)
+    return pref ? [pref] : []
+  })
+  const rest = filters.filter((pref) => !idSet.has(pref.id))
+  if (first === -1) rest.push(...block)
+  else rest.splice(first, 0, ...block)
+  return rest
+}
+
 function orderFiltersByCatalog(filters: FilterPref[]): FilterPref[] {
   const byId = new Map(filters.map((pref) => [pref.id, pref]))
   return CATALOG.flatMap((field) => {
@@ -686,10 +700,18 @@ export function loadUserSettings(username: string): UserListSettings {
         if (catalogRev < 3) filters = clearSavedLineLists(filters)
         if (catalogRev < 4) filters = promoteLaraTimeFilters(filters)
         if (catalogRev < 5) filters = orderFiltersByCatalog(filters)
-        const columns = catalogRev < 6
+        const columns = catalogRev < 8
           ? { ...item.columns, order: [...item.columns.order] }
           : item.columns
         if (catalogRev < 6) placeRestoredColumns(columns.order)
+        if (catalogRev < 7) {
+          filters = seatSourceFilters(filters, 'terminal')
+          columns.order = seatSourceColumns(columns.order, 'terminal')
+        }
+        if (catalogRev < 8) {
+          filters = seatSourceFilters(filters, 'platform')
+          columns.order = seatSourceColumns(columns.order, 'platform')
+        }
         return { ...item, filters, columns }
       })
     }

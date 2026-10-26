@@ -1,4 +1,4 @@
-import { LOCKED_COLUMN_ID, SEARCH_COLUMNS } from '@/features/vessel-search/search-columns'
+import { LOCKED_COLUMN_ID, SEARCH_COLUMNS, type ColumnSource } from '@/features/vessel-search/search-columns'
 
 export type OmitMode = 'show' | 'hide'
 
@@ -28,7 +28,7 @@ export type ColumnPrefs = {
 const FILTER_KEY = 'vsp-schedule-filters'
 const TIME_KEY = 'vsp-schedule-time'
 /** Bump when default column order / groups change so saved prefs pick up the new layout. */
-const COLUMN_KEY = 'vsp-schedule-columns-v12'
+const COLUMN_KEY = 'vsp-schedule-columns-v13'
 const SORT_KEY = 'vsp-schedule-sort'
 
 export const DEFAULT_SORT: SortRule[] = [{ id: 'laraEtb', desc: true }]
@@ -77,18 +77,8 @@ export function placeNewColumn(order: string[], id: string, beforeId: string, al
 /** Columns restored to the catalog. A one-time layout pass seats them with their neighbors. */
 const RESTORED_COLUMN_IDS = new Set([
   'laraEta',
-  'vesselNameEn',
-  'shipCode',
-  'shipName',
-  'lineCode',
   'tmlEta',
   'tmlAta',
-  'agentCode',
-  'agentName',
-  'portCloseDate',
-  'customsCloseDate',
-  'portsEn',
-  'portsCn',
   'terminalUpdateTime',
 ])
 
@@ -112,6 +102,18 @@ export function placeRestoredColumns(order: string[]) {
     const previous = [...SEARCH_COLUMNS.slice(0, index)].reverse().find((column) => order.includes(column.id))
     if (previous) moveColumn(order, id, order.indexOf(previous.id) + 1)
   }
+}
+
+/** Put one source's columns into catalog order, keeping the block where that source already starts. */
+export function seatSourceColumns(order: string[], source: ColumnSource) {
+  const catalog = SEARCH_COLUMNS.filter((column) => column.source === source).map((column) => column.id)
+  const catalogSet = new Set(catalog)
+  const first = order.findIndex((id) => catalogSet.has(id))
+  const rest = order.filter((id) => !catalogSet.has(id))
+  const block = catalog.filter((id) => order.includes(id))
+  if (first === -1) rest.push(...block)
+  else rest.splice(first, 0, ...block)
+  return rest
 }
 
 /** Keep columns a saved layout never stored beside the next catalog column that it did store. */

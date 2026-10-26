@@ -5,6 +5,7 @@ import { ChevronDown, GripVertical, Plus } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 
 import FilterField from '@/components/FilterField.vue'
+import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { MultiSelect } from '@/components/ui/multi-select'
@@ -24,6 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { tableActionsCell, tableActionsHead } from '@/components/ui/table/chrome'
 import QueryPanel from '@/components/QueryPanel.vue'
 import CoverageIcon from '@/components/CoverageIcon.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -147,15 +149,18 @@ function onDrop(portCode: string) {
 </script>
 
 <template>
-  <div class="flex w-full min-w-0 flex-col gap-4 py-4">
-    <div class="flex flex-wrap items-center justify-end gap-2">
-      <Button type="button" variant="outline" @click="regionsOpen = true">Region</Button>
-      <Button type="button" variant="primary" @click="openCreate">
-        <Plus class="size-3.5" /> Add port
-      </Button>
+  <div class="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4 overflow-hidden py-4">
+    <div class="flex shrink-0 flex-wrap items-center justify-between gap-3">
+      <PageBreadcrumb :items="[{ label: 'Port terminal' }]" />
+      <div class="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="outline" @click="regionsOpen = true">Region</Button>
+        <Button type="button" variant="primary" @click="openCreate">
+          <Plus class="size-3.5" /> Add port
+        </Button>
+      </div>
     </div>
 
-    <div>
+    <div class="shrink-0">
       <div class="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -168,7 +173,7 @@ function onDrop(portCode: string) {
           <span class="text-muted-foreground">{{ appliedCount }}</span>
         </button>
       </div>
-      <QueryPanel v-if="filtersOpen" class="pt-3" @search="applyQuery" @clear="clearQuery">
+      <QueryPanel v-if="filtersOpen" class="pt-3" search-variant="outline" @search="applyQuery" @clear="clearQuery">
         <FilterField label="Port code">
           <Input v-model="draft.portCode" class="h-8 w-52" aria-label="Port code" />
         </FilterField>
@@ -202,76 +207,77 @@ function onDrop(portCode: string) {
       </QueryPanel>
     </div>
 
-    <div class="overflow-hidden rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead class="w-10"><span class="sr-only">Reorder</span></TableHead>
-            <TableHead>Port code</TableHead>
-            <TableHead>Port name</TableHead>
-            <TableHead>Region</TableHead>
-            <TableHead>API coverage</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Terminals</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow v-for="port in rows" :key="port.portCode" @dragover.prevent @drop="onDrop(port.portCode)">
-            <TableCell>
-              <div class="flex items-center">
-                <button
-                  type="button"
-                  class="flex size-4 cursor-grab items-center justify-center bg-transparent p-0 text-muted-foreground active:cursor-grabbing"
-                  draggable="true"
-                  :aria-label="`Reorder ${port.portCode}`"
-                  @dragstart.stop="dragCode = port.portCode"
-                  @dragend="dragCode = null"
-                >
-                  <GripVertical class="size-4 shrink-0" />
-                </button>
-              </div>
-            </TableCell>
-            <TableCell class="font-medium">{{ port.portCode }}</TableCell>
-            <TableCell>{{ port.portName }}</TableCell>
-            <TableCell>{{ regionText(port) }}</TableCell>
-            <TableCell>
-              <CoverageIcon :covered="port.apiCovered" />
-            </TableCell>
-            <TableCell>
-              <StatusBadge :status="port.active ? 'Active' : 'Inactive'" />
-            </TableCell>
-            <TableCell class="whitespace-normal">{{ terminalSummary(port) || '—' }}</TableCell>
-            <TableCell>
-              <div class="flex items-center gap-1">
-                <Button type="button" size="xs" variant="outline" @click="openEdit(port)">Edit</Button>
-                <Button
-                  v-if="port.active && portReferenced(port.portCode)"
-                  type="button"
-                  size="xs"
-                  variant="outline"
-                  @click="openPortAction(port, 'deactivate')"
-                >
-                  Deactivate
-                </Button>
-                <Button
-                  v-else-if="port.active"
-                  type="button"
-                  size="xs"
-                  variant="destructive"
-                  @click="openPortAction(port, 'delete')"
-                >
-                  Delete
-                </Button>
-                <Button v-else type="button" size="xs" variant="outline" @click="activatePort(port)">Activate</Button>
-              </div>
-            </TableCell>
-          </TableRow>
-          <TableEmpty v-if="!rows.length" :colspan="8">No results.</TableEmpty>
-        </TableBody>
-      </Table>
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border">
+      <div class="min-h-0 flex-1 overflow-auto">
+        <Table :scrollable="false" class="min-w-max">
+          <TableHeader pinned>
+            <TableRow>
+              <TableHead class="w-10"><span class="sr-only">Reorder</span></TableHead>
+              <TableHead>Port code</TableHead>
+              <TableHead>Port name</TableHead>
+              <TableHead>Region</TableHead>
+              <TableHead>API coverage</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Terminals</TableHead>
+              <TableHead :class="tableActionsHead">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="port in rows" :key="port.portCode" class="group" @dragover.prevent @drop="onDrop(port.portCode)">
+              <TableCell>
+                <div class="flex items-center">
+                  <button
+                    type="button"
+                    class="flex size-4 cursor-grab items-center justify-center bg-transparent p-0 text-muted-foreground active:cursor-grabbing"
+                    draggable="true"
+                    :aria-label="`Reorder ${port.portCode}`"
+                    @dragstart.stop="dragCode = port.portCode"
+                    @dragend="dragCode = null"
+                  >
+                    <GripVertical class="size-4 shrink-0" />
+                  </button>
+                </div>
+              </TableCell>
+              <TableCell class="font-medium">{{ port.portCode }}</TableCell>
+              <TableCell>{{ port.portName }}</TableCell>
+              <TableCell>{{ regionText(port) }}</TableCell>
+              <TableCell>
+                <CoverageIcon :covered="port.apiCovered" />
+              </TableCell>
+              <TableCell>
+                <StatusBadge :status="port.active ? 'Active' : 'Inactive'" />
+              </TableCell>
+              <TableCell class="whitespace-normal">{{ terminalSummary(port) || '—' }}</TableCell>
+              <TableCell :class="tableActionsCell">
+                <div class="flex items-center gap-1">
+                  <Button type="button" size="xs" variant="outline" @click="openEdit(port)">Edit</Button>
+                  <Button
+                    v-if="port.active && portReferenced(port.portCode)"
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    @click="openPortAction(port, 'deactivate')"
+                  >
+                    Deactivate
+                  </Button>
+                  <Button
+                    v-else-if="port.active"
+                    type="button"
+                    size="xs"
+                    variant="destructive"
+                    @click="openPortAction(port, 'delete')"
+                  >
+                    Delete
+                  </Button>
+                  <Button v-else type="button" size="xs" variant="outline" @click="activatePort(port)">Activate</Button>
+                </div>
+              </TableCell>
+            </TableRow>
+            <TableEmpty v-if="!rows.length" :colspan="8">No results.</TableEmpty>
+          </TableBody>
+        </Table>
+      </div>
     </div>
-
     <RegionsDialog v-model:open="regionsOpen" />
     <PortCoverageDialog v-model:open="editorOpen" :port="selected" />
     <DeletePortDialog v-model:open="deleteOpen" :port="selected" :mode="portAction" />

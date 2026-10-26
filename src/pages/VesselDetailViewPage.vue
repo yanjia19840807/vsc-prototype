@@ -13,6 +13,7 @@ import FieldChangeTip from '@/features/vessel-schedule/FieldChangeTip.vue'
 import SyncFieldAlert from '@/features/vessel-schedule/SyncFieldAlert.vue'
 import { reviewForColumn } from '@/features/vessel-schedule/sync-columns'
 import { syncCellKey, syncPendingKey } from '@/features/vessel-schedule/sync-review'
+import { vesselDetailPath } from '@/features/vessel-schedule/lara-link'
 import { mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
 import ScheduleRecordHeading from '@/features/vessel-schedule/ScheduleRecordHeading.vue'
 import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
@@ -55,7 +56,7 @@ provide(syncCellKey, (callId, columnId) => {
   const watched = listSettings.active?.watchedFields ?? []
   if (!watched.includes(columnId)) return null
   const field = reviewForColumn(schedule.review(callId).fields, columnId)
-  if (!field) return null
+  if (!field || field.status !== 'pending') return null
   return { field }
 })
 provide(syncPendingKey, (callId) => schedule.review(callId).pending)
@@ -89,10 +90,10 @@ const mappingAlert = computed(() => {
   if (!current) return null
   const review = schedule.review(current.id)
   if (review.shape) return null
-  const field = review.fields.find((item) => item.side === 'MATCH')
+  const field = review.fields.find((item) => item.side === 'MATCH' && item.status === 'pending')
   if (!field) return null
   return {
-    variant: field.status === 'pending' ? 'warning' as const : 'info' as const,
+    variant: 'warning' as const,
     title: 'Mapping status',
     text: `${field.previousValue || '—'} → ${field.incomingValue || '—'}`,
   }
@@ -112,7 +113,8 @@ function openHistory(fieldId?: string) {
 }
 
 function openVessel(id: string) {
-  void router.push(`/vessels/${id}/view`)
+  const row = store.byId(id)
+  void router.push(row ? vesselDetailPath(row) : `/vessels/${id}/view`)
 }
 
 function targetLaraText(columnId: string) {
@@ -144,15 +146,14 @@ function sourceText(columnId: string) {
 
 <template>
   <div v-if="vessel" class="space-y-4">
-    <PageBreadcrumb
-      :items="[
-        { label: 'Vessel schedule search', to: '/search' },
-        { label: vessel.vesselName },
-      ]"
-    />
-    <div class="flex flex-wrap items-start justify-between gap-3">
-      <ScheduleRecordHeading :vessel="vessel" />
-      <div class="flex flex-wrap gap-2">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <PageBreadcrumb
+        :items="[
+          { label: 'Vessel schedule search', to: '/search' },
+          { label: vessel.vesselName },
+        ]"
+      />
+      <div class="flex flex-wrap items-center gap-2">
         <Button v-if="linkTarget && !vessel.createdManually" type="button" variant="outline" @click="openVessel(linkTarget.id)">
           Active LARA record
         </Button>
@@ -160,6 +161,7 @@ function sourceText(columnId: string) {
         <Button type="button" variant="outline" @click="openHistory()">Activity logs</Button>
       </div>
     </div>
+    <ScheduleRecordHeading :vessel="vessel" />
 
     <Alert v-if="headerAlert" :variant="headerAlert.variant">
       <AlertTitle>{{ headerAlert.title }}</AlertTitle>
