@@ -10,7 +10,7 @@ import type {
   TerminalQueryStatus,
   TerminalQueryTrigger,
   TerminalSyncRun,
-  VesselCall,
+  VesselSchedule,
 } from '@/domain/schedule-model/types'
 
 const DEFAULT_ETA_LEAD_DAYS = 15
@@ -46,9 +46,9 @@ export function openTerminalSync(
   }
   let next = { ...issued.state, terminalSyncRuns: [...issued.state.terminalSyncRuns, run] }
   if (input.failedToIssue) return next
-  const due = next.calls.filter((call) => !isLinkSource(next, call.id) && !isLinkTarget(next, call.id) && isDue(next, call, input.startedAt, etaLeadDays, atdLagDays))
-  for (const call of due) {
-    next = appendQuery(next, call, {
+  const due = next.schedules.filter((schedule) => !isLinkSource(next, schedule.id) && !isLinkTarget(next, schedule.id) && isDue(next, schedule, input.startedAt, etaLeadDays, atdLagDays))
+  for (const schedule of due) {
+    next = appendQuery(next, schedule, {
       syncRunId: run.id,
       trigger: 'SCHEDULE',
       requestedAt: input.startedAt,
@@ -62,17 +62,17 @@ export function openTerminalSync(
 export function openSingleTerminalQuery(
   state: ScheduleState,
   input: {
-    callId: string
+    scheduleId: string
     trigger: Extract<TerminalQueryTrigger, 'MANUAL' | 'REMATCH'>
     requestedAt: string
     requestedBy: string
     externalVoyage?: string
   },
 ) {
-  const call = state.calls.find((item) => item.id === input.callId)
-  if (!call) throw new Error('Vessel call was not found')
-  if (isLinkSource(state, call.id) || isLinkTarget(state, call.id)) throw new Error('A linked call is left out of sync')
-  return appendQuery(state, call, {
+  const schedule = state.schedules.find((item) => item.id === input.scheduleId)
+  if (!schedule) throw new Error('Vessel schedule was not found')
+  if (isLinkSource(state, schedule.id) || isLinkTarget(state, schedule.id)) throw new Error('A linked schedule is left out of sync')
+  return appendQuery(state, schedule, {
     syncRunId: null,
     trigger: input.trigger,
     requestedAt: input.requestedAt,
@@ -106,20 +106,20 @@ export function completeTerminalQuery(
   if (input.status === 'FOUND') {
     for (const candidate of input.candidates ?? []) {
       const issued = nextId(next, 'terminal-payload')
-      const payload: TerminalPayload = { ...candidate, id: issued.id, queryId: query.id, callId: query.callId }
+      const payload: TerminalPayload = { ...candidate, id: issued.id, queryId: query.id, scheduleId: query.scheduleId }
       payloads.push(payload)
       next = { ...issued.state, terminalPayloads: [...issued.state.terminalPayloads, payload] }
     }
   }
-  if (!isLinkSource(next, query.callId) && !isLinkTarget(next, query.callId)) {
+  if (!isLinkSource(next, query.scheduleId) && !isLinkTarget(next, query.scheduleId)) {
     const comparable = input.matchingStatus
       ? input.matchingStatus === 'Auto matched' || input.matchingStatus === 'Manual matched'
-      : hasBoundMatch(next, query.callId)
-    const hasTerminal = hasBoundMatch(next, query.callId)
+      : hasBoundMatch(next, query.scheduleId)
+    const hasTerminal = hasBoundMatch(next, query.scheduleId)
     if (!comparable) {
       if (!hasTerminal && input.status === 'FOUND' && payloads.length === 1) {
         next = applyTerminalPayload(next, {
-          callId: query.callId,
+          scheduleId: query.scheduleId,
           payloadId: payloads[0]!.id,
           updatedBy: query.requestedBy,
           updatedAt: input.respondedAt,
@@ -128,7 +128,7 @@ export function completeTerminalQuery(
       }
     } else if (input.status === 'FOUND' && payloads.length === 1) {
       next = applyTerminalPayload(next, {
-        callId: query.callId,
+        scheduleId: query.scheduleId,
         payloadId: payloads[0]!.id,
         updatedBy: query.requestedBy,
         updatedAt: input.respondedAt,
@@ -153,7 +153,7 @@ function settleRun(state: ScheduleState, runId: string, finishedAt: string) {
 
 function appendQuery(
   state: ScheduleState,
-  call: VesselCall,
+  schedule: VesselSchedule,
   input: {
     syncRunId: string | null
     trigger: TerminalQueryTrigger
@@ -163,15 +163,15 @@ function appendQuery(
   },
 ) {
   const issued = nextId(state, 'terminal-query')
-  const lara = laraVersion(state, call.laraVersionId)
-  const terminal = displayedTerminal(state, call)
+  const lara = laraVersion(state, schedule.laraVersionId)
+  const terminal = displayedTerminal(state, schedule)
   const exportVoyage = terminal.exportVoyage.trim()
   const importVoyage = terminal.importVoyage.trim()
   const boundVoyage = input.externalVoyage.trim() || [exportVoyage, importVoyage].filter(Boolean).join(' / ')
   const query: TerminalQuery = {
     id: issued.id,
     syncRunId: input.syncRunId,
-    callId: call.id,
+    scheduleId: schedule.id,
     laraVersionId: lara?.id ?? '',
     trigger: input.trigger,
     requestedAt: input.requestedAt,
@@ -184,12 +184,12 @@ function appendQuery(
   return { ...issued.state, terminalQueries: [...issued.state.terminalQueries, query] }
 }
 
-function isDue(state: ScheduleState, call: VesselCall, runAt: string, etaLeadDays: number, atdLagDays: number) {
-  const lara = displayedLara(state, call)
+function isDue(state: ScheduleState, schedule: VesselSchedule, runAt: string, etaLeadDays: number, atdLagDays: number) {
+  const lara = displayedLara(state, schedule)
   const now = parseTime(runAt)
   const eta = addDays(lara.laraEta || lara.laraEtb, -etaLeadDays)
   if (now == null || eta == null || now < eta) return false
-  const atd = displayedTerminal(state, call).atd
+  const atd = displayedTerminal(state, schedule).atd
   if (!atd) return true
   const until = addDays(atd, atdLagDays)
   return until != null && now <= until

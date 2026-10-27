@@ -24,7 +24,7 @@ import type {
   TerminalPayload,
   TerminalSnapshot,
   TerminalVersion,
-  VesselCall,
+  VesselSchedule,
 } from '@/domain/schedule-model/types'
 
 export type ReviewStatus = 'applied' | 'pending'
@@ -40,12 +40,12 @@ export type FieldReview = {
 
 export type TerminalShape = 'many' | 'none'
 
-export type CallReview = {
-  callId: string
+export type ScheduleReview = {
+  scheduleId: string
   pending: boolean
   changed: boolean
   fields: FieldReview[]
-  /** Set when an already matched call's latest sync is no longer one record. */
+  /** Set when an already matched schedule's latest sync is no longer one record. */
   shape: TerminalShape | null
   candidateCount: number
   queryId: string | null
@@ -114,8 +114,8 @@ function countsAsChange(key: string, previous: string, incoming: string, policy:
   return days > threshold
 }
 
-function emptyReview(callId: string): CallReview {
-  return { callId, pending: false, changed: false, fields: [], shape: null, candidateCount: 0, queryId: null }
+function emptyReview(scheduleId: string): ScheduleReview {
+  return { scheduleId, pending: false, changed: false, fields: [], shape: null, candidateCount: 0, queryId: null }
 }
 
 export type FieldHistoryRow = {
@@ -138,29 +138,29 @@ export function terminalVersion(state: ScheduleState, id: string | null | undefi
   return state.terminalVersions.find((version) => version.id === id)
 }
 
-export function matchOf(state: ScheduleState, call: VesselCall) {
-  if (!call.matchId) return undefined
-  return state.matches.find((match) => match.id === call.matchId)
+export function matchOf(state: ScheduleState, schedule: VesselSchedule) {
+  if (!schedule.matchId) return undefined
+  return state.matches.find((match) => match.id === schedule.matchId)
 }
 
-export function currentTerminal(state: ScheduleState, call: VesselCall) {
-  const match = matchOf(state, call)
+export function currentTerminal(state: ScheduleState, schedule: VesselSchedule) {
+  const match = matchOf(state, schedule)
   return terminalVersion(state, match?.terminalVersionId)
 }
 
-function laraVersionsOf(state: ScheduleState, callId: string) {
-  return state.laraVersions.filter((version) => version.callId === callId).sort((a, b) => a.seq - b.seq)
+function laraVersionsOf(state: ScheduleState, scheduleId: string) {
+  return state.laraVersions.filter((version) => version.scheduleId === scheduleId).sort((a, b) => a.seq - b.seq)
 }
 
-function terminalVersionsOf(state: ScheduleState, callId: string) {
-  return state.terminalVersions.filter((version) => version.callId === callId).sort((a, b) => a.seq - b.seq)
+function terminalVersionsOf(state: ScheduleState, scheduleId: string) {
+  return state.terminalVersions.filter((version) => version.scheduleId === scheduleId).sort((a, b) => a.seq - b.seq)
 }
 
-function heldLaraFields(state: ScheduleState, call: VesselCall) {
-  const current = laraVersion(state, call.laraVersionId)
+function heldLaraFields(state: ScheduleState, schedule: VesselSchedule) {
+  const current = laraVersion(state, schedule.laraVersionId)
   const held = new Set<LaraField>()
   if (!current || current.source === 'SYNC') return held
-  const prior = [...laraVersionsOf(state, call.id)].reverse().find((version) => version.source === 'SYNC' && version.seq < current.seq)
+  const prior = [...laraVersionsOf(state, schedule.id)].reverse().find((version) => version.source === 'SYNC' && version.seq < current.seq)
   const base = prior ?? emptyLaraSnapshot()
   for (const field of LARA_FIELDS) {
     if (laraValue(current, field) !== laraValue(base, field)) held.add(field)
@@ -168,11 +168,11 @@ function heldLaraFields(state: ScheduleState, call: VesselCall) {
   return held
 }
 
-function heldTerminalFields(state: ScheduleState, call: VesselCall) {
-  const current = currentTerminal(state, call)
+function heldTerminalFields(state: ScheduleState, schedule: VesselSchedule) {
+  const current = currentTerminal(state, schedule)
   const held = new Set<TerminalField>()
   if (!current || current.source === 'SYNC') return held
-  const prior = [...terminalVersionsOf(state, call.id)].reverse().find((version) => version.source === 'SYNC' && version.seq < current.seq)
+  const prior = [...terminalVersionsOf(state, schedule.id)].reverse().find((version) => version.source === 'SYNC' && version.seq < current.seq)
   const base = prior ?? emptyTerminalSnapshot()
   for (const field of TERMINAL_FIELDS) {
     if (terminalValue(current, field) !== terminalValue(base, field)) held.add(field)
@@ -188,54 +188,54 @@ function terminalPayload(state: ScheduleState, id: string) {
   return state.terminalPayloads.find((payload) => payload.id === id)
 }
 
-function laraDecided(state: ScheduleState, callId: string, field: string, incoming: string) {
+function laraDecided(state: ScheduleState, scheduleId: string, field: string, incoming: string) {
   return state.fieldDecisions.some((decision) => {
-    if (decision.callId !== callId || decision.side !== 'LARA' || decision.field !== field) return false
+    if (decision.scheduleId !== scheduleId || decision.side !== 'LARA' || decision.field !== field) return false
     const payload = laraPayload(state, decision.payloadId)
     return Boolean(payload && laraValue(payload, field as LaraField) === incoming)
   })
 }
 
-function terminalDecided(state: ScheduleState, callId: string, field: string, incoming: string) {
+function terminalDecided(state: ScheduleState, scheduleId: string, field: string, incoming: string) {
   return state.fieldDecisions.some((decision) => {
-    if (decision.callId !== callId || decision.side !== 'TERMINAL' || decision.field !== field) return false
+    if (decision.scheduleId !== scheduleId || decision.side !== 'TERMINAL' || decision.field !== field) return false
     const payload = terminalPayload(state, decision.payloadId)
     return Boolean(payload && terminalValue(payload, field as TerminalField) === incoming)
   })
 }
 
-function matchDecided(state: ScheduleState, callId: string, incoming: TerminalSnapshot) {
+function matchDecided(state: ScheduleState, scheduleId: string, incoming: TerminalSnapshot) {
   return state.fieldDecisions.some((decision) => {
-    if (decision.callId !== callId || decision.field !== MATCH_FIELD) return false
+    if (decision.scheduleId !== scheduleId || decision.field !== MATCH_FIELD) return false
     const payload = terminalPayload(state, decision.payloadId)
     return Boolean(payload && sameTerminal(payload, incoming))
   })
 }
 
-function requireCall(state: ScheduleState, callId: string) {
-  const call = state.calls.find((item) => item.id === callId)
-  if (!call) throw new Error('Vessel call was not found')
-  return call
+function requireSchedule(state: ScheduleState, scheduleId: string) {
+  const schedule = state.schedules.find((item) => item.id === scheduleId)
+  if (!schedule) throw new Error('Vessel schedule was not found')
+  return schedule
 }
 
-function updateCall(state: ScheduleState, callId: string, patch: Partial<VesselCall>) {
+function updateSchedule(state: ScheduleState, scheduleId: string, patch: Partial<VesselSchedule>) {
   return {
     ...state,
-    calls: state.calls.map((call) => (call.id === callId ? { ...call, ...patch } : call)),
+    schedules: state.schedules.map((schedule) => (schedule.id === scheduleId ? { ...schedule, ...patch } : schedule)),
   }
 }
 
 function appendLaraVersion(
   state: ScheduleState,
-  call: VesselCall,
+  schedule: VesselSchedule,
   input: { snapshot: LaraSnapshot; source: 'SYNC' | 'USER'; payloadId: string | null; reason: string; updatedBy: string; updatedAt: string },
 ) {
-  const seq = laraVersionsOf(state, call.id).length + 1
+  const seq = laraVersionsOf(state, schedule.id).length + 1
   const issued = nextId(state, 'lara-version')
   const version: LaraVersion = {
     ...pickLara(input.snapshot),
     id: issued.id,
-    callId: call.id,
+    scheduleId: schedule.id,
     seq,
     source: input.source,
     payloadId: input.payloadId,
@@ -243,24 +243,24 @@ function appendLaraVersion(
     updatedBy: input.updatedBy,
     updatedAt: input.updatedAt,
   }
-  return updateCall(
+  return updateSchedule(
     { ...issued.state, laraVersions: [...issued.state.laraVersions, version] },
-    call.id,
+    schedule.id,
     { laraVersionId: version.id },
   )
 }
 
 function appendTerminalVersion(
   state: ScheduleState,
-  call: VesselCall,
+  schedule: VesselSchedule,
   input: { snapshot: TerminalSnapshot; source: 'SYNC' | 'USER'; payloadId: string | null; reason: string; updatedBy: string; updatedAt: string },
 ) {
-  const seq = terminalVersionsOf(state, call.id).length + 1
+  const seq = terminalVersionsOf(state, schedule.id).length + 1
   const issued = nextId(state, 'terminal-version')
   const version: TerminalVersion = {
     ...pickTerminal(input.snapshot),
     id: issued.id,
-    callId: call.id,
+    scheduleId: schedule.id,
     seq,
     source: input.source,
     payloadId: input.payloadId,
@@ -277,7 +277,7 @@ function appendTerminalVersion(
 export function appendMatch(
   state: ScheduleState,
   input: {
-    call: VesselCall
+    schedule: VesselSchedule
     terminalVersionId: string | null
     method: MatchMethod
     reason: string
@@ -285,17 +285,17 @@ export function appendMatch(
     updatedAt: string
   },
 ) {
-  const lara = laraVersion(state, input.call.laraVersionId)
+  const lara = laraVersion(state, input.schedule.laraVersionId)
   if (!lara) return state
-  const current = matchOf(state, input.call)
+  const current = matchOf(state, input.schedule)
   if (current && current.terminalVersionId === input.terminalVersionId && current.method === input.method && current.laraVersionId === lara.id) {
     return state
   }
-  const seq = state.matches.filter((match) => match.callId === input.call.id).length + 1
+  const seq = state.matches.filter((match) => match.scheduleId === input.schedule.id).length + 1
   const issued = nextId(state, 'match')
   const match: Match = {
     id: issued.id,
-    callId: input.call.id,
+    scheduleId: input.schedule.id,
     seq,
     laraVersionId: lara.id,
     terminalVersionId: input.terminalVersionId,
@@ -304,9 +304,9 @@ export function appendMatch(
     updatedBy: input.updatedBy,
     updatedAt: input.updatedAt,
   }
-  return updateCall(
+  return updateSchedule(
     { ...issued.state, matches: [...issued.state.matches, match] },
-    input.call.id,
+    input.schedule.id,
     { matchId: match.id },
   )
 }
@@ -322,16 +322,16 @@ function appendDecision(
 
 export function applyLaraPayload(
   state: ScheduleState,
-  input: { callId: string; payloadId: string; updatedBy: string; updatedAt: string; policy?: SyncPolicy },
+  input: { scheduleId: string; payloadId: string; updatedBy: string; updatedAt: string; policy?: SyncPolicy },
 ) {
-  const call = requireCall(state, input.callId)
-  if (isLinkSource(state, call.id) || isLinkTarget(state, call.id)) return state
+  const schedule = requireSchedule(state, input.scheduleId)
+  if (isLinkSource(state, schedule.id) || isLinkTarget(state, schedule.id)) return state
   const payload = laraPayload(state, input.payloadId)
-  if (!payload || payload.callId !== call.id) throw new Error('LARA payload was not found')
+  if (!payload || payload.scheduleId !== schedule.id) throw new Error('LARA payload was not found')
   const policy = input.policy ?? defaultSyncPolicy()
-  const comparable = hasBoundMatch(state, call.id)
-  const current = laraVersion(state, call.laraVersionId) ?? emptyLaraSnapshot()
-  const held = heldLaraFields(state, call)
+  const comparable = hasBoundMatch(state, schedule.id)
+  const current = laraVersion(state, schedule.laraVersionId) ?? emptyLaraSnapshot()
+  const held = heldLaraFields(state, schedule)
   const adopted: Partial<LaraSnapshot> = {}
   let pending = false
   for (const field of LARA_FIELDS) {
@@ -339,7 +339,7 @@ export function applyLaraPayload(
     const previous = laraValue(current, field)
     const key = watchKey('LARA', field)
     if (!countsAsChange(key, previous, incoming, policy)) continue
-    if (comparable && policy.watched.has(key) && held.has(field) && !laraDecided(state, call.id, field, incoming)) {
+    if (comparable && policy.watched.has(key) && held.has(field) && !laraDecided(state, schedule.id, field, incoming)) {
       pending = true
       continue
     }
@@ -347,7 +347,7 @@ export function applyLaraPayload(
   }
   if (!Object.keys(adopted).length) return state
   const snapshot = { ...pickLara(current as LaraSnapshot), ...adopted }
-  return appendLaraVersion(state, freshCall(state, call.id), {
+  return appendLaraVersion(state, freshSchedule(state, schedule.id), {
     snapshot,
     source: pending ? 'USER' : 'SYNC',
     payloadId: payload.id,
@@ -359,17 +359,17 @@ export function applyLaraPayload(
 
 export function applyTerminalPayload(
   state: ScheduleState,
-  input: { callId: string; payloadId: string; updatedBy: string; updatedAt: string; policy?: SyncPolicy; method?: MatchMethod },
+  input: { scheduleId: string; payloadId: string; updatedBy: string; updatedAt: string; policy?: SyncPolicy; method?: MatchMethod },
 ) {
-  const call = requireCall(state, input.callId)
-  if (isLinkSource(state, call.id) || isLinkTarget(state, call.id)) return state
+  const schedule = requireSchedule(state, input.scheduleId)
+  if (isLinkSource(state, schedule.id) || isLinkTarget(state, schedule.id)) return state
   const payload = terminalPayload(state, input.payloadId)
-  if (!payload || payload.callId !== call.id) throw new Error('Terminal payload was not found')
+  if (!payload || payload.scheduleId !== schedule.id) throw new Error('Terminal payload was not found')
   const policy = input.policy ?? defaultSyncPolicy()
-  const match = matchOf(state, call)
-  const current = currentTerminal(state, call) ?? emptyTerminalSnapshot()
-  if (sameTerminal(current, payload) && currentTerminal(state, call) && !input.method) return state
-  const held = heldTerminalFields(state, call)
+  const match = matchOf(state, schedule)
+  const current = currentTerminal(state, schedule) ?? emptyTerminalSnapshot()
+  if (sameTerminal(current, payload) && currentTerminal(state, schedule) && !input.method) return state
+  const held = heldTerminalFields(state, schedule)
   const adopted: Partial<TerminalSnapshot> = {}
   let pending = false
   for (const field of TERMINAL_FIELDS) {
@@ -377,16 +377,16 @@ export function applyTerminalPayload(
     const previous = terminalValue(current, field)
     const key = watchKey('TERMINAL', field)
     if (!countsAsChange(key, previous, incoming, policy)) continue
-    if (policy.watched.has(key) && held.has(field) && !terminalDecided(state, call.id, field, incoming)) {
+    if (policy.watched.has(key) && held.has(field) && !terminalDecided(state, schedule.id, field, incoming)) {
       pending = true
       continue
     }
     adopted[field] = incoming
   }
   if (!Object.keys(adopted).length && pending) return state
-  if (!Object.keys(adopted).length && currentTerminal(state, call)) return state
+  if (!Object.keys(adopted).length && currentTerminal(state, schedule)) return state
   const snapshot = { ...pickTerminal(current), ...adopted }
-  const saved = appendTerminalVersion(state, call, {
+  const saved = appendTerminalVersion(state, schedule, {
     snapshot,
     source: pending ? 'USER' : 'SYNC',
     payloadId: payload.id,
@@ -396,7 +396,7 @@ export function applyTerminalPayload(
   })
   const method = input.method ?? (pending ? (match?.method ?? 'AUTO') : 'AUTO')
   return appendMatch(saved.state, {
-    call: freshCall(saved.state, call.id),
+    schedule: freshSchedule(saved.state, schedule.id),
     terminalVersionId: saved.version.id,
     method,
     reason: '',
@@ -405,12 +405,12 @@ export function applyTerminalPayload(
   })
 }
 
-export function clearAutoMatch(state: ScheduleState, callId: string, at: string, by: string) {
-  const call = requireCall(state, callId)
-  const match = matchOf(state, call)
+export function clearAutoMatch(state: ScheduleState, scheduleId: string, at: string, by: string) {
+  const schedule = requireSchedule(state, scheduleId)
+  const match = matchOf(state, schedule)
   if (!match || match.method === 'USER' || !match.terminalVersionId) return state
   return appendMatch(state, {
-    call,
+    schedule,
     terminalVersionId: null,
     method: 'AUTO',
     reason: '',
@@ -419,26 +419,26 @@ export function clearAutoMatch(state: ScheduleState, callId: string, at: string,
   })
 }
 
-export function hasBoundMatch(state: ScheduleState, callId: string) {
-  const call = state.calls.find((item) => item.id === callId)
-  if (!call) return false
-  const match = matchOf(state, call)
+export function hasBoundMatch(state: ScheduleState, scheduleId: string) {
+  const schedule = state.schedules.find((item) => item.id === scheduleId)
+  if (!schedule) return false
+  const match = matchOf(state, schedule)
   return Boolean(match?.terminalVersionId && (match.method === 'AUTO' || match.method === 'USER'))
 }
 
-function shapeDecided(state: ScheduleState, callId: string, queryId: string) {
+function shapeDecided(state: ScheduleState, scheduleId: string, queryId: string) {
   return state.fieldDecisions.some(
-    (decision) => decision.callId === callId && decision.field === TERMINAL_SHAPE && decision.payloadId === queryId,
+    (decision) => decision.scheduleId === scheduleId && decision.field === TERMINAL_SHAPE && decision.payloadId === queryId,
   )
 }
 
 export function keepTerminalShape(
   state: ScheduleState,
-  input: { callId: string; queryId: string; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; queryId: string; updatedBy: string; updatedAt: string },
 ) {
-  if (shapeDecided(state, input.callId, input.queryId)) return state
+  if (shapeDecided(state, input.scheduleId, input.queryId)) return state
   return appendDecision(state, {
-    callId: input.callId,
+    scheduleId: input.scheduleId,
     side: 'TERMINAL',
     payloadId: input.queryId,
     field: TERMINAL_SHAPE,
@@ -451,14 +451,14 @@ export function keepTerminalShape(
 
 export function adoptNoTerminal(
   state: ScheduleState,
-  input: { callId: string; queryId: string; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; queryId: string; updatedBy: string; updatedAt: string },
 ) {
-  const call = requireCall(state, input.callId)
-  const match = matchOf(state, call)
+  const schedule = requireSchedule(state, input.scheduleId)
+  const match = matchOf(state, schedule)
   let next = state
   if (match?.terminalVersionId) {
     next = appendMatch(state, {
-      call,
+      schedule,
       terminalVersionId: null,
       method: 'AUTO',
       reason: '',
@@ -466,9 +466,9 @@ export function adoptNoTerminal(
       updatedAt: input.updatedAt,
     })
   }
-  if (shapeDecided(next, input.callId, input.queryId)) return next
+  if (shapeDecided(next, input.scheduleId, input.queryId)) return next
   return appendDecision(next, {
-    callId: input.callId,
+    scheduleId: input.scheduleId,
     side: 'TERMINAL',
     payloadId: input.queryId,
     field: TERMINAL_SHAPE,
@@ -481,10 +481,10 @@ export function adoptNoTerminal(
 
 export function keepLaraField(
   state: ScheduleState,
-  input: { callId: string; payloadId: string; field: LaraField; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; payloadId: string; field: LaraField; updatedBy: string; updatedAt: string },
 ) {
   return appendDecision(state, {
-    callId: input.callId,
+    scheduleId: input.scheduleId,
     side: 'LARA',
     payloadId: input.payloadId,
     field: input.field,
@@ -497,10 +497,10 @@ export function keepLaraField(
 
 export function keepTerminalField(
   state: ScheduleState,
-  input: { callId: string; payloadId: string; field: TerminalField; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; payloadId: string; field: TerminalField; updatedBy: string; updatedAt: string },
 ) {
   return appendDecision(state, {
-    callId: input.callId,
+    scheduleId: input.scheduleId,
     side: 'TERMINAL',
     payloadId: input.payloadId,
     field: input.field,
@@ -513,10 +513,10 @@ export function keepTerminalField(
 
 export function keepMatch(
   state: ScheduleState,
-  input: { callId: string; payloadId: string; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; payloadId: string; updatedBy: string; updatedAt: string },
 ) {
   return appendDecision(state, {
-    callId: input.callId,
+    scheduleId: input.scheduleId,
     side: 'TERMINAL',
     payloadId: input.payloadId,
     field: MATCH_FIELD,
@@ -529,15 +529,15 @@ export function keepMatch(
 
 export function acceptLaraField(
   state: ScheduleState,
-  input: { callId: string; payloadId: string; field: LaraField; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; payloadId: string; field: LaraField; updatedBy: string; updatedAt: string },
 ) {
-  const call = requireCall(state, input.callId)
+  const schedule = requireSchedule(state, input.scheduleId)
   const payload = laraPayload(state, input.payloadId)
-  const current = laraVersion(state, call.laraVersionId)
+  const current = laraVersion(state, schedule.laraVersionId)
   if (!payload || !current) return state
   const snapshot = { ...pickLara(current), [input.field]: laraValue(payload, input.field) }
   const done = LARA_FIELDS.every((field) => laraValue(snapshot, field) === laraValue(payload, field))
-  return appendLaraVersion(state, call, {
+  return appendLaraVersion(state, schedule, {
     snapshot,
     source: done ? 'SYNC' : 'USER',
     payloadId: payload.id,
@@ -549,12 +549,12 @@ export function acceptLaraField(
 
 export function editLaraFields(
   state: ScheduleState,
-  input: { callId: string; payloadId?: string; fields: Partial<LaraSnapshot>; reason: string; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; payloadId?: string; fields: Partial<LaraSnapshot>; reason: string; updatedBy: string; updatedAt: string },
 ) {
-  const call = requireCall(state, input.callId)
-  const current = laraVersion(state, call.laraVersionId) ?? emptyLaraSnapshot()
+  const schedule = requireSchedule(state, input.scheduleId)
+  const current = laraVersion(state, schedule.laraVersionId) ?? emptyLaraSnapshot()
   const snapshot = { ...pickLara(current as LaraSnapshot), ...input.fields }
-  let next = appendLaraVersion(state, call, {
+  let next = appendLaraVersion(state, schedule, {
     snapshot,
     source: 'USER',
     payloadId: input.payloadId ?? null,
@@ -562,12 +562,12 @@ export function editLaraFields(
     updatedBy: input.updatedBy,
     updatedAt: input.updatedAt,
   })
-  const version = laraVersion(next, freshCall(next, call.id).laraVersionId)
+  const version = laraVersion(next, freshSchedule(next, schedule.id).laraVersionId)
   if (!input.payloadId || !version) return next
   for (const field of LARA_FIELDS) {
     if (input.fields[field] == null) continue
     next = appendDecision(next, {
-      callId: call.id,
+      scheduleId: schedule.id,
       side: 'LARA',
       payloadId: input.payloadId,
       field,
@@ -582,16 +582,16 @@ export function editLaraFields(
 
 export function acceptTerminalField(
   state: ScheduleState,
-  input: { callId: string; payloadId: string; field: TerminalField; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; payloadId: string; field: TerminalField; updatedBy: string; updatedAt: string },
 ) {
-  const call = requireCall(state, input.callId)
+  const schedule = requireSchedule(state, input.scheduleId)
   const payload = terminalPayload(state, input.payloadId)
-  const current = currentTerminal(state, call)
+  const current = currentTerminal(state, schedule)
   if (!payload || !current) return state
   const snapshot = { ...pickTerminal(current), [input.field]: terminalValue(payload, input.field) }
   const done = TERMINAL_FIELDS.every((field) => terminalValue(snapshot, field) === terminalValue(payload, field))
-  const method = matchOf(state, call)?.method ?? 'AUTO'
-  const saved = appendTerminalVersion(state, call, {
+  const method = matchOf(state, schedule)?.method ?? 'AUTO'
+  const saved = appendTerminalVersion(state, schedule, {
     snapshot,
     source: done ? 'SYNC' : 'USER',
     payloadId: payload.id,
@@ -600,7 +600,7 @@ export function acceptTerminalField(
     updatedAt: input.updatedAt,
   })
   return appendMatch(saved.state, {
-    call: freshCall(saved.state, call.id),
+    schedule: freshSchedule(saved.state, schedule.id),
     terminalVersionId: saved.version.id,
     method: done ? 'AUTO' : method,
     reason: '',
@@ -611,12 +611,12 @@ export function acceptTerminalField(
 
 export function acceptTerminalPayload(
   state: ScheduleState,
-  input: { callId: string; payloadId: string; updatedBy: string; updatedAt: string; method?: MatchMethod },
+  input: { scheduleId: string; payloadId: string; updatedBy: string; updatedAt: string; method?: MatchMethod },
 ) {
-  const call = requireCall(state, input.callId)
+  const schedule = requireSchedule(state, input.scheduleId)
   const payload = terminalPayload(state, input.payloadId)
   if (!payload) return state
-  const saved = appendTerminalVersion(state, call, {
+  const saved = appendTerminalVersion(state, schedule, {
     snapshot: pickTerminal(payload),
     source: 'SYNC',
     payloadId: payload.id,
@@ -625,7 +625,7 @@ export function acceptTerminalPayload(
     updatedAt: input.updatedAt,
   })
   let next = appendMatch(saved.state, {
-    call: freshCall(saved.state, call.id),
+    schedule: freshSchedule(saved.state, schedule.id),
     terminalVersionId: saved.version.id,
     method: input.method ?? 'AUTO',
     reason: '',
@@ -633,9 +633,9 @@ export function acceptTerminalPayload(
     updatedAt: input.updatedAt,
   })
   const queryId = payload.queryId
-  if (queryId && !shapeDecided(next, call.id, queryId)) {
+  if (queryId && !shapeDecided(next, schedule.id, queryId)) {
     next = appendDecision(next, {
-      callId: call.id,
+      scheduleId: schedule.id,
       side: 'TERMINAL',
       payloadId: queryId,
       field: TERMINAL_SHAPE,
@@ -650,12 +650,12 @@ export function acceptTerminalPayload(
 
 export function editTerminalFields(
   state: ScheduleState,
-  input: { callId: string; payloadId?: string; fields: Partial<TerminalSnapshot>; reason: string; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; payloadId?: string; fields: Partial<TerminalSnapshot>; reason: string; updatedBy: string; updatedAt: string },
 ) {
-  const call = requireCall(state, input.callId)
-  const current = currentTerminal(state, call) ?? emptyTerminalSnapshot()
+  const schedule = requireSchedule(state, input.scheduleId)
+  const current = currentTerminal(state, schedule) ?? emptyTerminalSnapshot()
   const snapshot = { ...pickTerminal(current), ...input.fields }
-  const saved = appendTerminalVersion(state, call, {
+  const saved = appendTerminalVersion(state, schedule, {
     snapshot,
     source: 'USER',
     payloadId: input.payloadId ?? null,
@@ -664,7 +664,7 @@ export function editTerminalFields(
     updatedAt: input.updatedAt,
   })
   let next = appendMatch(saved.state, {
-    call: freshCall(saved.state, call.id),
+    schedule: freshSchedule(saved.state, schedule.id),
     terminalVersionId: saved.version.id,
     method: 'USER',
     reason: input.reason,
@@ -675,7 +675,7 @@ export function editTerminalFields(
   for (const field of TERMINAL_FIELDS) {
     if (input.fields[field] == null) continue
     next = appendDecision(next, {
-      callId: call.id,
+      scheduleId: schedule.id,
       side: 'TERMINAL',
       payloadId: input.payloadId,
       field,
@@ -688,8 +688,8 @@ export function editTerminalFields(
   return next
 }
 
-function freshCall(state: ScheduleState, callId: string) {
-  return state.calls.find((call) => call.id === callId)!
+function freshSchedule(state: ScheduleState, scheduleId: string) {
+  return state.schedules.find((schedule) => schedule.id === scheduleId)!
 }
 
 function matchLabel(snapshot: TerminalSnapshot | null | undefined) {
@@ -703,13 +703,13 @@ function sameIdentity(left: TerminalSnapshot, right: TerminalSnapshot) {
     && left.terminalName === right.terminalName
 }
 
-function latestLaraPayload(state: ScheduleState, callId: string) {
-  return [...state.laraPayloads].reverse().find((payload) => payload.callId === callId)
+function latestLaraPayload(state: ScheduleState, scheduleId: string) {
+  return [...state.laraPayloads].reverse().find((payload) => payload.scheduleId === scheduleId)
 }
 
-function latestSettledQuery(state: ScheduleState, callId: string) {
+function latestSettledQuery(state: ScheduleState, scheduleId: string) {
   return [...state.terminalQueries].reverse().find(
-    (item) => item.callId === callId && (item.status === 'FOUND' || item.status === 'NOT_FOUND'),
+    (item) => item.scheduleId === scheduleId && (item.status === 'FOUND' || item.status === 'NOT_FOUND'),
   )
 }
 
@@ -717,15 +717,15 @@ function payloadsForQuery(state: ScheduleState, queryId: string) {
   return state.terminalPayloads.filter((payload) => payload.queryId === queryId)
 }
 
-export function reviewCall(state: ScheduleState, callId: string, policy: SyncPolicy = defaultSyncPolicy()): CallReview {
-  const call = state.calls.find((item) => item.id === callId)
+export function reviewSchedule(state: ScheduleState, scheduleId: string, policy: SyncPolicy = defaultSyncPolicy()): ScheduleReview {
+  const schedule = state.schedules.find((item) => item.id === scheduleId)
   const fields: FieldReview[] = []
-  if (!call) return emptyReview(callId)
-  const query = latestSettledQuery(state, callId)
+  if (!schedule) return emptyReview(scheduleId)
+  const query = latestSettledQuery(state, scheduleId)
   const terminalPayloads = query?.status === 'FOUND' ? payloadsForQuery(state, query.id) : []
-  const terminal = currentTerminal(state, call)
-  const bound = hasBoundMatch(state, callId)
-  if (bound && terminal && query && !shapeDecided(state, callId, query.id)) {
+  const terminal = currentTerminal(state, schedule)
+  const bound = hasBoundMatch(state, scheduleId)
+  if (bound && terminal && query && !shapeDecided(state, scheduleId, query.id)) {
     if (query.status === 'NOT_FOUND' || terminalPayloads.length > 1) {
       const shape: TerminalShape = query.status === 'NOT_FOUND' ? 'none' : 'many'
       const shapeFields: FieldReview[] = []
@@ -740,7 +740,7 @@ export function reviewCall(state: ScheduleState, callId: string, policy: SyncPol
         })
       }
       return {
-        callId,
+        scheduleId,
         pending: true,
         changed: shapeFields.length > 0,
         fields: shapeFields,
@@ -750,11 +750,11 @@ export function reviewCall(state: ScheduleState, callId: string, policy: SyncPol
       }
     }
   }
-  const currentLara = laraVersion(state, call.laraVersionId)
-  const payload = latestLaraPayload(state, callId)
+  const currentLara = laraVersion(state, schedule.laraVersionId)
+  const payload = latestLaraPayload(state, scheduleId)
   if (currentLara && payload && bound) {
-    const previous = laraVersionsOf(state, callId).find((version) => version.seq === currentLara.seq - 1)
-    const held = heldLaraFields(state, call)
+    const previous = laraVersionsOf(state, scheduleId).find((version) => version.seq === currentLara.seq - 1)
+    const held = heldLaraFields(state, schedule)
     for (const field of LARA_FIELDS) {
       const incoming = laraValue(payload, field)
       const value = laraValue(currentLara, field)
@@ -762,7 +762,7 @@ export function reviewCall(state: ScheduleState, callId: string, policy: SyncPol
       const key = watchKey('LARA', field)
       if (!policy.watched.has(key)) continue
       if (!countsAsChange(key, value, incoming, policy) && value === prior) continue
-      if (held.has(field) && countsAsChange(key, value, incoming, policy) && !laraDecided(state, callId, field, incoming)) {
+      if (held.has(field) && countsAsChange(key, value, incoming, policy) && !laraDecided(state, scheduleId, field, incoming)) {
         fields.push({ side: 'LARA', field, previousValue: value, incomingValue: incoming, status: 'pending', payloadId: payload.id })
       } else if (previous && currentLara.payloadId === payload.id && value !== prior && countsAsChange(key, prior, value, policy)) {
         fields.push({ side: 'LARA', field, previousValue: prior, incomingValue: value, status: 'applied', payloadId: payload.id })
@@ -770,18 +770,18 @@ export function reviewCall(state: ScheduleState, callId: string, policy: SyncPol
     }
   }
   const sole = terminalPayloads.length === 1 ? terminalPayloads[0] : undefined
-  const match = matchOf(state, call)
+  const match = matchOf(state, schedule)
   if (bound && sole && terminal) {
-    const versions = terminalVersionsOf(state, callId)
+    const versions = terminalVersionsOf(state, scheduleId)
     const previous = versions.find((version) => version.seq === terminal.seq - 1)
-    const held = heldTerminalFields(state, call)
+    const held = heldTerminalFields(state, schedule)
     for (const field of TERMINAL_FIELDS) {
       const incoming = terminalValue(sole, field)
       const value = terminalValue(terminal, field)
       const prior = terminalValue(previous, field)
       const key = watchKey('TERMINAL', field)
       if (!policy.watched.has(key)) continue
-      if (held.has(field) && countsAsChange(key, value, incoming, policy) && !terminalDecided(state, callId, field, incoming)) {
+      if (held.has(field) && countsAsChange(key, value, incoming, policy) && !terminalDecided(state, scheduleId, field, incoming)) {
         fields.push({ side: 'TERMINAL', field, previousValue: value, incomingValue: incoming, status: 'pending', payloadId: sole.id })
       } else if (previous && terminal.payloadId === sole.id && value !== prior && countsAsChange(key, prior, value, policy)) {
         fields.push({ side: 'TERMINAL', field, previousValue: prior, incomingValue: value, status: 'applied', payloadId: sole.id })
@@ -794,7 +794,7 @@ export function reviewCall(state: ScheduleState, callId: string, policy: SyncPol
       && terminal.payloadId === sole.id
       && policy.watched.has(watchKey('MATCH', MATCH_FIELD))
     ) {
-      const priorMatch = state.matches.filter((item) => item.callId === callId && item.seq < match.seq).at(-1)
+      const priorMatch = state.matches.filter((item) => item.scheduleId === scheduleId && item.seq < match.seq).at(-1)
       const priorVersion = terminalVersion(state, priorMatch?.terminalVersionId)
       fields.push({
         side: 'MATCH',
@@ -807,7 +807,7 @@ export function reviewCall(state: ScheduleState, callId: string, policy: SyncPol
     }
   }
   return {
-    callId,
+    scheduleId,
     pending: fields.some((field) => field.status === 'pending'),
     changed: fields.length > 0,
     fields,
@@ -817,8 +817,8 @@ export function reviewCall(state: ScheduleState, callId: string, policy: SyncPol
   }
 }
 
-export function laraFieldHistory(state: ScheduleState, callId: string, field: LaraField): FieldHistoryRow[] {
-  const versions = laraVersionsOf(state, callId)
+export function laraFieldHistory(state: ScheduleState, scheduleId: string, field: LaraField): FieldHistoryRow[] {
+  const versions = laraVersionsOf(state, scheduleId)
   const rows: FieldHistoryRow[] = []
   for (let index = 0; index < versions.length; index += 1) {
     const version = versions[index]!
@@ -840,8 +840,8 @@ export function laraFieldHistory(state: ScheduleState, callId: string, field: La
   return rows
 }
 
-export function terminalFieldHistory(state: ScheduleState, callId: string, field: TerminalField): FieldHistoryRow[] {
-  const versions = terminalVersionsOf(state, callId)
+export function terminalFieldHistory(state: ScheduleState, scheduleId: string, field: TerminalField): FieldHistoryRow[] {
+  const versions = terminalVersionsOf(state, scheduleId)
   const rows: FieldHistoryRow[] = []
   for (let index = 0; index < versions.length; index += 1) {
     const version = versions[index]!
@@ -863,6 +863,6 @@ export function terminalFieldHistory(state: ScheduleState, callId: string, field
   return rows
 }
 
-export function matchHistory(state: ScheduleState, callId: string) {
-  return state.matches.filter((match) => match.callId === callId).sort((a, b) => a.seq - b.seq)
+export function matchHistory(state: ScheduleState, scheduleId: string) {
+  return state.matches.filter((match) => match.scheduleId === scheduleId).sort((a, b) => a.seq - b.seq)
 }

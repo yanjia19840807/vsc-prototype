@@ -157,7 +157,7 @@ function matchLabel(vessel: VesselRecord) {
   return `Export ${vessel.externalExportVoyage || '—'} · Import ${vessel.externalImportVoyage || '—'} · ${vessel.terminalName || '—'}`
 }
 
-/** Values written the first time this LARA call arrived. Later syncs only list real changes. */
+/** Values written the first time this vessel schedule arrived. Later syncs only list real changes. */
 function laraArrival(vessel: VesselRecord, etd: string) {
   return changedDetails([
     ['laraVoyage', '', vessel.laraVoyage],
@@ -1227,7 +1227,7 @@ export function createInitialVessels(): VesselRecord[] {
   return vessels
 }
 
-function callIdentity(vessel: VesselRecord, visit: string) {
+function scheduleIdentity(vessel: VesselRecord, visit: string) {
   return [vessel.laraVoyage, vessel.pointCode, vessel.laraPoolLocation, visit]
     .map((part) => part.trim().toUpperCase())
     .join('\0')
@@ -1235,7 +1235,7 @@ function callIdentity(vessel: VesselRecord, visit: string) {
 
 /**
  * Formal rows keep a unique voyage, point code, pool location, and visit no.
- * A temporary row may reuse a formal row's key: that pair is the same call.
+ * A temporary row may reuse a formal row's key: that pair is the same vessel schedule.
  * Two temporary rows still take different visit numbers.
  */
 function assignVisitNumbers(vessels: VesselRecord[]) {
@@ -1245,11 +1245,11 @@ function assignVisitNumbers(vessels: VesselRecord[]) {
     let n = Number(vessel.visitNo || '1')
     if (!Number.isFinite(n) || n < 1) n = 1
     let visit = String(n)
-    let key = callIdentity(vessel, visit)
+    let key = scheduleIdentity(vessel, visit)
     while (taken.has(key)) {
       n += 1
       visit = String(n)
-      key = callIdentity(vessel, visit)
+      key = scheduleIdentity(vessel, visit)
     }
     return { visit, key }
   }

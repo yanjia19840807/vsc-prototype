@@ -18,10 +18,10 @@ import {
   laraFieldHistory,
   matchHistory,
   defaultSyncPolicy,
-  reviewCall,
+  reviewSchedule,
   terminalFieldHistory,
   watchKey,
-  type CallReview,
+  type ScheduleReview,
   type FieldHistoryRow,
   type LaraField,
   type SyncPolicy,
@@ -67,54 +67,54 @@ export const useScheduleStore = defineStore('schedule', () => {
     return { watched, dayThreshold }
   }
 
-  function review(callId: string): CallReview {
-    const vessel = vessels.byId(callId)
-    const result = reviewCall(state.value, callId, policy())
+  function review(scheduleId: string): ScheduleReview {
+    const vessel = vessels.byId(scheduleId)
+    const result = reviewSchedule(state.value, scheduleId, policy())
     if (!vessel || !COMPARED_STATUSES.has(vessel.matchingStatus)) {
-      return { callId, pending: false, changed: false, fields: [], shape: null, candidateCount: 0, queryId: null }
+      return { scheduleId, pending: false, changed: false, fields: [], shape: null, candidateCount: 0, queryId: null }
     }
     return result
   }
 
-  function candidates(callId: string) {
-    const queryId = review(callId).queryId
+  function candidates(scheduleId: string) {
+    const queryId = review(scheduleId).queryId
     if (!queryId) return []
     return state.value.terminalPayloads.filter((payload) => payload.queryId === queryId)
   }
 
-  function keepShape(callId: string) {
-    const queryId = review(callId).queryId
+  function keepShape(scheduleId: string) {
+    const queryId = review(scheduleId).queryId
     if (!queryId) return
     const at = new Date().toISOString()
-    state.value = keepTerminalShape(state.value, { callId, queryId, updatedBy: CURRENT_USER, updatedAt: at })
+    state.value = keepTerminalShape(state.value, { scheduleId, queryId, updatedBy: CURRENT_USER, updatedAt: at })
   }
 
-  function adoptNone(callId: string) {
-    const queryId = review(callId).queryId
+  function adoptNone(scheduleId: string) {
+    const queryId = review(scheduleId).queryId
     if (!queryId) return
     const at = new Date().toISOString()
-    state.value = adoptNoTerminal(state.value, { callId, queryId, updatedBy: CURRENT_USER, updatedAt: at })
-    project(callId, true)
+    state.value = adoptNoTerminal(state.value, { scheduleId, queryId, updatedBy: CURRENT_USER, updatedAt: at })
+    project(scheduleId, true)
   }
 
-  function adoptCandidate(callId: string, payloadId: string) {
+  function adoptCandidate(scheduleId: string, payloadId: string) {
     const at = new Date().toISOString()
     state.value = acceptTerminalPayload(state.value, {
-      callId,
+      scheduleId,
       payloadId,
       updatedBy: CURRENT_USER,
       updatedAt: at,
       method: 'USER',
     })
-    project(callId)
+    project(scheduleId)
   }
 
-  function history(callId: string, columnId: string): FieldHistoryRow[] {
+  function history(scheduleId: string, columnId: string): FieldHistoryRow[] {
     const binding = bindingFor(columnId)
     if (!binding) return []
-    if (binding.side === 'LARA') return laraFieldHistory(state.value, callId, binding.field)
-    if (binding.side === 'TERMINAL') return terminalFieldHistory(state.value, callId, binding.field)
-    return matchHistory(state.value, callId).map((match, index, all) => {
+    if (binding.side === 'LARA') return laraFieldHistory(state.value, scheduleId, binding.field)
+    if (binding.side === 'TERMINAL') return terminalFieldHistory(state.value, scheduleId, binding.field)
+    return matchHistory(state.value, scheduleId).map((match, index, all) => {
       const version = state.value.terminalVersions.find((item) => item.id === match.terminalVersionId)
       const prior = state.value.terminalVersions.find((item) => item.id === all[index - 1]?.terminalVersionId)
       return {
@@ -129,30 +129,30 @@ export const useScheduleStore = defineStore('schedule', () => {
     })
   }
 
-  function confirm(callId: string, choices: SyncChoice[]) {
+  function confirm(scheduleId: string, choices: SyncChoice[]) {
     const at = new Date().toISOString()
     let next = state.value
     const match = choices.find((choice) => choice.side === 'MATCH')
     for (const choice of choices.filter((item) => item.side === 'LARA')) {
-      next = settleLara(next, callId, choice, at)
+      next = settleLara(next, scheduleId, choice, at)
     }
     if (match && match.typed.trim() === match.incomingValue) {
-      next = acceptTerminalPayload(next, { callId, payloadId: match.payloadId, updatedBy: CURRENT_USER, updatedAt: at })
+      next = acceptTerminalPayload(next, { scheduleId, payloadId: match.payloadId, updatedBy: CURRENT_USER, updatedAt: at })
     } else {
-      if (match) next = keepMatch(next, { callId, payloadId: match.payloadId, updatedBy: CURRENT_USER, updatedAt: at })
+      if (match) next = keepMatch(next, { scheduleId, payloadId: match.payloadId, updatedBy: CURRENT_USER, updatedAt: at })
       for (const choice of choices.filter((item) => item.side === 'TERMINAL')) {
-        next = settleTerminal(next, callId, choice, at)
+        next = settleTerminal(next, scheduleId, choice, at)
       }
     }
     state.value = next
-    project(callId)
+    project(scheduleId)
   }
 
-  function project(callId: string, clearTerminal = false) {
-    const call = state.value.calls.find((item) => item.id === callId)
-    if (!call) return
-    const lara = displayedLara(state.value, call)
-    const terminal = displayedTerminal(state.value, call)
+  function project(scheduleId: string, clearTerminal = false) {
+    const schedule = state.value.schedules.find((item) => item.id === scheduleId)
+    if (!schedule) return
+    const lara = displayedLara(state.value, schedule)
+    const terminal = displayedTerminal(state.value, schedule)
     const fields: Parameters<typeof vessels.patchDisplay>[1] = {
       laraVoyage: lara.laraVoyage,
       pointCode: lara.pointCode,
@@ -168,7 +168,7 @@ export const useScheduleStore = defineStore('schedule', () => {
       laraEtd: lara.laraEtd,
       cutoff: lara.cutoff,
     }
-    const versionId = state.value.matches.find((match) => match.id === call.matchId)?.terminalVersionId
+    const versionId = state.value.matches.find((match) => match.id === schedule.matchId)?.terminalVersionId
     if (versionId) {
       fields.vesselOperator = terminal.vesselOperator
       fields.tmlEta = terminal.eta
@@ -203,24 +203,24 @@ export const useScheduleStore = defineStore('schedule', () => {
       fields.externalExportVoyage = ''
       fields.externalImportVoyage = ''
       fields.localVoyage = ''
-      vessels.markNoTerminal(callId)
+      vessels.markNoTerminal(scheduleId)
     }
-    vessels.patchDisplay(callId, fields)
+    vessels.patchDisplay(scheduleId, fields)
   }
 
   return { review, history, confirm, candidates, keepShape, adoptNone, adoptCandidate }
 })
 
-function settleLara(state: ReturnType<typeof seedSchedule>['state'], callId: string, choice: SyncChoice, at: string) {
+function settleLara(state: ReturnType<typeof seedSchedule>['state'], scheduleId: string, choice: SyncChoice, at: string) {
   const typed = choice.typed.trim()
   if (typed === choice.incomingValue) {
-    return acceptLaraField(state, { callId, payloadId: choice.payloadId, field: choice.field as LaraField, updatedBy: CURRENT_USER, updatedAt: at })
+    return acceptLaraField(state, { scheduleId, payloadId: choice.payloadId, field: choice.field as LaraField, updatedBy: CURRENT_USER, updatedAt: at })
   }
   if (!typed || typed === choice.previousValue) {
-    return keepLaraField(state, { callId, payloadId: choice.payloadId, field: choice.field as LaraField, updatedBy: CURRENT_USER, updatedAt: at })
+    return keepLaraField(state, { scheduleId, payloadId: choice.payloadId, field: choice.field as LaraField, updatedBy: CURRENT_USER, updatedAt: at })
   }
   return editLaraFields(state, {
-    callId,
+    scheduleId,
     payloadId: choice.payloadId,
     fields: { [choice.field]: typed },
     reason: 'Confirmed sync value',
@@ -229,16 +229,16 @@ function settleLara(state: ReturnType<typeof seedSchedule>['state'], callId: str
   })
 }
 
-function settleTerminal(state: ReturnType<typeof seedSchedule>['state'], callId: string, choice: SyncChoice, at: string) {
+function settleTerminal(state: ReturnType<typeof seedSchedule>['state'], scheduleId: string, choice: SyncChoice, at: string) {
   const typed = choice.typed.trim()
   if (typed === choice.incomingValue) {
-    return acceptTerminalField(state, { callId, payloadId: choice.payloadId, field: choice.field as TerminalField, updatedBy: CURRENT_USER, updatedAt: at })
+    return acceptTerminalField(state, { scheduleId, payloadId: choice.payloadId, field: choice.field as TerminalField, updatedBy: CURRENT_USER, updatedAt: at })
   }
   if (!typed || typed === choice.previousValue) {
-    return keepTerminalField(state, { callId, payloadId: choice.payloadId, field: choice.field as TerminalField, updatedBy: CURRENT_USER, updatedAt: at })
+    return keepTerminalField(state, { scheduleId, payloadId: choice.payloadId, field: choice.field as TerminalField, updatedBy: CURRENT_USER, updatedAt: at })
   }
   return editTerminalFields(state, {
-    callId,
+    scheduleId,
     payloadId: choice.payloadId,
     fields: { [choice.field]: typed },
     reason: 'Confirmed sync value',

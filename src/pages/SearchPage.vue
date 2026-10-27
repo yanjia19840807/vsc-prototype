@@ -76,14 +76,14 @@ const listSettings = useListSettingsStore()
 const schedule = useScheduleStore()
 const coverage = useTerminalCoverageStore()
 
-provide(syncCellKey, (callId, columnId) => {
+provide(syncCellKey, (scheduleId, columnId) => {
   const watched = listSettings.active?.watchedFields ?? []
   if (!watched.includes(columnId)) return null
-  const field = reviewForColumn(schedule.review(callId).fields, columnId)
+  const field = reviewForColumn(schedule.review(scheduleId).fields, columnId)
   if (!field || field.status !== 'pending') return null
   return { field }
 })
-provide(syncPendingKey, (callId) => schedule.review(callId).pending)
+provide(syncPendingKey, (scheduleId) => schedule.review(scheduleId).pending)
 const router = useRouter()
 
 const filtersOpen = ref(true)

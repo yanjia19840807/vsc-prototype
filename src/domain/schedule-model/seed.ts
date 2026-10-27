@@ -17,7 +17,7 @@ import type {
   ScheduleState,
   TerminalQuery,
   TerminalSnapshot,
-  VesselCall,
+  VesselSchedule,
 } from '@/domain/schedule-model/types'
 import { brandFromVoyage } from '@/domain/lara-brand'
 import type { TerminalSchedule, VesselRecord } from '@/types/vsp'
@@ -65,7 +65,7 @@ export function seedSchedule(vessels: VesselRecord[]) {
 }
 
 function seedAuto(state: ScheduleState, vessel: VesselRecord, patches: ScheduleDisplayPatch[]) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   const lara = laraFrom(vessel)
   next = adoptLara(next, vessel.id, lara, T0)
   if (hasTerminal(vessel)) next = adoptTerminal(next, vessel.id, terminalFrom(vessel), T0, true)
@@ -88,14 +88,14 @@ function seedAuto(state: ScheduleState, vessel: VesselRecord, patches: ScheduleD
 }
 
 function seedHeldVoyage(state: ScheduleState, vessel: VesselRecord) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
   const current = terminalFrom(vessel)
   const source = vessel.manualOverrides.evoyage?.source || vessel.manualOverrides.externalVoyage?.source
   if (!source) return adoptTerminal(next, vessel.id, current, T0, true)
   next = adoptTerminal(next, vessel.id, { ...current, exportVoyage: source }, T0, true)
   next = editTerminalFields(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     fields: { exportVoyage: current.exportVoyage },
     reason: vessel.manualOverrides.evoyage?.reason || 'Terminal confirmed',
     updatedBy: vessel.manualOverrides.evoyage?.by || CURRENT_USER,
@@ -105,14 +105,14 @@ function seedHeldVoyage(state: ScheduleState, vessel: VesselRecord) {
 }
 
 function seedManyAfterMatch(state: ScheduleState, vessel: VesselRecord) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
   const current = terminalFrom(vessel)
   const edited = vessel.manualOverrides.tmlEtd?.source || vessel.manualOverrides.etd?.source
   next = adoptTerminal(next, vessel.id, edited ? { ...current, etd: edited } : current, T0, true)
   if (edited) {
     next = editTerminalFields(next, {
-      callId: vessel.id,
+      scheduleId: vessel.id,
       fields: { etd: current.etd },
       reason: vessel.manualOverrides.tmlEtd?.reason || 'Agent update',
       updatedBy: CURRENT_USER,
@@ -125,19 +125,19 @@ function seedManyAfterMatch(state: ScheduleState, vessel: VesselRecord) {
 }
 
 function seedNoneAfterMatch(state: ScheduleState, vessel: VesselRecord) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
   if (hasTerminal(vessel)) next = adoptTerminal(next, vessel.id, terminalFrom(vessel), T0, true)
   return recordNotFound(next, vessel.id, T2)
 }
 
 function seedPendingLara(state: ScheduleState, vessel: VesselRecord, field: Extract<LaraField, 'laraEtb' | 'laraEtd'>) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   const current = laraFrom(vessel)
   next = adoptLara(next, vessel.id, { ...current, [field]: shiftIso(current[field], -1) }, T0)
   next = bindTerminal(next, vessel)
   next = editLaraFields(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     fields: { [field]: current[field] },
     reason: 'User edit',
     updatedBy: CURRENT_USER,
@@ -151,14 +151,14 @@ function seedPendingTerminal(
   vessel: VesselRecord,
   change: { etb?: number; etd?: number; exportVoyage?: string },
 ) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
   const current = terminalFrom(vessel)
   const prior = shiftedTerminal(current, change, -1)
   const incoming = shiftedTerminal(current, change, 1)
   next = adoptTerminal(next, vessel.id, { ...current, ...prior }, T0, true)
   next = editTerminalFields(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     fields: pickedTerminal(current, change),
     reason: 'User edit',
     updatedBy: CURRENT_USER,
@@ -168,20 +168,20 @@ function seedPendingTerminal(
 }
 
 function seedPendingBoth(state: ScheduleState, vessel: VesselRecord) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   const lara = laraFrom(vessel)
   const terminal = terminalFrom(vessel)
   next = adoptLara(next, vessel.id, { ...lara, laraEtd: shiftIso(lara.laraEtd, -1) }, T0)
   next = adoptTerminal(next, vessel.id, { ...terminal, etd: shiftIso(terminal.etd, -1) }, T0, true)
   next = editLaraFields(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     fields: { laraEtd: lara.laraEtd },
     reason: 'User edit',
     updatedBy: CURRENT_USER,
     updatedAt: T1,
   })
   next = editTerminalFields(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     fields: { etd: terminal.etd },
     reason: 'User edit',
     updatedBy: CURRENT_USER,
@@ -194,7 +194,7 @@ function seedPendingBoth(state: ScheduleState, vessel: VesselRecord) {
 function seedKeptLara(state: ScheduleState, vessel: VesselRecord) {
   const next = seedPendingLara(state, vessel, 'laraEtb')
   return keepLaraField(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     payloadId: latestLaraPayloadId(next, vessel.id),
     field: 'laraEtb',
     updatedBy: CURRENT_USER,
@@ -203,12 +203,12 @@ function seedKeptLara(state: ScheduleState, vessel: VesselRecord) {
 }
 
 function seedAcceptedLara(state: ScheduleState, vessel: VesselRecord) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   const current = laraFrom(vessel)
   next = adoptLara(next, vessel.id, { ...current, laraEtb: shiftIso(current.laraEtb, -1) }, T0)
   next = bindTerminal(next, vessel)
   next = editLaraFields(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     fields: { laraEtb: shiftIso(current.laraEtb, -2) },
     reason: 'User edit',
     updatedBy: CURRENT_USER,
@@ -216,7 +216,7 @@ function seedAcceptedLara(state: ScheduleState, vessel: VesselRecord) {
   })
   next = adoptLara(next, vessel.id, current, T2, false)
   return acceptLaraField(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     payloadId: latestLaraPayloadId(next, vessel.id),
     field: 'laraEtb',
     updatedBy: CURRENT_USER,
@@ -227,7 +227,7 @@ function seedAcceptedLara(state: ScheduleState, vessel: VesselRecord) {
 function seedKeptTerminal(state: ScheduleState, vessel: VesselRecord) {
   const next = seedPendingTerminal(state, vessel, { etb: 1 })
   return keepTerminalField(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     payloadId: latestTerminalPayloadId(next, vessel.id),
     field: 'etb',
     updatedBy: CURRENT_USER,
@@ -236,12 +236,12 @@ function seedKeptTerminal(state: ScheduleState, vessel: VesselRecord) {
 }
 
 function seedAcceptedTerminal(state: ScheduleState, vessel: VesselRecord) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
   const current = terminalFrom(vessel)
   next = adoptTerminal(next, vessel.id, { ...current, etb: shiftIso(current.etb, -1) }, T0, true)
   next = editTerminalFields(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     fields: { etb: shiftIso(current.etb, -2) },
     reason: 'User edit',
     updatedBy: CURRENT_USER,
@@ -249,7 +249,7 @@ function seedAcceptedTerminal(state: ScheduleState, vessel: VesselRecord) {
   })
   next = adoptTerminal(next, vessel.id, current, T2, false)
   return acceptTerminalField(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     payloadId: latestTerminalPayloadId(next, vessel.id),
     field: 'etb',
     updatedBy: CURRENT_USER,
@@ -258,7 +258,7 @@ function seedAcceptedTerminal(state: ScheduleState, vessel: VesselRecord) {
 }
 
 function seedUnwatchedEta(state: ScheduleState, vessel: VesselRecord) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   const current = laraFrom(vessel)
   next = adoptLara(next, vessel.id, { ...current, laraEta: shiftIso(current.laraEta, -1) }, T0)
   next = adoptLara(next, vessel.id, current, T2)
@@ -266,7 +266,7 @@ function seedUnwatchedEta(state: ScheduleState, vessel: VesselRecord) {
 }
 
 function seedAppliedVoyage(state: ScheduleState, vessel: VesselRecord) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
   const current = terminalFrom(vessel)
   next = adoptTerminal(next, vessel.id, { ...current, exportVoyage: `${current.exportVoyage}-P` }, T0, true)
@@ -274,7 +274,7 @@ function seedAppliedVoyage(state: ScheduleState, vessel: VesselRecord) {
 }
 
 function seedAppliedTerminalEtb(state: ScheduleState, vessel: VesselRecord) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
   const current = terminalFrom(vessel)
   next = adoptTerminal(next, vessel.id, { ...current, etb: shiftIso(current.etb, -1) }, T0, true)
@@ -282,13 +282,13 @@ function seedAppliedTerminalEtb(state: ScheduleState, vessel: VesselRecord) {
 }
 
 function seedMixedLaraPending(state: ScheduleState, vessel: VesselRecord) {
-  let next = addCall(state, vessel)
+  let next = addSchedule(state, vessel)
   const lara = laraFrom(vessel)
   const terminal = terminalFrom(vessel)
   next = adoptLara(next, vessel.id, { ...lara, laraEtb: shiftIso(lara.laraEtb, -1) }, T0)
   next = adoptTerminal(next, vessel.id, { ...terminal, etb: shiftIso(terminal.etb, -1) }, T0, true)
   next = editLaraFields(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     fields: { laraEtb: lara.laraEtb },
     reason: 'User edit',
     updatedBy: CURRENT_USER,
@@ -301,7 +301,7 @@ function seedMixedLaraPending(state: ScheduleState, vessel: VesselRecord) {
 function seedKeptShape(state: ScheduleState, vessel: VesselRecord) {
   const next = seedNoneAfterMatch(state, vessel)
   return keepTerminalShape(next, {
-    callId: vessel.id,
+    scheduleId: vessel.id,
     queryId: latestQueryId(next, vessel.id),
     updatedBy: CURRENT_USER,
     updatedAt: T2,
@@ -331,26 +331,26 @@ function pickedTerminal(current: TerminalSnapshot, change: { etb?: number; etd?:
   return fields
 }
 
-function latestLaraPayloadId(state: ScheduleState, callId: string) {
-  const payload = [...state.laraPayloads].reverse().find((item) => item.callId === callId)
-  if (!payload) throw new Error(`LARA payload was not found for ${callId}`)
+function latestLaraPayloadId(state: ScheduleState, scheduleId: string) {
+  const payload = [...state.laraPayloads].reverse().find((item) => item.scheduleId === scheduleId)
+  if (!payload) throw new Error(`LARA payload was not found for ${scheduleId}`)
   return payload.id
 }
 
-function latestTerminalPayloadId(state: ScheduleState, callId: string) {
-  const payload = [...state.terminalPayloads].reverse().find((item) => item.callId === callId)
-  if (!payload) throw new Error(`Terminal payload was not found for ${callId}`)
+function latestTerminalPayloadId(state: ScheduleState, scheduleId: string) {
+  const payload = [...state.terminalPayloads].reverse().find((item) => item.scheduleId === scheduleId)
+  if (!payload) throw new Error(`Terminal payload was not found for ${scheduleId}`)
   return payload.id
 }
 
-function latestQueryId(state: ScheduleState, callId: string) {
-  const query = [...state.terminalQueries].reverse().find((item) => item.callId === callId)
-  if (!query) throw new Error(`Terminal query was not found for ${callId}`)
+function latestQueryId(state: ScheduleState, scheduleId: string) {
+  const query = [...state.terminalQueries].reverse().find((item) => item.scheduleId === scheduleId)
+  if (!query) throw new Error(`Terminal query was not found for ${scheduleId}`)
   return query.id
 }
 
-function addCall(state: ScheduleState, vessel: VesselRecord) {
-  const call: VesselCall = {
+function addSchedule(state: ScheduleState, vessel: VesselRecord) {
+  const schedule: VesselSchedule = {
     id: vessel.id,
     createdFrom: vessel.recordStatus === 'Inactive' ? 'MANUAL' : 'LARA',
     laraVoyage: vessel.laraVoyage,
@@ -361,25 +361,25 @@ function addCall(state: ScheduleState, vessel: VesselRecord) {
     laraVersionId: null,
     matchId: null,
   }
-  return { ...state, calls: [...state.calls, call] }
+  return { ...state, schedules: [...state.schedules, schedule] }
 }
 
-function adoptLara(state: ScheduleState, callId: string, snapshot: LaraSnapshot, at: string, apply = true) {
+function adoptLara(state: ScheduleState, scheduleId: string, snapshot: LaraSnapshot, at: string, apply = true) {
   const issued = nextId(state, 'lara-payload')
-  const payload = { ...snapshot, id: issued.id, runId: 'seed-lara', callId, capturedAt: at }
+  const payload = { ...snapshot, id: issued.id, runId: 'seed-lara', scheduleId, capturedAt: at }
   const next = { ...issued.state, laraPayloads: [...issued.state.laraPayloads, payload] }
   if (!apply) return next
-  return applyLaraPayload(next, { callId, payloadId: payload.id, updatedBy: 'System', updatedAt: at })
+  return applyLaraPayload(next, { scheduleId, payloadId: payload.id, updatedBy: 'System', updatedAt: at })
 }
 
-function adoptTerminal(state: ScheduleState, callId: string, snapshot: TerminalSnapshot, at: string, apply: boolean) {
-  const call = state.calls.find((item) => item.id === callId)
+function adoptTerminal(state: ScheduleState, scheduleId: string, snapshot: TerminalSnapshot, at: string, apply: boolean) {
+  const schedule = state.schedules.find((item) => item.id === scheduleId)
   const queryIssued = nextId(state, 'terminal-query')
   const query: TerminalQuery = {
     id: queryIssued.id,
     syncRunId: 'seed-terminal',
-    callId,
-    laraVersionId: call?.laraVersionId ?? '',
+    scheduleId,
+    laraVersionId: schedule?.laraVersionId ?? '',
     trigger: 'SCHEDULE',
     requestedAt: at,
     requestedBy: 'System',
@@ -390,20 +390,20 @@ function adoptTerminal(state: ScheduleState, callId: string, snapshot: TerminalS
   }
   let next = { ...queryIssued.state, terminalQueries: [...queryIssued.state.terminalQueries, query] }
   const payloadIssued = nextId(next, 'terminal-payload')
-  const payload = { ...snapshot, id: payloadIssued.id, queryId: query.id, callId }
+  const payload = { ...snapshot, id: payloadIssued.id, queryId: query.id, scheduleId }
   next = { ...payloadIssued.state, terminalPayloads: [...payloadIssued.state.terminalPayloads, payload] }
   if (!apply) return next
-  return applyTerminalPayload(next, { callId, payloadId: payload.id, updatedBy: 'System', updatedAt: at })
+  return applyTerminalPayload(next, { scheduleId, payloadId: payload.id, updatedBy: 'System', updatedAt: at })
 }
 
-function storePayloads(state: ScheduleState, callId: string, snapshots: TerminalSnapshot[], at: string) {
-  const call = state.calls.find((item) => item.id === callId)
+function storePayloads(state: ScheduleState, scheduleId: string, snapshots: TerminalSnapshot[], at: string) {
+  const schedule = state.schedules.find((item) => item.id === scheduleId)
   const queryIssued = nextId(state, 'terminal-query')
   const query: TerminalQuery = {
     id: queryIssued.id,
     syncRunId: 'seed-terminal',
-    callId,
-    laraVersionId: call?.laraVersionId ?? '',
+    scheduleId,
+    laraVersionId: schedule?.laraVersionId ?? '',
     trigger: 'SCHEDULE',
     requestedAt: at,
     requestedBy: 'System',
@@ -415,20 +415,20 @@ function storePayloads(state: ScheduleState, callId: string, snapshots: Terminal
   let next = { ...queryIssued.state, terminalQueries: [...queryIssued.state.terminalQueries, query] }
   for (const snapshot of snapshots) {
     const payloadIssued = nextId(next, 'terminal-payload')
-    const payload = { ...snapshot, id: payloadIssued.id, queryId: query.id, callId }
+    const payload = { ...snapshot, id: payloadIssued.id, queryId: query.id, scheduleId }
     next = { ...payloadIssued.state, terminalPayloads: [...payloadIssued.state.terminalPayloads, payload] }
   }
   return next
 }
 
-function recordNotFound(state: ScheduleState, callId: string, at: string) {
-  const call = state.calls.find((item) => item.id === callId)
+function recordNotFound(state: ScheduleState, scheduleId: string, at: string) {
+  const schedule = state.schedules.find((item) => item.id === scheduleId)
   const issued = nextId(state, 'terminal-query')
   const query: TerminalQuery = {
     id: issued.id,
     syncRunId: 'seed-terminal',
-    callId,
-    laraVersionId: call?.laraVersionId ?? '',
+    scheduleId,
+    laraVersionId: schedule?.laraVersionId ?? '',
     trigger: 'SCHEDULE',
     requestedAt: at,
     requestedBy: 'System',

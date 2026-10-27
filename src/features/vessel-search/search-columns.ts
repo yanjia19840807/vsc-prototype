@@ -204,7 +204,7 @@ export function candidateCountLabel(v: VesselRecord) {
   return count === 1 ? '1 candidate' : `${count} candidates`
 }
 
-/** Remark beside Auto matched when several LARA calls share one terminal record. */
+/** Remark beside Auto matched when several vessel schedules share one terminal record. */
 export function sharedLaraRemark(count: number) {
   if (count <= 1) return ''
   return `${count} LARA records`

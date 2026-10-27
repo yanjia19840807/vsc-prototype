@@ -23,14 +23,14 @@ export {
   keepTerminalShape,
   laraFieldHistory,
   matchHistory,
-  reviewCall,
+  reviewSchedule,
   terminalFieldHistory,
   watchKey,
 } from '@/domain/schedule-model/sync-diff'
-export type { CallReview, FieldHistoryRow, FieldReview, SyncPolicy, TerminalShape } from '@/domain/schedule-model/sync-diff'
+export type { ScheduleReview, FieldHistoryRow, FieldReview, SyncPolicy, TerminalShape } from '@/domain/schedule-model/sync-diff'
 export { completeTerminalQuery, openSingleTerminalQuery, openTerminalSync } from '@/domain/schedule-model/terminal-sync'
 export type {
-  CallOrigin,
+  ScheduleOrigin,
   DecisionAction,
   FieldDecision,
   LaraLink,
@@ -48,6 +48,6 @@ export type {
   TerminalSnapshot,
   TerminalSyncRun,
   TerminalVersion,
-  VesselCall,
+  VesselSchedule,
   VersionSource,
 } from '@/domain/schedule-model/types'

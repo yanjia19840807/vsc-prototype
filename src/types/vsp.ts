@@ -79,7 +79,7 @@ export type ScheduleRefresh = {
   vesselId: string
 }
 
-/** One changed field or match on a LARA call. System rows point at a ScheduleRefresh. */
+/** One changed field or match on a vessel schedule. System rows point at a ScheduleRefresh. */
 export type ScheduleActivityLog = {
   id: string
   vesselId: string
@@ -267,7 +267,7 @@ export type VesselRecord = {
   /** Template: ports of call */
   portsOfCall: string
   matchingStatus: MatchingStatus
-  /** How many matched LARA calls share this port, terminal, and export voyage. */
+  /** How many matched vessel schedules share this port, terminal, and export voyage. */
   sharedLaraCount: number
   /** Null when no terminal row is bound. */
   terminalSource: TerminalSource | null
@@ -287,7 +287,7 @@ export type VesselRecord = {
   fieldHistory: FieldHistoryEntry[]
   /** Seed source converted into scheduleLogs. New writes go to scheduleLogs. */
   history: HistoryEntry[]
-  /** Activity logs for this LARA call. Workflow activityLog stays separate. */
+  /** Activity logs for this vessel schedule. Workflow activityLog stays separate. */
   scheduleLogs: ScheduleActivityLog[]
   manualOverrides: Record<string, ManualOverride>
   /** Freightower rows kept for multiple-match selection, including after confirmation. */

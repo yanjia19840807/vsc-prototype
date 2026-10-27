@@ -8,12 +8,12 @@ import { SEARCH_COLUMNS } from '@/features/vessel-search/search-columns'
 import { formatDateTime } from '@/lib/vessel-utils'
 
 const props = defineProps<{
-  callId: string
+  scheduleId: string
   columnId: string
 }>()
 
 const lookup = inject(syncCellKey, null)
-const info = computed(() => lookup?.(props.callId, props.columnId) ?? null)
+const info = computed(() => lookup?.(props.scheduleId, props.columnId) ?? null)
 const pending = computed(() => info.value?.field.status === 'pending')
 
 const rows = computed(() => {

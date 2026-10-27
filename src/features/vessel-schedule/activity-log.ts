@@ -67,7 +67,7 @@ const INTERNAL_REASONS = new Set([
   'Update manual to latest source',
   'Terminal confirmed',
   'Temporary vessel link confirmed',
-  'LARA calls linked',
+  'LARA schedules linked',
   'Temporary vessel created',
 ])
 

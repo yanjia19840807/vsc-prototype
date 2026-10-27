@@ -60,6 +60,6 @@ const covered = computed(() => isPortApiCovered(props.vessel))
     {{ text }}
   </RouterLink>
   <span v-else :class="isWarningCellText(text, columnId) ? 'text-amber-800' : undefined">{{ text }}</span>
-  <SyncFieldAlert :call-id="vessel.id" :column-id="columnId" />
+  <SyncFieldAlert :schedule-id="vessel.id" :column-id="columnId" />
   </span>
 </template>

@@ -6,6 +6,6 @@ export type SyncCellInfo = {
   field: FieldReview
 }
 
-export const syncCellKey: InjectionKey<(callId: string, columnId: string) => SyncCellInfo | null> = Symbol('syncCell')
+export const syncCellKey: InjectionKey<(scheduleId: string, columnId: string) => SyncCellInfo | null> = Symbol('syncCell')
 
-export const syncPendingKey: InjectionKey<(callId: string) => boolean> = Symbol('syncPending')
+export const syncPendingKey: InjectionKey<(scheduleId: string) => boolean> = Symbol('syncPending')

@@ -12,7 +12,7 @@ export type TerminalQueryStatus = 'PENDING' | 'FOUND' | 'NOT_FOUND' | 'FAILED'
 
 export type VoyageStatus = 'ACTIVE' | 'OMIT'
 
-export type CallOrigin = 'LARA' | 'MANUAL'
+export type ScheduleOrigin = 'LARA' | 'MANUAL'
 
 export type VersionSource = 'SYNC' | 'USER'
 
@@ -31,8 +31,8 @@ export type LaraSyncRun = {
   etaTo: string | null
   etbFrom: string | null
   etbTo: string | null
-  /** Set for a single-call run. Batch runs leave this empty. */
-  callId: string | null
+  /** Set for a single-schedule run. Batch runs leave this empty. */
+  scheduleId: string | null
   requestedAt: string
   respondedAt: string | null
   failureReason: string
@@ -58,7 +58,7 @@ export type TerminalSyncRun = {
 export type TerminalQuery = {
   id: string
   syncRunId: string | null
-  callId: string
+  scheduleId: string
   laraVersionId: string
   trigger: TerminalQueryTrigger
   requestedAt: string
@@ -108,19 +108,19 @@ export type TerminalSnapshot = {
 export type LaraPayload = LaraSnapshot & {
   id: string
   runId: string
-  callId: string
+  scheduleId: string
   capturedAt: string
 }
 
 export type TerminalPayload = TerminalSnapshot & {
   id: string
   queryId: string
-  callId: string
+  scheduleId: string
 }
 
 export type LaraVersion = LaraSnapshot & {
   id: string
-  callId: string
+  scheduleId: string
   seq: number
   source: VersionSource
   payloadId: string | null
@@ -131,7 +131,7 @@ export type LaraVersion = LaraSnapshot & {
 
 export type TerminalVersion = TerminalSnapshot & {
   id: string
-  callId: string
+  scheduleId: string
   seq: number
   source: VersionSource
   payloadId: string | null
@@ -140,10 +140,10 @@ export type TerminalVersion = TerminalSnapshot & {
   updatedAt: string
 }
 
-/** One LARA call. The primary key is `id`. Visit no stays on the call and is not written by LARA sync. */
-export type VesselCall = {
+/** One LARA schedule. The primary key is `id`. Visit no stays on the schedule and is not written by LARA sync. */
+export type VesselSchedule = {
   id: string
-  createdFrom: CallOrigin
+  createdFrom: ScheduleOrigin
   laraVoyage: string
   pointCode: string
   laraPoolLocation: string
@@ -155,7 +155,7 @@ export type VesselCall = {
 
 export type Match = {
   id: string
-  callId: string
+  scheduleId: string
   seq: number
   laraVersionId: string
   terminalVersionId: string | null
@@ -167,7 +167,7 @@ export type Match = {
 
 export type FieldDecision = {
   id: string
-  callId: string
+  scheduleId: string
   side: DecisionSide
   payloadId: string
   field: string
@@ -179,8 +179,8 @@ export type FieldDecision = {
 
 export type LaraLink = {
   id: string
-  sourceCallId: string
-  targetCallId: string
+  sourceScheduleId: string
+  targetScheduleId: string
   reason: string
   updatedBy: string
   updatedAt: string
@@ -188,7 +188,7 @@ export type LaraLink = {
 
 export type ScheduleState = {
   seq: number
-  calls: VesselCall[]
+  schedules: VesselSchedule[]
   laraVersions: LaraVersion[]
   terminalVersions: TerminalVersion[]
   matches: Match[]
@@ -201,9 +201,9 @@ export type ScheduleState = {
   laraLinks: LaraLink[]
 }
 
-export type LaraPayloadInput = Omit<LaraPayload, 'id' | 'runId' | 'callId' | 'capturedAt'> & {
-  /** Existing call to update. A record without this creates a new call. */
-  callId?: string
+export type LaraPayloadInput = Omit<LaraPayload, 'id' | 'runId' | 'scheduleId' | 'capturedAt'> & {
+  /** Existing schedule to update. A record without this creates a new schedule. */
+  scheduleId?: string
 }
 
-export type TerminalPayloadInput = Omit<TerminalPayload, 'id' | 'queryId' | 'callId'>
+export type TerminalPayloadInput = Omit<TerminalPayload, 'id' | 'queryId' | 'scheduleId'>

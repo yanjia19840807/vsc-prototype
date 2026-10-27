@@ -12,7 +12,7 @@ import type {
   LaraSyncScope,
   ScheduleState,
   ScheduleTrigger,
-  VesselCall,
+  VesselSchedule,
 } from '@/domain/schedule-model/types'
 
 export function openLaraRun(
@@ -26,7 +26,7 @@ export function openLaraRun(
     etaTo?: string | null
     etbFrom?: string | null
     etbTo?: string | null
-    callId?: string | null
+    scheduleId?: string | null
   },
 ) {
   const issued = nextId(state, 'lara-run')
@@ -40,7 +40,7 @@ export function openLaraRun(
     etaTo: single ? null : (input.etaTo ?? null),
     etbFrom: single ? null : (input.etbFrom ?? null),
     etbTo: single ? null : (input.etbTo ?? null),
-    callId: single ? (input.callId ?? null) : null,
+    scheduleId: single ? (input.scheduleId ?? null) : null,
     requestedAt: input.requestedAt,
     respondedAt: null,
     failureReason: '',
@@ -71,17 +71,17 @@ export function completeLaraRun(
   let next = replaceRun(state, { ...run, status: 'SUCCEEDED', respondedAt: input.respondedAt, failureReason: '', recordCount: records.length })
   const seen = new Set<string>()
   for (const record of records) {
-    const requestedId = record.callId || (run.scope === 'SINGLE' ? run.callId ?? undefined : undefined)
-    let call = requestedId ? next.calls.find((item) => item.id === requestedId) : undefined
-    if (requestedId && !call) throw new Error('Vessel call was not found')
+    const requestedId = record.scheduleId || (run.scope === 'SINGLE' ? run.scheduleId ?? undefined : undefined)
+    let schedule = requestedId ? next.schedules.find((item) => item.id === requestedId) : undefined
+    if (requestedId && !schedule) throw new Error('Vessel schedule was not found')
     const attributes = {
       laraVoyage: record.laraVoyage,
       pointCode: record.pointCode,
       laraPoolLocation: record.laraPoolLocation,
     }
-    if (!call) {
-      const issued = nextId(next, 'call')
-      const created: VesselCall = {
+    if (!schedule) {
+      const issued = nextId(next, 'schedule')
+      const created: VesselSchedule = {
         id: issued.id,
         createdFrom: 'LARA',
         ...attributes,
@@ -90,18 +90,18 @@ export function completeLaraRun(
         laraVersionId: null,
         matchId: null,
       }
-      next = { ...issued.state, calls: [...issued.state.calls, created] }
-      call = created
+      next = { ...issued.state, schedules: [...issued.state.schedules, created] }
+      schedule = created
     } else {
-      next = updateCall(next, call.id, attributes)
+      next = updateSchedule(next, schedule.id, attributes)
     }
-    seen.add(call.id)
-    if (isLinkSource(next, call.id) || isLinkTarget(next, call.id)) continue
+    seen.add(schedule.id)
+    if (isLinkSource(next, schedule.id) || isLinkTarget(next, schedule.id)) continue
     const payloadIssued = nextId(next, 'lara-payload')
-    const payload: LaraPayload = { ...record, id: payloadIssued.id, runId: run.id, callId: call.id, capturedAt: input.respondedAt }
+    const payload: LaraPayload = { ...record, id: payloadIssued.id, runId: run.id, scheduleId: schedule.id, capturedAt: input.respondedAt }
     next = { ...payloadIssued.state, laraPayloads: [...payloadIssued.state.laraPayloads, payload] }
-    next = applyLaraPayload(next, { callId: call.id, payloadId: payload.id, updatedBy: run.triggeredBy, updatedAt: input.respondedAt })
-    next = updateCall(next, call.id, { platformOmit: false })
+    next = applyLaraPayload(next, { scheduleId: schedule.id, payloadId: payload.id, updatedBy: run.triggeredBy, updatedAt: input.respondedAt })
+    next = updateSchedule(next, schedule.id, { platformOmit: false })
   }
   if (run.scope === 'BATCH') next = markOmissions(next, run, seen)
   return next
@@ -112,12 +112,12 @@ function markOmissions(state: ScheduleState, run: LaraSyncRun, seen: Set<string>
   if (!previous) return state
   let next = state
   for (const payload of state.laraPayloads.filter((item) => item.runId === previous.id)) {
-    if (seen.has(payload.callId)) continue
-    const call = next.calls.find((item) => item.id === payload.callId)
-    if (!call || isLinkSource(next, call.id) || call.platformOmit) continue
+    if (seen.has(payload.scheduleId)) continue
+    const schedule = next.schedules.find((item) => item.id === payload.scheduleId)
+    if (!schedule || isLinkSource(next, schedule.id) || schedule.platformOmit) continue
     const stillInside = inRange(payload.laraEta, run.etaFrom, run.etaTo) || inRange(payload.laraEtb, run.etbFrom, run.etbTo)
     if (!stillInside) continue
-    next = updateCall(next, call.id, { platformOmit: true })
+    next = updateSchedule(next, schedule.id, { platformOmit: true })
   }
   return next
 }
@@ -126,6 +126,6 @@ function replaceRun(state: ScheduleState, run: LaraSyncRun) {
   return { ...state, laraRuns: state.laraRuns.map((item) => (item.id === run.id ? run : item)) }
 }
 
-function updateCall(state: ScheduleState, callId: string, patch: Partial<VesselCall>) {
-  return { ...state, calls: state.calls.map((call) => (call.id === callId ? { ...call, ...patch } : call)) }
+function updateSchedule(state: ScheduleState, scheduleId: string, patch: Partial<VesselSchedule>) {
+  return { ...state, schedules: state.schedules.map((schedule) => (schedule.id === scheduleId ? { ...schedule, ...patch } : schedule)) }
 }

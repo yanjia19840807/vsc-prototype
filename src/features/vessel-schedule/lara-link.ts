@@ -1,6 +1,6 @@
 import type { VesselRecord } from '@/types/vsp'
 
-/** Display label for a LARA call. The record's primary key is its id. */
+/** Display label for a vessel schedule. The record's primary key is its id. */
 export function laraLinkKey(
   vessel: Pick<VesselRecord, 'laraVoyage' | 'pointCode' | 'laraPoolLocation' | 'visitNo'>,
 ) {

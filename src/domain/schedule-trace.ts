@@ -85,11 +85,11 @@ function isSystem(type: HistoryType) {
   return SYSTEM_TYPES.has(type)
 }
 
-/** Build Refresh records and per-call activity logs from seeded history. */
+/** Build Refresh records and per-schedule activity logs from seeded history. */
 export function traceFromHistory(vessels: VesselRecord[]): ScheduleRefresh[] {
   const refreshes: ScheduleRefresh[] = []
   const laraByTime = new Map<string, ScheduleRefresh>()
-  const terminalByCall = new Map<string, ScheduleRefresh>()
+  const terminalBySchedule = new Map<string, ScheduleRefresh>()
 
   for (const vessel of vessels) {
     const logs: ScheduleActivityLog[] = []
@@ -110,7 +110,7 @@ export function traceFromHistory(vessels: VesselRecord[]): ScheduleRefresh[] {
         refreshId = refresh.id
       } else if (entry.type === 'Terminal sync' || entry.type === 'Auto match') {
         const key = `${vessel.id}|${entry.at}`
-        let refresh = terminalByCall.get(key)
+        let refresh = terminalBySchedule.get(key)
         if (!refresh) {
           refresh = createRefresh({
             source: 'Terminal',
@@ -119,7 +119,7 @@ export function traceFromHistory(vessels: VesselRecord[]): ScheduleRefresh[] {
             updatedBy: entry.trigger === 'Manual' ? entry.by : 'System',
             vessel,
           })
-          terminalByCall.set(key, refresh)
+          terminalBySchedule.set(key, refresh)
           refreshes.push(refresh)
         }
         refreshId = refresh.id

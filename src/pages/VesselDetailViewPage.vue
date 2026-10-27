@@ -52,14 +52,14 @@ const store = useVesselStore()
 const schedule = useScheduleStore()
 const listSettings = useListSettingsStore()
 
-provide(syncCellKey, (callId, columnId) => {
+provide(syncCellKey, (scheduleId, columnId) => {
   const watched = listSettings.active?.watchedFields ?? []
   if (!watched.includes(columnId)) return null
-  const field = reviewForColumn(schedule.review(callId).fields, columnId)
+  const field = reviewForColumn(schedule.review(scheduleId).fields, columnId)
   if (!field || field.status !== 'pending') return null
   return { field }
 })
-provide(syncPendingKey, (callId) => schedule.review(callId).pending)
+provide(syncPendingKey, (scheduleId) => schedule.review(scheduleId).pending)
 const vessel = computed(() => store.byId(String(route.params.id)))
 const quickAction = ref<ScheduleQuickAction | null>(null)
 const linkTarget = computed(() => {
@@ -242,7 +242,7 @@ function sourceText(columnId: string) {
         >
           {{ sharedLaraRemark(vessel.sharedLaraCount) }}
         </span>
-        <SyncFieldAlert :call-id="vessel.id" :column-id="column.id" />
+        <SyncFieldAlert :schedule-id="vessel.id" :column-id="column.id" />
       </ReadonlyField>
     </dl>
 
@@ -278,7 +278,7 @@ function sourceText(columnId: string) {
                 {{ searchCellText(vessel, column.id) }}
               </span>
               <CoverageIcon v-if="column.id === 'pointCode'" :covered="isPortApiCovered(vessel)" />
-              <SyncFieldAlert :call-id="vessel.id" :column-id="column.id" />
+              <SyncFieldAlert :schedule-id="vessel.id" :column-id="column.id" />
             </span>
             <p v-if="pane.source === 'lara' && targetLaraText(column.id)" class="text-xs text-amber-800">
               Target {{ targetLaraText(column.id) }}

@@ -61,8 +61,8 @@ const route = useRoute()
 const router = useRouter()
 const store = useVesselStore()
 const schedule = useScheduleStore()
-provide(syncCellKey, (callId, columnId) => {
-  const field = reviewForColumn(schedule.review(callId).fields, columnId)
+provide(syncCellKey, (scheduleId, columnId) => {
+  const field = reviewForColumn(schedule.review(scheduleId).fields, columnId)
   if (!field || field.side === 'MATCH' || field.status !== 'pending') return null
   return { field }
 })
@@ -1037,7 +1037,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
             <div v-else class="grid gap-1 border-b py-2 sm:grid-cols-[11rem_1fr] sm:items-center">
               <div class="flex items-center gap-1 text-sm text-muted-foreground">
                 {{ column.label }}
-                <SyncFieldAlert v-if="fieldCompare" :call-id="vessel.id" :column-id="column.id" />
+                <SyncFieldAlert v-if="fieldCompare" :schedule-id="vessel.id" :column-id="column.id" />
               </div>
               <DateTimePicker
                 v-if="column.kind === 'datetime'"
@@ -1093,7 +1093,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
               >
                 <div class="flex items-center gap-1 text-sm text-muted-foreground">
                   {{ column.label }}
-                  <SyncFieldAlert v-if="fieldCompare" :call-id="vessel.id" :column-id="column.id" />
+                  <SyncFieldAlert v-if="fieldCompare" :schedule-id="vessel.id" :column-id="column.id" />
                 </div>
                 <DateTimePicker
                   v-if="column.kind === 'datetime'"
