@@ -4,10 +4,8 @@ import type { ColumnDef } from '@tanstack/vue-table'
 import SearchResultCell from '@/features/vessel-search/SearchResultCell.vue'
 import { brandFromVoyage } from '@/domain/lara-brand'
 import { mainVoyageText } from '@/domain/main-voyage'
-import { laraLinkKey } from '@/features/vessel-schedule/lara-link'
 import { formatDateTime } from '@/lib/vessel-utils'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
-import { useVesselStore } from '@/stores/vessels'
 import type { VesselRecord } from '@/types/vsp'
 
 /**
@@ -54,8 +52,8 @@ export const LOCKED_COLUMN_ID = 'laraVoyage'
 
 export const SEARCH_COLUMNS: SearchColumn[] = [
   { id: 'mappingStatus', label: 'Mapping status', kind: 'text', source: 'platform' },
-  { id: 'lastUpdateBy', label: 'Last modify by', kind: 'text', source: 'platform' },
-  { id: 'lastUpdateAt', label: 'Last modify at', kind: 'datetime', source: 'platform' },
+  { id: 'lastUpdateBy', label: 'Last modified by', kind: 'text', source: 'platform' },
+  { id: 'lastUpdateAt', label: 'Last modified at', kind: 'datetime', source: 'platform' },
   // LARA fields from the schedule template. Calculated columns stay last.
   { id: 'laraVoyage', label: 'Voyage', kind: 'text', source: 'lara' },
   { id: 'pointCode', label: 'Point code', kind: 'text', source: 'lara' },
@@ -72,7 +70,7 @@ export const SEARCH_COLUMNS: SearchColumn[] = [
   { id: 'vesselOperator', label: 'Vessel operator', kind: 'text', source: 'terminal' },
   { id: 'localVoyageExport', label: 'Export voyage', kind: 'text', source: 'terminal' },
   { id: 'localVoyageImport', label: 'Import voyage', kind: 'text', source: 'terminal' },
-  { id: 'vesselNameCn', label: 'Vessel name Cn', kind: 'text', source: 'terminal' },
+  { id: 'vesselNameCn', label: 'Vessel name CN', kind: 'text', source: 'terminal' },
   { id: 'terminalName', label: 'Terminal name', kind: 'text', source: 'terminal' },
   { id: 'tmlEta', label: 'ETA', kind: 'datetime', source: 'terminal' },
   { id: 'tmlAta', label: 'ATA', kind: 'datetime', source: 'terminal' },
@@ -135,7 +133,6 @@ const NOT_FOUND_ALIASES: Record<string, string[]> = {
 }
 
 export function historyFieldLabel(field: string) {
-  if (field === 'linkState' || field === 'laraLink') return 'Link State'
   if (field === 'remark') return 'Remark'
   if (field === 'voyageStatus') return 'LARA voyage status'
   const direct = SEARCH_COLUMNS.find((column) => column.id === field)
@@ -252,7 +249,7 @@ function isSystemActor(by: string) {
   return by.trim().toLowerCase() === 'system'
 }
 
-/** Latest schedule write. A system sync is shown as an empty value. */
+/** Latest schedule write, including System syncs. */
 function lastScheduleUpdate(v: VesselRecord) {
   let by = ''
   let at = ''
@@ -266,7 +263,7 @@ function lastScheduleUpdate(v: VesselRecord) {
   }
   for (const entry of v.history ?? []) consider(entry.by, entry.at)
   for (const log of v.scheduleLogs ?? []) consider(log.updatedBy, log.updatedTime)
-  if (isSystemActor(by)) return { by: '', at: '' }
+  if (isSystemActor(by)) return { by: 'System', at }
   return { by, at }
 }
 
@@ -356,19 +353,6 @@ export function searchSortValue(v: VesselRecord, id: string): string | number {
       return lastScheduleUpdate(v).by
     case 'lastUpdateAt':
       return lastScheduleUpdate(v).at
-    case 'laraLink': {
-      const ids = v.laraLinkTargetIds?.length
-        ? v.laraLinkTargetIds
-        : [v.laraLinkTargetId || v.laraLinkSourceId].filter((id): id is string => Boolean(id))
-      if (!ids.length) return ''
-      return ids
-        .map((id) => {
-          const linked = useVesselStore().byId(id)
-          return linked ? laraLinkKey(linked) : ''
-        })
-        .filter(Boolean)
-        .join(', ')
-    }
     case 'lastRefreshTime':
       return v.lastRefreshTime || ''
     case 'tmlVslStatus':
@@ -424,29 +408,6 @@ export function matchingStatusLabel(status: string): string {
 /** Cell values that should render with warning semantic color. */
 export function isWarningCellText(text: string, _columnId?: string) {
   return text === 'Unconfirmed' || text === 'Not found' || text === 'Not Found'
-}
-
-function logOriginal(log: VesselRecord['scheduleLogs'][number]) {
-  const match = Boolean(log.originalMatchResult || log.updatedMatchResult)
-  return (match ? log.originalMatchResult : log.originalValue).trim()
-}
-
-/** Later edits only. The first write from empty is the field arriving, not a change. */
-export function fieldChangeLogs(v: VesselRecord, id: string) {
-  const logs = (v.scheduleLogs ?? [])
-    .filter((log) => historyFieldMatches(log.field, id))
-    .slice()
-    .sort((left, right) => {
-      const time = new Date(left.updatedTime).getTime() - new Date(right.updatedTime).getTime()
-      if (time !== 0) return time
-      return Number(Boolean(logOriginal(right))) - Number(Boolean(logOriginal(left)))
-    })
-  if (logs[0] && !logOriginal(logs[0])) logs.shift()
-  return logs.reverse()
-}
-
-export function columnHasHistory(v: VesselRecord, id: string) {
-  return fieldChangeLogs(v, id).length > 0
 }
 
 export function columnGroup(id: string): ColumnGroup {

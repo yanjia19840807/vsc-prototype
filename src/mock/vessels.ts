@@ -1,5 +1,4 @@
 import { applyStoredTerminal9code, applyStoredVesselType } from '@/domain/calculated-fields'
-import { manualLaraLogDetails } from '@/features/vessel-schedule/manual-vessel-actions'
 import { brandFromVoyage } from '@/domain/lara-brand'
 import { createSeedPorts } from '@/features/terminal-coverage/model'
 import { formatApiDateTime } from '@/lib/vessel-utils'
@@ -184,54 +183,6 @@ function seedActivity(
     manualMatchAt: string
   },
 ): { history: HistoryEntry[]; fieldHistory: FieldHistoryEntry[] } {
-  if (seed.createdManually) {
-    const history: HistoryEntry[] = [
-      historyEntry(
-        `hist-create-${vessel.id}`,
-        times.manualMatchAt,
-        'Manual create',
-        CURRENT_USER,
-        changedDetails([
-          ['laraVoyage', '', vessel.laraVoyage],
-          ['vesselName', '', vessel.vesselName],
-          ['pointCode', '', vessel.pointCode],
-          ['laraEta', '', shown(vessel.laraEta)],
-          ['laraEtb', '', shown(vessel.laraEtb)],
-          ['laraEtd', '', shown(vessel.laraEtd)],
-          ['remark', '', vessel.remark],
-        ]),
-        vessel.remark || undefined,
-      ),
-    ]
-    if (
-      (seed.matchingStatus === 'Auto matched' || seed.matchingStatus === 'Manual matched')
-      && vessel.terminalSchedule
-    ) {
-      history.push(historyEntry(
-        `hist-term-${vessel.id}`,
-        times.manualMatchAt,
-        'Terminal sync',
-        'System',
-        changedDetails([
-          ['externalVoyage', '', vessel.externalExportVoyage],
-          ['ivoyage', '', vessel.externalImportVoyage],
-          ['terminalName', '', vessel.terminalName],
-          ['eta', '', shown(vessel.tmlEta)],
-          ['etb', '', shown(vessel.tmlEtb)],
-          ['etd', '', shown(vessel.tmlEtd)],
-        ]),
-      ))
-      history.push(historyEntry(
-        `hist-match-${vessel.id}`,
-        times.manualMatchAt,
-        seed.matchingStatus === 'Auto matched' ? 'Auto match' : 'Manual match',
-        seed.matchingStatus === 'Auto matched' ? 'System' : CURRENT_USER,
-        changedDetails([['Match', 'Unconfirmed', matchLabel(vessel)]]),
-      ))
-    }
-    return { history, fieldHistory: [] }
-  }
-
   const history: HistoryEntry[] = []
   const fieldHistory: FieldHistoryEntry[] = []
   const currentLaraEtd = shown(vessel.laraEtd)
@@ -360,7 +311,6 @@ type Seed = Partial<VesselRecord> &
     /** Terminal times stay; import and export voyages are empty. */
     blankVoyages?: boolean
     /** Created via Add vessel, so no LARA-bound terminal row. */
-    createdManually?: boolean
   }
 
 export function refreshSharedTerminal(vessels: VesselRecord[]) {
@@ -434,7 +384,6 @@ function build(seed: Seed): VesselRecord {
   const cyClosing = seed.cyCutoff ?? daysFromNow(etbOff - 1, 12)
   const noTerminalStatuses = new Set(['No terminal record'])
   const hasTerminal =
-    (!seed.createdManually || seed.matchingStatus === 'Auto matched') &&
     !seed.rowNotFound &&
     !noTerminalStatuses.has(seed.matchingStatus) &&
     apiCovered &&
@@ -539,8 +488,6 @@ function build(seed: Seed): VesselRecord {
     takeBy: seed.takeBy,
     takeTime: seed.takeTime,
     apiCovered,
-    createdManually: seed.createdManually ?? false,
-    laraLinked: seed.laraLinked ?? false,
     inPostSailingScope: seed.inPostSailingScope ?? true,
     inCargoOpsScope: seed.inCargoOpsScope ?? true,
     omit: seed.omit ?? false,
@@ -599,15 +546,11 @@ function build(seed: Seed): VesselRecord {
     terminalSource: base.terminalSource,
     apiCovered,
     region: port?.region ?? seed.region,
-    createdManually: seed.createdManually ?? false,
-    laraLinked: seed.laraLinked ?? false,
     vesselTypeLabel: '',
     terminal9code: '',
   }
   applyStoredVesselType(record)
   applyStoredTerminal9code(record, coveragePorts)
-  const created = record.history.find((entry) => entry.type === 'Manual create')
-  if (created) created.details = manualLaraLogDetails(record)
   return record
 }
 
@@ -703,7 +646,7 @@ export function createInitialVessels(): VesselRecord[] {
       pointCode: 'CNYTN',
       region: 'SC',
       matchingStatus: 'Manual matched',
-      remark: '【待确认码头航次】出口航次曾人工修改，新同步值尚未确认。审核页在 Export voyage 下显示 Use latest 和 Keep current。',
+      remark: '【自动采用码头航次】本拍同步仍是一条记录，按 Auto matched 直接采用最新出口航次，不需要 Review。',
       manualRemediation: 'reviewMatch',
       workflowStatus: 'In Progress',
       owner: CURRENT_USER,
@@ -915,7 +858,6 @@ export function createInitialVessels(): VesselRecord[] {
       workflowStatus: 'New',
       laraVoyage: '0BDP9W1NC',
       mainVoyage: '0BDP9W1MA',
-      remark: '【临时船关联】临时船 v31 与本船字段不一致。Service、ETA、ETB、ETD 下可 Keep formal 或 Use temporary。码头侧有正式和临时两条记录，需要选定一条。',
       externalVoyage: '011W',
       externalImportVoyage: 'E068',
       terminalCode: 'YS01',
@@ -1022,35 +964,6 @@ export function createInitialVessels(): VesselRecord[] {
       tasks: cargoOpsTasks(true),
     }),
     build({
-      id: 'v30',
-      vesselName: 'CMA CGM THALASSA',
-      pointCode: 'CNSHK',
-      region: 'SC',
-      matchingStatus: 'No terminal record',
-      workflowStatus: 'New',
-      createdManually: true,
-      laraVoyage: '9MANUAL1',
-      laraEtb: daysFromNow(1, 8),
-      laraEtd: daysFromNow(2, 18),
-      remark: 'Added at terminal before LARA voyage exists.',
-    }),
-    build({
-      id: 'v31',
-      vesselName: 'COSCO SHIPPING ARGENTINA',
-      pointCode: 'CNSHA',
-      region: 'CC',
-      matchingStatus: 'Auto matched',
-      workflowStatus: 'New',
-      createdManually: true,
-      laraVoyage: '0BDP9W1NC',
-      laraPoolLocation: 'CNSHADYAN',
-      service: 'FAL8',
-      externalVoyage: '099E',
-      laraEtb: daysFromNow(4, 8),
-      laraEtd: daysFromNow(5, 18),
-      remark: '【临时船关联】与正式船期字段不一致。审核页在有差异的 LARA 字段下显示 Use temporary 和 Keep formal。',
-    }),
-    build({
       id: 'v32',
       vesselName: 'CMA CGM MARCO POLO',
       pointCode: 'CNSHK',
@@ -1060,7 +973,7 @@ export function createInitialVessels(): VesselRecord[] {
       workflowStatus: 'New',
       laraEtb: daysFromNow(2, 8),
       laraEtd: daysFromNow(3, 18),
-      remark: '【待确认 LARA ETB】ETB 曾人工修改，新同步值尚未确认。审核页在 ETB 下显示 Use latest 和 Keep current。',
+      remark: '【自动采用 LARA ETB】Auto matched 直接采用最新 ETB，搜索行高亮，不需要 Review。',
     }),
     build({
       id: 'v33',
@@ -1072,7 +985,7 @@ export function createInitialVessels(): VesselRecord[] {
       workflowStatus: 'New',
       laraEtb: daysFromNow(3, 8),
       laraEtd: daysFromNow(4, 18),
-      remark: '【待确认码头 ETB】码头 ETB 曾人工修改，新同步值尚未确认。审核页在 Terminal ETB 下显示 Use latest 和 Keep current。',
+      remark: '【自动采用码头 ETB】本拍同步仍是一条记录，按 Auto matched 直接采用最新 ETB，不需要 Review。',
     }),
     build({
       id: 'v34',
@@ -1084,7 +997,7 @@ export function createInitialVessels(): VesselRecord[] {
       workflowStatus: 'New',
       laraEtb: daysFromNow(4, 8),
       laraEtd: daysFromNow(5, 18),
-      remark: '【待确认两边 ETD】LARA ETD 和码头 ETD 都曾人工修改，新值都未确认。两边都显示 Use latest 和 Keep current。',
+      remark: '【自动采用两边 ETD】本拍同步仍是一条记录，LARA 和码头 ETD 都直接采用最新值，不需要 Review。',
     }),
     build({
       id: 'v35',
@@ -1096,7 +1009,7 @@ export function createInitialVessels(): VesselRecord[] {
       workflowStatus: 'New',
       laraEtb: daysFromNow(5, 8),
       laraEtd: daysFromNow(6, 18),
-      remark: '【已保留旧值】LARA ETB 的新同步值已确认保留旧值。审核页不再提示，也没有选择按钮。',
+      remark: '【自动采用后保留】Auto matched 已先采用最新 ETB。Keep 只记确认，不再进入 Review。',
     }),
     build({
       id: 'v36',
@@ -1158,7 +1071,7 @@ export function createInitialVessels(): VesselRecord[] {
       workflowStatus: 'New',
       laraEtb: daysFromNow(3, 9),
       laraEtd: daysFromNow(4, 18),
-      remark: '【一边待确认】LARA ETB 待确认，显示 Use latest 和 Keep current。码头 ETB 已自动采用，只显示已采用提示。',
+      remark: '【自动采用】Auto matched 的 LARA ETB 和码头 ETB 都直接采用最新值，搜索行高亮，不需要 Review。',
     }),
     build({
       id: 'v41',
@@ -1183,7 +1096,7 @@ export function createInitialVessels(): VesselRecord[] {
       externalVoyage: '422E',
       laraEtb: daysFromNow(4, 9),
       laraEtd: daysFromNow(5, 18),
-      remark: '【待确认两个码头字段】码头 ETB 和出口航次都曾人工修改，新值都未确认。两个字段都显示 Use latest 和 Keep current。',
+      remark: '【自动采用两个码头字段】本拍同步仍是一条记录，码头 ETB 和出口航次都直接采用最新值，不需要 Review。',
     }),
     build({
       id: 'v43',
@@ -1221,6 +1134,22 @@ export function createInitialVessels(): VesselRecord[] {
       laraEtd: daysFromNow(13, 18),
       remark: '【已采用码头新值】码头 ETB 曾人工修改，随后已采用新值。现在只显示已采用提示，不再提供选择。',
     }),
+    build({
+      id: 'v46',
+      vesselName: 'CMA CGM VASCO DE GAMA',
+      pointCode: 'CNDLC',
+      region: 'NC',
+      laraVoyage: '0SYNC46MA',
+      matchingStatus: 'Auto matched',
+      remark: '【Auto 后变多条】上次 Auto matched，本次同步返回多条码头记录。徽章仍是 Auto matched，需要选一条。',
+      workflowStatus: 'In Progress',
+      owner: CURRENT_USER,
+      externalVoyage: '046E',
+      externalImportVoyage: 'E046',
+      extraCandidates: [{ evoyage: '046W', ivoyage: 'E047', terminal: 'DLC2' }],
+      laraEtb: daysFromNow(3, 8),
+      laraEtd: daysFromNow(4, 18),
+    }),
   ]
   refreshSharedTerminal(vessels)
   assignVisitNumbers(vessels)
@@ -1233,15 +1162,10 @@ function scheduleIdentity(vessel: VesselRecord, visit: string) {
     .join('\0')
 }
 
-/**
- * Formal rows keep a unique voyage, point code, pool location, and visit no.
- * A temporary row may reuse a formal row's key: that pair is the same vessel schedule.
- * Two temporary rows still take different visit numbers.
- */
+/** Formal rows keep a unique voyage, point code, pool location, and visit no. */
 function assignVisitNumbers(vessels: VesselRecord[]) {
-  const formalKeys = new Set<string>()
-  const manualKeys = new Set<string>()
-  const nextVisit = (vessel: VesselRecord, taken: Set<string>) => {
+  const taken = new Set<string>()
+  for (const vessel of vessels) {
     let n = Number(vessel.visitNo || '1')
     if (!Number.isFinite(n) || n < 1) n = 1
     let visit = String(n)
@@ -1251,18 +1175,7 @@ function assignVisitNumbers(vessels: VesselRecord[]) {
       visit = String(n)
       key = scheduleIdentity(vessel, visit)
     }
-    return { visit, key }
-  }
-  for (const vessel of vessels) {
-    if (vessel.createdManually) continue
-    const assigned = nextVisit(vessel, formalKeys)
-    vessel.visitNo = assigned.visit
-    formalKeys.add(assigned.key)
-  }
-  for (const vessel of vessels) {
-    if (!vessel.createdManually) continue
-    const assigned = nextVisit(vessel, manualKeys)
-    vessel.visitNo = assigned.visit
-    if (!formalKeys.has(assigned.key)) manualKeys.add(assigned.key)
+    vessel.visitNo = visit
+    taken.add(key)
   }
 }

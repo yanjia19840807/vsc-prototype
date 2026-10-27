@@ -10,7 +10,7 @@ export const SCHEDULE_COLUMN_META = [
   { id: 'department', label: 'Department', defaultOn: false },
   { id: 'pic', label: 'PIC', defaultOn: true },
   { id: 'vesselName', label: 'Vessel name', defaultOn: true },
-  { id: 'vesselNameCn', label: 'Vessel name Cn', defaultOn: true },
+  { id: 'vesselNameCn', label: 'Vessel name CN', defaultOn: true },
   { id: 'laraVoyage', label: 'Voyage', defaultOn: true },
   { id: 'visitNo', label: 'Visit no', defaultOn: true },
   { id: 'localVoyage', label: 'Local voyage', defaultOn: true },
@@ -90,7 +90,7 @@ export const scheduleColumns: ColumnDef<any, any>[] = [
   textCol('vesselName', 'Vessel name'),
   {
     id: 'vesselNameCn',
-    header: 'Vessel name Cn',
+    header: 'Vessel name CN',
     enableSorting: true,
     accessorFn: (row: VesselRecord) => row.terminalSchedule?.vesselNameCn || '',
   },

@@ -52,6 +52,7 @@ const scenarioSeeders: Record<string, ScenarioSeed> = {
   v42: (state, vessel) => seedPendingTerminal(state, vessel, { etb: 1, exportVoyage: '-S' }),
   v44: (state, vessel) => seedKeptTerminal(state, vessel),
   v45: (state, vessel) => seedAcceptedTerminal(state, vessel),
+  v46: (state, vessel) => seedManyAfterMatch(state, vessel),
 }
 
 export function seedSchedule(vessels: VesselRecord[]) {
@@ -101,7 +102,7 @@ function seedHeldVoyage(state: ScheduleState, vessel: VesselRecord) {
     updatedBy: vessel.manualOverrides.evoyage?.by || CURRENT_USER,
     updatedAt: T1,
   })
-  return adoptTerminal(next, vessel.id, { ...current, exportVoyage: `${current.exportVoyage}-S` }, T2, false)
+  return adoptTerminal(next, vessel.id, { ...current, exportVoyage: `${current.exportVoyage}-S` }, T2, true)
 }
 
 function seedManyAfterMatch(state: ScheduleState, vessel: VesselRecord) {
@@ -143,7 +144,7 @@ function seedPendingLara(state: ScheduleState, vessel: VesselRecord, field: Extr
     updatedBy: CURRENT_USER,
     updatedAt: T1,
   })
-  return adoptLara(next, vessel.id, { ...current, [field]: shiftIso(current[field], 1) }, T2, false)
+  return adoptLara(next, vessel.id, { ...current, [field]: shiftIso(current[field], 1) }, T2)
 }
 
 function seedPendingTerminal(
@@ -164,7 +165,7 @@ function seedPendingTerminal(
     updatedBy: CURRENT_USER,
     updatedAt: T1,
   })
-  return adoptTerminal(next, vessel.id, { ...current, ...incoming }, T2, false)
+  return adoptTerminal(next, vessel.id, { ...current, ...incoming }, T2, true)
 }
 
 function seedPendingBoth(state: ScheduleState, vessel: VesselRecord) {
@@ -187,8 +188,8 @@ function seedPendingBoth(state: ScheduleState, vessel: VesselRecord) {
     updatedBy: CURRENT_USER,
     updatedAt: T1,
   })
-  next = adoptLara(next, vessel.id, { ...lara, laraEtd: shiftIso(lara.laraEtd, 1) }, T2, false)
-  return adoptTerminal(next, vessel.id, { ...terminal, etd: shiftIso(terminal.etd, 1) }, T2, false)
+  next = adoptLara(next, vessel.id, { ...lara, laraEtd: shiftIso(lara.laraEtd, 1) }, T2)
+  return adoptTerminal(next, vessel.id, { ...terminal, etd: shiftIso(terminal.etd, 1) }, T2, true)
 }
 
 function seedKeptLara(state: ScheduleState, vessel: VesselRecord) {
@@ -295,7 +296,7 @@ function seedMixedLaraPending(state: ScheduleState, vessel: VesselRecord) {
     updatedAt: T1,
   })
   next = adoptTerminal(next, vessel.id, terminal, T2, true)
-  return adoptLara(next, vessel.id, { ...lara, laraEtb: shiftIso(lara.laraEtb, 1) }, T2, false)
+  return adoptLara(next, vessel.id, { ...lara, laraEtb: shiftIso(lara.laraEtb, 1) }, T2)
 }
 
 function seedKeptShape(state: ScheduleState, vessel: VesselRecord) {
@@ -352,7 +353,7 @@ function latestQueryId(state: ScheduleState, scheduleId: string) {
 function addSchedule(state: ScheduleState, vessel: VesselRecord) {
   const schedule: VesselSchedule = {
     id: vessel.id,
-    createdFrom: vessel.recordStatus === 'Inactive' ? 'MANUAL' : 'LARA',
+    createdFrom: 'LARA',
     laraVoyage: vessel.laraVoyage,
     pointCode: vessel.pointCode,
     visitNo: vessel.visitNo,

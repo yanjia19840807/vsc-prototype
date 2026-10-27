@@ -13,8 +13,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Field, FieldLabel } from '@/components/ui/field'
-import DeleteManualVesselDialog from '@/features/vessel-schedule/DeleteManualVesselDialog.vue'
-import ManualAddVesselDialog from '@/features/vessel-schedule/ManualAddVesselDialog.vue'
 import type { ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import { DIALOG_CONFIRM_DESCRIPTION } from '@/lib/dialog-copy'
 import { buildSlcSdcFileName } from '@/lib/vessel-utils'
@@ -30,14 +28,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: []
-  deleted: []
 }>()
 
 const settings = useSettingsStore()
 const router = useRouter()
 
-const editVesselOpen = ref(false)
-const deleteVesselOpen = ref(false)
 const rfiOpen = ref(false)
 const fileOpen = ref(false)
 const generatedFile = ref('')
@@ -59,20 +54,9 @@ const rfiDraft = computed(() => {
 })
 
 function finish() {
-  editVesselOpen.value = false
-  deleteVesselOpen.value = false
   rfiOpen.value = false
   fileOpen.value = false
   emit('close')
-}
-
-function onDeleted() {
-  emit('deleted')
-  finish()
-}
-
-function onMismatchOpen(open: boolean) {
-  if (!open) finish()
 }
 
 function generateFile(kind: 'SLC' | 'SDC') {
@@ -105,22 +89,18 @@ watch(
     const action = props.action
     const v = props.vessel
     syncing = true
-    editVesselOpen.value = false
-    deleteVesselOpen.value = false
     rfiOpen.value = false
     fileOpen.value = false
     syncing = false
     if (!v || !action) return
-    if (action === 'selectMatch' || action === 'reviewMatch' || action === 'addTerminal' || action === 'linkReview') {
+    if (action === 'selectMatch' || action === 'reviewMatch' || action === 'addTerminal') {
       emit('close')
       void router.push(`/vessels/${v.id}/review`)
       return
     }
     await nextTick()
     if (props.action !== action) return
-    if (action === 'editVessel') editVesselOpen.value = true
-    else if (action === 'deleteVessel') deleteVesselOpen.value = true
-    else if (action === 'rfi') rfiOpen.value = true
+    if (action === 'rfi') rfiOpen.value = true
     else if (action === 'slc' || action === 'sdc') generateFile(action === 'slc' ? 'SLC' : 'SDC')
   },
 )
@@ -133,18 +113,6 @@ async function copyGeneratedFile() {
 </script>
 
 <template>
-  <ManualAddVesselDialog
-    :open="editVesselOpen"
-    :vessel="vessel"
-    @update:open="onMismatchOpen"
-  />
-  <DeleteManualVesselDialog
-    :open="deleteVesselOpen"
-    :vessel="vessel"
-    @update:open="onMismatchOpen"
-    @deleted="onDeleted"
-  />
-
   <Dialog :open="rfiOpen" @update:open="onUtilityOpen">
     <DialogContent size="md">
       <DialogHeader>

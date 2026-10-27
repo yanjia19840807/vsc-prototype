@@ -1,5 +1,4 @@
 export { displayedLara, displayedMatch, displayedTerminal } from '@/domain/schedule-model/display'
-export { linkToLara } from '@/domain/schedule-model/lara-link'
 export { completeLaraRun, openLaraRun } from '@/domain/schedule-model/lara-sync'
 export {
   LARA_FIELDS,
@@ -33,7 +32,6 @@ export type {
   ScheduleOrigin,
   DecisionAction,
   FieldDecision,
-  LaraLink,
   LaraPayload,
   LaraPayloadInput,
   LaraSnapshot,

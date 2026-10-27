@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import { Button } from '@/components/ui/button'
-import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
-import type { ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
+import { useScheduleStore } from '@/stores/schedule'
 import type { VesselRecord } from '@/types/vsp'
 
 const props = defineProps<{
@@ -10,15 +11,26 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   view: []
-  quick: [action: ScheduleQuickAction]
+  review: []
   history: []
 }>()
+
+const schedule = useScheduleStore()
+const canReview = computed(() => schedule.needsReview(props.vessel.id))
 </script>
 
 <template>
   <div class="flex items-center gap-1">
     <Button type="button" size="xs" variant="outline" @click="emit('view')">View</Button>
-    <VesselAdjustMenu :vessel="vessel" @pick="emit('quick', $event)" />
+    <Button
+      type="button"
+      size="xs"
+      variant="outline"
+      :disabled="!canReview"
+      @click="emit('review')"
+    >
+      Review
+    </Button>
     <Button type="button" size="xs" variant="outline" @click="emit('history')">Activity logs</Button>
   </div>
 </template>

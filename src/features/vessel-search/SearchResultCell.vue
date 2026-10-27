@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink } from 'vue-router'
 
 import CoverageIcon from '@/components/CoverageIcon.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
-import TemporaryMark from '@/features/vessel-schedule/TemporaryMark.vue'
 import SyncFieldAlert from '@/features/vessel-schedule/SyncFieldAlert.vue'
 import { isPortApiCovered, isWarningCellText, searchCellText, sharedLaraRemark } from '@/features/vessel-search/search-columns'
 import type { VesselRecord } from '@/types/vsp'
@@ -42,8 +40,7 @@ const covered = computed(() => isPortApiCovered(props.vessel))
   <span v-else-if="columnId === 'laraVoyage'" class="inline-flex flex-col items-start gap-1">
     <span :class="isWarningCellText(text, columnId) ? 'text-amber-800' : undefined">{{ text }}</span>
     <span class="inline-flex items-center gap-1">
-      <StatusBadge v-if="!vessel.createdManually || voyageStatus === 'omit'" :status="voyageStatus" size="sm" />
-      <TemporaryMark v-if="vessel.createdManually" size="sm" />
+      <StatusBadge :status="voyageStatus" size="sm" />
     </span>
   </span>
   <span v-else-if="columnId === 'pointCode'" class="inline-flex items-center gap-2">
@@ -51,14 +48,6 @@ const covered = computed(() => isPortApiCovered(props.vessel))
     <CoverageIcon :covered="covered" />
   </span>
   <StatusBadge v-else-if="STATUS_COLUMNS.has(columnId)" :status="text" />
-  <RouterLink
-    v-else-if="columnId === 'laraLink' && vessel.laraLinkTargetId && text !== '—'"
-    class="text-primary underline underline-offset-2"
-    :to="`/vessels/${vessel.laraLinkTargetId}/view`"
-    @click.stop
-  >
-    {{ text }}
-  </RouterLink>
   <span v-else :class="isWarningCellText(text, columnId) ? 'text-amber-800' : undefined">{{ text }}</span>
   <SyncFieldAlert :schedule-id="vessel.id" :column-id="columnId" />
   </span>

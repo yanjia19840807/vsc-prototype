@@ -713,3 +713,79 @@ GET /v1/vessel-schedules/{id}/activity-logs/{logId}
 | 400 | 筛选字段未知、日期非法、Point code 不在所选 Region、审核正文无变化、码头名或航次缺失、关联未选码头记录、排序字段未知 |
 | 404 | 船期、筛选条件、日志、候选不存在，或筛选条件已过期 |
 | 409 | 对已关联的手工船同步、港口无码头覆盖、修改或删除不允许的手工船 |
+
+## 码头航次查询
+
+只读。查询已经同步进仓库的码头记录，不现场调用码头接口。一条成功同步返回的码头记录是一行。同一次查询返回多条时，每条单独成行。更早一次同步留下的旧记录不返回。
+
+列表和明细只包含港口返回的字段。`portCode` 是这条记录当时按哪个港口同步下来的，只出现在筛选条件里。
+
+```
+POST /v1/terminal-voyage-searches
+GET  /v1/terminal-voyage-searches/{id}
+GET  /v1/terminal-voyages?searchId={id}&sort=-eta&page=1&pageSize=100
+GET  /v1/terminal-voyages/{id}
+```
+
+```json
+{
+  "filters": [
+    { "field": "vesselName", "values": ["EVER LADEN"] },
+    { "field": "voyage", "values": ["1173069E"] },
+    { "field": "region", "values": ["CC"] },
+    { "field": "portCode", "values": ["CNNGB"] },
+    { "field": "status", "values": ["计划"] },
+    { "field": "eta", "from": "2025-06-01", "to": "2025-06-30" }
+  ]
+}
+```
+
+- `vesselName`：多行精确，忽略大小写，匹配 `vesselNameEn` 或 `vesselNameCn`。
+- `voyage`：多行精确，忽略大小写，匹配 `evoyage` 或 `ivoyage`。
+- `region`：多选，精确匹配港口所属区域代码。
+- `portCode`：多选，精确匹配同步时使用的港口代码。已选 `region` 时，只能选这些区域下的港口。
+- `status`：多选，精确匹配港口返回的 `status`。
+- `eta`、`ata`、`etb`、`atb`、`etd`、`atd`：日期，包含两端，可只给一端。比较对象是对应字段的时刻。
+- 同一字段只出现一次。空条件不提交。未知字段或日期非法返回 `400`。
+
+`201` 包含 `id`、`filters`、`total`、`expiresAt`。条件保留 24 小时，过期后 `GET` 返回 `404`。
+
+`searchId` 必填。改排序或翻页时沿用同一个 `searchId`。用户改了筛选并再次搜索时，才新建一份筛选条件。`sort` 用减号表示降序，可以叠多个港口字段，例如 `-eta,atd`。默认 `-eta`。`page` 从 1 开始，`pageSize` 默认 100，最大 500。`sort` 或分页参数非法时返回 `400`。筛选条件不存在或过期时返回 `404`。
+
+```json
+{
+  "data": [
+    {
+      "id": "tv-1",
+      "status": "离港",
+      "vesselNameEn": "EVER LADEN",
+      "vesselNameCn": "长满",
+      "shipCode": "0EMC",
+      "shipName": "长荣",
+      "agentCode": "0CSISA",
+      "agentName": "航华国际",
+      "lineCode": null,
+      "terminal": "YS01",
+      "portsEn": "USLAX+CNNGB",
+      "portsCn": "洛杉矶+宁波",
+      "eta": "2025-06-13 17:00:00",
+      "ata": "2025-06-13 17:00:00",
+      "etb": "2025-06-15 09:30:00",
+      "atb": "2025-06-15 10:00:00",
+      "etd": "2025-06-16 10:00:00",
+      "atd": "2025-06-16 10:00:00",
+      "cyOpen": "2025-06-13 11:00:00",
+      "cyClosing": "2025-06-16 10:00:00",
+      "portCloseDate": null,
+      "customsCloseDate": null,
+      "updateTime": "2025-06-17 11:48:06",
+      "ivoyage": "E068",
+      "evoyage": "1173069E"
+    }
+  ],
+  "page": { "number": 1, "size": 100, "totalElements": 1, "totalPages": 1 }
+}
+```
+
+`GET /v1/terminal-voyages/{id}` 返回同一条对象。记录不存在返回 `404`。字段标题和时间格式由前端处理。值为 `null` 的字段仍然返回。
+

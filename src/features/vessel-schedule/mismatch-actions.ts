@@ -3,12 +3,8 @@ import type { VesselRecord } from '@/types/vsp'
 /** Match / terminal remediation actions opened from list or detail. */
 export type MismatchQuickAction = 'selectMatch' | 'reviewMatch' | 'addTerminal'
 
-export type ManualVesselQuickAction = 'editVessel' | 'deleteVessel'
-
 export type ScheduleQuickAction =
   | MismatchQuickAction
-  | ManualVesselQuickAction
-  | 'linkReview'
   | 'rfi'
   | 'slc'
   | 'sdc'
@@ -80,8 +76,6 @@ function remediationFromVessel(vessel: VesselRecord): MismatchQuickAction | null
 
 /** Prefer open mismatch status; after Manual matched reopen the same remediation flow. */
 export function mismatchActionForVessel(vessel: VesselRecord): MismatchQuickAction | null {
-  if (vessel.recordStatus === 'Inactive') return null
-  if (vessel.createdManually) return null
   return mismatchActionForStatus(vessel) ?? remediationFromVessel(vessel)
 }
 

@@ -66,9 +66,6 @@ const INTERNAL_REASONS = new Set([
   'Restore source value',
   'Update manual to latest source',
   'Terminal confirmed',
-  'Temporary vessel link confirmed',
-  'LARA schedules linked',
-  'Temporary vessel created',
 ])
 
 type LogBucket = {
@@ -83,7 +80,7 @@ export function activityLogsOf(
   _refreshById: (id: string) => ScheduleRefresh | undefined,
   _vessels: VesselRecord[] = [],
 ): ActivityLogItem[] {
-  const logs = (vessel.scheduleLogs ?? []).filter((log) => log.field !== 'laraLinkSource' && log.field !== 'Result')
+  const logs = (vessel.scheduleLogs ?? []).filter((log) => log.field !== 'Result')
   const ordered = [...logs].sort((a, b) => {
     const time = new Date(a.updatedTime).getTime() - new Date(b.updatedTime).getTime()
     if (time !== 0) return time
@@ -104,25 +101,12 @@ export function activityLogsOf(
   const items: ActivityLogItem[] = []
 
   for (const bucket of buckets) {
-    const linkLogs = bucket.logs.filter(isLinkLog)
     const matchLogs = bucket.logs.filter(isMatchLog)
-    const laraLogs = bucket.logs.filter((log) => !isLinkLog(log) && !isMatchLog(log) && !terminalColumnId(log.field))
+    const laraLogs = bucket.logs.filter((log) => !isMatchLog(log) && !terminalColumnId(log.field))
     const terminalLogs = bucket.logs.filter((log) => terminalColumnId(log.field))
     const match = matchLogs.at(-1)
     const binding = match ? matchTransition(logFrom(match), logTo(match)) : null
     const fieldLogs: ScheduleActivityLog[] = []
-
-    if (linkLogs.length) {
-      items.push(resultItem(bucket, {
-        id: `link:${linkLogs[0]!.id}`,
-        changes: [changeRow(mergedLink(linkLogs))],
-        touched: ['linkState'],
-        lara: false,
-        terminal: false,
-        match: null,
-        link: true,
-      }))
-    }
 
     fieldLogs.push(...laraLogs.filter((log) => logFrom(log) !== logTo(log)))
 
@@ -151,7 +135,6 @@ export function activityLogsOf(
       lara: fieldLogs.some((log) => !terminalColumnId(log.field)),
       terminal: !binding && fieldLogs.some((log) => Boolean(terminalColumnId(log.field))),
       match: binding,
-      link: false,
     }))
   }
 
@@ -183,7 +166,6 @@ function resultItem(
     lara: boolean
     terminal: boolean
     match: 'confirm' | 'switch' | 'cancel' | null
-    link: boolean
   },
 ): ActivityLogItem {
   const remark = bucket.by === 'System'
@@ -207,13 +189,12 @@ function resultItem(
   }
 }
 
-function systemRemark(input: { lara: boolean; terminal: boolean; match: 'confirm' | 'switch' | 'cancel' | null; link: boolean }) {
+function systemRemark(input: { lara: boolean; terminal: boolean; match: 'confirm' | 'switch' | 'cancel' | null }) {
   const lines: string[] = []
   if (input.lara) lines.push('系统同步 LARA')
   if (input.terminal) lines.push('系统同步 Terminal')
   if (input.match === 'cancel') lines.push('系统取消匹配')
   else if (input.match) lines.push('系统自动建立匹配')
-  if (input.link) lines.push('系统自动建立关联')
   return lines.join('，')
 }
 
@@ -274,23 +255,6 @@ function terminalDiffRows(id: string, before: Map<string, string>, after: Map<st
   return rows
 }
 
-function mergedLink(logs: ScheduleActivityLog[]): ScheduleActivityLog {
-  const first = logs[0]!
-  if (logs.length === 1) return { ...first, field: 'linkState' }
-  return {
-    ...first,
-    field: 'linkState',
-    originalValue: 'Unlink',
-    updatedValue: [...new Set(logs.map((log) => logTo(log)).filter(Boolean))].join(', '),
-    originalMatchResult: '',
-    updatedMatchResult: '',
-  }
-}
-
-function isLinkLog(log: ScheduleActivityLog) {
-  return log.field === 'linkState' || log.field === 'laraLink'
-}
-
 function isMatchLog(log: ScheduleActivityLog) {
   return log.field === 'Match' || Boolean(log.originalMatchResult || log.updatedMatchResult)
 }
@@ -304,15 +268,12 @@ function logTo(log: ScheduleActivityLog) {
 }
 
 function changeRow(log: ScheduleActivityLog): ActivityValueRow {
-  const link = isLinkLog(log)
-  const original = link ? (logFrom(log) || 'Unlink') : logFrom(log)
-  const updated = link ? logTo(log) : logTo(log)
   return {
     id: log.id,
-    field: link ? 'linkState' : log.field,
-    label: link ? 'Link State' : historyFieldLabel(log.field),
-    value: blankValue(updated),
-    original: blankValue(original),
+    field: log.field,
+    label: historyFieldLabel(log.field),
+    value: blankValue(logTo(log)),
+    original: blankValue(logFrom(log)),
     changed: true,
   }
 }

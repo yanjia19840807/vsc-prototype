@@ -29,11 +29,8 @@ import {
 } from '@/components/ui/table'
 import { tableActionsEdge } from '@/components/ui/table/chrome'
 import { useVesselDataTable } from '@/composables/useVesselDataTable'
-import { vesselDetailPath } from '@/features/vessel-schedule/lara-link'
-import type { ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import { reviewForColumn } from '@/features/vessel-schedule/sync-columns'
 import { syncCellKey, syncPendingKey } from '@/features/vessel-schedule/sync-review'
-import VesselQuickActions from '@/features/vessel-schedule/VesselQuickActions.vue'
 import SearchFilterControl from '@/features/vessel-search/SearchFilterControl.vue'
 import SearchRowActions from '@/features/vessel-search/SearchRowActions.vue'
 import {
@@ -80,15 +77,13 @@ provide(syncCellKey, (scheduleId, columnId) => {
   const watched = listSettings.active?.watchedFields ?? []
   if (!watched.includes(columnId)) return null
   const field = reviewForColumn(schedule.review(scheduleId).fields, columnId)
-  if (!field || field.status !== 'pending') return null
+  if (!field) return null
   return { field }
 })
-provide(syncPendingKey, (scheduleId) => schedule.review(scheduleId).pending)
+provide(syncPendingKey, (scheduleId) => schedule.review(scheduleId).changed)
 const router = useRouter()
 
 const filtersOpen = ref(true)
-const actionVessel = ref<VesselRecord | null>(null)
-const quickAction = ref<ScheduleQuickAction | null>(null)
 const query = ref<Record<string, FilterState>>({})
 const applied = ref<Record<string, FilterState>>({})
 const columnOrder = ref<string[]>(SEARCH_COLUMNS.map((column) => column.id))
@@ -113,7 +108,7 @@ if (actionsColumn) {
   actionsColumn.cell = ({ row }) => h(SearchRowActions, {
     vessel: row.original as VesselRecord,
     onView: () => openVessel(row.original as VesselRecord),
-    onQuick: (action) => openQuickAction(row.original as VesselRecord, action),
+    onReview: () => openReview(row.original as VesselRecord),
     onHistory: () => openHistory(row.original as VesselRecord),
   })
 }
@@ -313,7 +308,7 @@ function headerFreezeClass(id: string) {
 }
 
 function rowChanged(vessel: VesselRecord) {
-  return schedule.review(vessel.id).pending
+  return schedule.review(vessel.id).changed
 }
 
 function rowClass(vessel: VesselRecord) {
@@ -340,12 +335,12 @@ function leafHeaderClass(id: string) {
 }
 
 function openVessel(vessel: VesselRecord) {
-  void router.push(vesselDetailPath(vessel))
+  void router.push(`/vessels/${vessel.id}/view`)
 }
 
-function openQuickAction(vessel: VesselRecord, action: ScheduleQuickAction) {
-  actionVessel.value = vessel
-  quickAction.value = action
+function openReview(vessel: VesselRecord) {
+  if (!schedule.needsReview(vessel.id)) return
+  void router.push(`/vessels/${vessel.id}/review`)
 }
 
 function openHistory(vessel: VesselRecord) {
@@ -489,6 +484,5 @@ const visibleColCount = computed(
       @update:page-size="(size) => table.setPageSize(size)"
     />
 
-    <VesselQuickActions :vessel="actionVessel" :action="quickAction" @close="quickAction = null" />
   </div>
 </template>

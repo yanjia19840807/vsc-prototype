@@ -16,9 +16,17 @@ const lookup = inject(syncCellKey, null)
 const info = computed(() => lookup?.(props.scheduleId, props.columnId) ?? null)
 const pending = computed(() => info.value?.field.status === 'pending')
 
+const mapping = computed(() => props.columnId === 'mappingStatus')
+
 const rows = computed(() => {
   const field = info.value?.field
   if (!field) return []
+  if (mapping.value) {
+    return [
+      { label: 'Previous', value: display(field.previousValue) },
+      { label: 'This sync', value: display(field.incomingValue) },
+    ]
+  }
   return pending.value
     ? [
         { label: 'Current', value: display(field.previousValue) },
@@ -38,7 +46,7 @@ function display(value: string) {
 </script>
 
 <template>
-  <TooltipProvider v-if="info && columnId !== 'mappingStatus'" :delay-duration="200">
+  <TooltipProvider v-if="info" :delay-duration="200">
     <TooltipRoot>
       <TooltipTrigger as-child>
         <button

@@ -1,8 +1,6 @@
 import { applyLaraPayload } from '@/domain/schedule-model/sync-diff'
 import {
   inRange,
-  isLinkSource,
-  isLinkTarget,
   nextId,
 } from '@/domain/schedule-model/state'
 import type {
@@ -96,7 +94,6 @@ export function completeLaraRun(
       next = updateSchedule(next, schedule.id, attributes)
     }
     seen.add(schedule.id)
-    if (isLinkSource(next, schedule.id) || isLinkTarget(next, schedule.id)) continue
     const payloadIssued = nextId(next, 'lara-payload')
     const payload: LaraPayload = { ...record, id: payloadIssued.id, runId: run.id, scheduleId: schedule.id, capturedAt: input.respondedAt }
     next = { ...payloadIssued.state, laraPayloads: [...payloadIssued.state.laraPayloads, payload] }
@@ -114,7 +111,7 @@ function markOmissions(state: ScheduleState, run: LaraSyncRun, seen: Set<string>
   for (const payload of state.laraPayloads.filter((item) => item.runId === previous.id)) {
     if (seen.has(payload.scheduleId)) continue
     const schedule = next.schedules.find((item) => item.id === payload.scheduleId)
-    if (!schedule || isLinkSource(next, schedule.id) || schedule.platformOmit) continue
+    if (!schedule || schedule.platformOmit) continue
     const stillInside = inRange(payload.laraEta, run.etaFrom, run.etaTo) || inRange(payload.laraEtb, run.etbFrom, run.etbTo)
     if (!stillInside) continue
     next = updateSchedule(next, schedule.id, { platformOmit: true })

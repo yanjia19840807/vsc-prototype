@@ -9,6 +9,23 @@ export type MappingHeaderAlert = {
   text: string
 }
 
+export function mappingStatusChangeAlert(
+  field?: { previousValue: string; incomingValue: string } | null,
+): MappingHeaderAlert | null {
+  if (!field) return null
+  if (field.previousValue === field.incomingValue) return null
+  return {
+    variant: 'warning',
+    title: 'Mapping status',
+    text: `Previous: ${field.previousValue || '—'}. This sync: ${field.incomingValue || '—'}`,
+  }
+}
+
+function withPreviousStatus(text: string, previous?: string, current?: string) {
+  if (!previous || previous === current) return text
+  return `Previous: ${previous}. ${text}`
+}
+
 /** Count shown beside the status badge, in the same style as the search list. */
 export function mappingStatusRemark(vessel: VesselRecord) {
   if (vessel.matchingStatus === 'Multiple terminal records' && vessel.terminalCandidates.length) {
@@ -18,47 +35,53 @@ export function mappingStatusRemark(vessel: VesselRecord) {
   return ''
 }
 
-function multipleTerminalAlert(count: number): MappingHeaderAlert {
+function multipleTerminalAlert(count: number, previous?: string): MappingHeaderAlert {
   const remark = count === 1 ? '1 candidate' : count > 1 ? `${count} candidates` : ''
+  const text = remark ? `${remark}. ${MISMATCH_ALERT.selectMatch}` : MISMATCH_ALERT.selectMatch
   return {
     variant: 'warning',
     title: 'Multiple terminal records',
-    text: remark ? `${remark}. ${MISMATCH_ALERT.selectMatch}` : MISMATCH_ALERT.selectMatch,
+    text: withPreviousStatus(text, previous, 'Multiple terminal records'),
   }
 }
 
-function noTerminalAlert(vessel: VesselRecord): MappingHeaderAlert {
+function noTerminalAlert(vessel: VesselRecord, previous?: string): MappingHeaderAlert {
   return {
     variant: 'warning',
     title: 'No terminal record',
-    text: addTerminalAlert(vessel),
+    text: withPreviousStatus(addTerminalAlert(vessel), previous, 'No terminal record'),
   }
 }
 
 /** Same prompt on view and review. Review adds the actions; the wording stays here. */
 export function mappingHeaderAlert(
   vessel: VesselRecord,
-  review?: { shape: TerminalShape | null; candidateCount: number },
+  review?: { shape: TerminalShape | null; candidateCount: number; previousStatus?: string },
 ): MappingHeaderAlert | null {
-  if (review?.shape === 'many') return multipleTerminalAlert(review.candidateCount || vessel.terminalCandidates.length)
-  if (review?.shape === 'none') return noTerminalAlert(vessel)
+  const previous = review?.previousStatus
+  if (review?.shape === 'many') return multipleTerminalAlert(review.candidateCount || vessel.terminalCandidates.length, previous)
+  if (review?.shape === 'none') return noTerminalAlert(vessel, previous)
   switch (vessel.matchingStatus) {
     case 'Multiple terminal records':
-      return multipleTerminalAlert(vessel.terminalCandidates.length)
+      return multipleTerminalAlert(vessel.terminalCandidates.length, previous)
     case 'ETD gap > 3 days':
       return {
         variant: 'warning',
         title: 'ETD gap > 3 days',
-        text: MISMATCH_ALERT.reviewMatch,
+        text: withPreviousStatus(MISMATCH_ALERT.reviewMatch, previous, 'ETD gap > 3 days'),
       }
     case 'No external voyage':
       return {
         variant: 'warning',
         title: 'No external voyage',
-        text: 'A terminal schedule was found, but export and import voyage are missing.',
+        text: withPreviousStatus(
+          'A terminal schedule was found, but export and import voyage are missing.',
+          previous,
+          'No external voyage',
+        ),
       }
     case 'No terminal record':
-      return noTerminalAlert(vessel)
+      return noTerminalAlert(vessel, previous)
     default:
       return null
   }

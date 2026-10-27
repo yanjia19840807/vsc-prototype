@@ -20,28 +20,22 @@ const router = createRouter({
       meta: { title: 'List settings' },
     },
     {
+      path: '/terminal-voyages',
+      name: 'terminal-voyage-search',
+      component: () => import('@/pages/TerminalVoyageSearchPage.vue'),
+      meta: { title: 'Terminal voyage', flush: true },
+    },
+    {
+      path: '/terminal-voyages/:id',
+      name: 'terminal-voyage-detail',
+      component: () => import('@/pages/TerminalVoyageDetailPage.vue'),
+      meta: { title: 'Terminal voyage' },
+    },
+    {
       path: '/coverage',
       name: 'terminal-coverage',
       component: () => import('@/pages/TerminalCoveragePage.vue'),
       meta: { title: 'Port terminal', flush: true },
-    },
-    {
-      path: '/temporary-vessels',
-      name: 'temporary-vessels',
-      component: () => import('@/pages/TemporaryVesselListPage.vue'),
-      meta: { title: 'Temporary vessel', flush: true },
-    },
-    {
-      path: '/temporary-vessels/new',
-      redirect: { name: 'temporary-vessels' },
-    },
-    {
-      path: '/temporary-vessels/:id/view',
-      redirect: { name: 'temporary-vessels' },
-    },
-    {
-      path: '/temporary-vessels/:id',
-      redirect: { name: 'temporary-vessels' },
     },
     {
       path: '/vessels/:id/view',

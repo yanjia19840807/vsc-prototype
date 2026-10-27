@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { RouteLocationNormalizedLoaded } from 'vue-router'
 
+import { findTerminalVoyage } from '@/features/terminal-voyage/model'
 import { useVesselStore } from '@/stores/vessels'
 
 export type PageTab = {
@@ -31,6 +32,10 @@ function tabTitle(to: RouteLocationNormalizedLoaded) {
     const vessel = useVesselStore().byId(String(to.params.id))
     return vessel ? `Review · ${vessel.vesselName}` : 'Review'
   }
+  if (to.name === 'terminal-voyage-detail') {
+    const row = findTerminalVoyage(useVesselStore().vessels, String(to.params.id))
+    return row?.vesselNameEn || row?.vesselNameCn || 'Terminal voyage'
+  }
   return typeof to.meta.title === 'string' ? to.meta.title : 'Page'
 }
 
@@ -57,7 +62,8 @@ export const useTabsStore = defineStore('tabs', () => {
       && to.name !== 'activity-log'
       && to.name !== 'vessel-review'
       && to.name !== 'terminal-coverage'
-      && to.name !== 'temporary-vessels'
+      && to.name !== 'terminal-voyage-search'
+      && to.name !== 'terminal-voyage-detail'
     ) return
     ensureHome()
     const id = tabId(to)

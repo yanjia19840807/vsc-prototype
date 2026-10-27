@@ -22,7 +22,6 @@ import {
 } from '@/components/ui/table'
 import { datetimeColumn, textColumn, useVesselDataTable } from '@/composables/useVesselDataTable'
 import { activityLogsOf, itemTouchesField } from '@/features/vessel-schedule/activity-log'
-import { vesselDetailPath } from '@/features/vessel-schedule/lara-link'
 import { formatDateTime } from '@/lib/vessel-utils'
 import { useVesselStore } from '@/stores/vessels'
 
@@ -120,7 +119,7 @@ function clearFilters() {
     <PageBreadcrumb
       :items="[
         { label: 'Vessel schedule search', to: '/search' },
-        { label: vessel.vesselName, to: vesselDetailPath(vessel) },
+        { label: vessel.vesselName, to: `/vessels/${vessel.id}/view` },
         { label: 'Activity logs' },
       ]"
     />

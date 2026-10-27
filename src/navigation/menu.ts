@@ -11,8 +11,9 @@ export const menuItems: MenuItem[] = [
     match: ['/vessels', '/list-settings'],
   },
   {
-    label: 'Temporary vessel',
-    to: '/temporary-vessels',
+    label: 'Terminal voyage',
+    to: '/terminal-voyages',
+    match: ['/terminal-voyages'],
   },
   {
     label: 'Port terminal',

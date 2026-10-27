@@ -6,7 +6,6 @@ import { toast } from 'vue-sonner'
 import { brandFromVoyage } from '@/domain/lara-brand'
 import DataSection from '@/components/DataSection.vue'
 import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
-import ReadonlyField from '@/components/ReadonlyField.vue'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { DateTimePicker } from '@/components/ui/date-picker'
@@ -28,8 +27,13 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { vesselDetailPath } from '@/features/vessel-schedule/lara-link'
-import { mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
+import {
+  canAddTerminalRecord,
+  canEditTerminalDraft,
+  canSelectTerminalRecord,
+  terminalEditMode,
+} from '@/features/vessel-schedule/review-access'
+import { mappingHeaderAlert, mappingStatusChangeAlert } from '@/features/vessel-schedule/mapping-header'
 import { type ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import ScheduleRecordHeading from '@/features/vessel-schedule/ScheduleRecordHeading.vue'
 import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
@@ -63,16 +67,12 @@ const store = useVesselStore()
 const schedule = useScheduleStore()
 provide(syncCellKey, (scheduleId, columnId) => {
   const field = reviewForColumn(schedule.review(scheduleId).fields, columnId)
-  if (!field || field.side === 'MATCH' || field.status !== 'pending') return null
+  if (!field || field.side === 'MATCH') return null
   return { field }
 })
 const coverage = useTerminalCoverageStore()
 const tabs = useTabsStore()
-const vessel = computed(() => {
-  const current = store.byId(String(route.params.id))
-  if (!current || current.linkReview) return current
-  return store.vessels.find((item) => item.linkReview?.temporaryId === current.id) ?? current
-})
+const vessel = computed(() => store.byId(String(route.params.id)))
 
 const CALCULATED_LARA = new Set(['voyageStatus', 'vesselType', 'terminal9code'])
 const HIDDEN_LARA = new Set(['voyageStatus'])
@@ -101,8 +101,6 @@ type TerminalRow = {
   baseline: TerminalDraft | null
   editing: boolean
   editSnapshot: TerminalDraft | null
-  linkChoiceId?: string
-  linkSource?: 'Official' | 'Temporary' | 'Both'
 }
 
 type PendingSync = {
@@ -310,26 +308,6 @@ function init(current: VesselRecord) {
     drafts[syncKey(field.side, field.field)] = field.previousValue
   }
   syncDrafts.value = drafts
-  applyLinkTerminalRows(current)
-}
-
-function applyLinkTerminalRows(current: VesselRecord) {
-  const review = current.linkReview
-  if (!review || review.terminalMatched) return
-  rows.value = review.terminalChoices.map((choice) => {
-    const row = rowFromDraft(scheduleToDraft(choice.schedule, current), 'sync', null)
-    row.linkChoiceId = choice.id
-    row.linkSource = choice.source
-    return row
-  })
-  const preferred = rows.value.find((row) => row.linkSource !== 'Temporary' && sameSchedule(current.terminalSchedule, row.draft))
-    ?? rows.value.find((row) => row.linkSource !== 'Temporary')
-    ?? rows.value[0]
-  selectedId.value = preferred?.id ?? null
-  loggedMatchLabel.value = matchLabel(preferred)
-  const drafts = rows.value.map((row) => cloneDraft(row.draft))
-  originDrafts.value = drafts.map(cloneDraft)
-  committedDrafts.value = drafts.map(cloneDraft)
 }
 
 if (vessel.value) init(vessel.value)
@@ -356,34 +334,38 @@ const comparable = computed(() => {
   const status = vessel.value?.matchingStatus
   return status === 'Auto matched' || status === 'Manual matched'
 })
+const editMode = computed(() => (vessel.value ? terminalEditMode(vessel.value) : 'none'))
+const allowAddTerminal = computed(() => Boolean(vessel.value && canAddTerminalRecord(vessel.value)))
+const allowSelectTerminal = computed(() => {
+  const current = vessel.value
+  if (!current) return false
+  return canSelectTerminalRecord(current, schedule.review(current.id))
+})
+
+function draftEditable(key: TerminalDraftKey) {
+  return vessel.value ? canEditTerminalDraft(vessel.value, key) : false
+}
 const activeRow = computed(() => selectedRow.value ?? (rows.value.length === 1 ? rows.value[0]! : null))
 const structure = computed(() => {
   const current = vessel.value
   if (!current || !comparable.value) return null
   return schedule.review(current.id).shape
 })
-const linkReview = computed(() => vessel.value?.linkReview ?? null)
-const temporaryVessel = computed(() => {
-  const id = linkReview.value?.temporaryId
-  return id ? store.byId(id) : undefined
-})
-const linkTerminalOpen = computed(() => Boolean(linkReview.value && !linkReview.value.terminalMatched))
 const fieldCompare = computed(() => {
   if (!comparable.value || structure.value) return false
-  if (linkTerminalOpen.value) return true
   return rows.value.length <= 1
-})
-
-const linkTarget = computed(() => {
-  const id = vessel.value?.laraLinkTargetId
-  return id ? store.byId(id) : undefined
 })
 
 const headerAlert = computed(() => {
   const current = vessel.value
   if (!current) return null
   const review = schedule.review(current.id)
-  return mappingHeaderAlert(current, { shape: review.shape, candidateCount: review.candidateCount })
+  const matchField = review.fields.find((item) => item.side === 'MATCH')
+  return mappingHeaderAlert(current, {
+    shape: review.shape,
+    candidateCount: review.candidateCount,
+    previousStatus: matchField?.previousValue,
+  })
 })
 
 const mappingAlert = computed(() => {
@@ -391,28 +373,8 @@ const mappingAlert = computed(() => {
   if (!current) return null
   const review = schedule.review(current.id)
   if (review.shape) return null
-  const field = review.fields.find((item) => item.side === 'MATCH' && item.status === 'pending')
-  if (!field) return null
-  return {
-    variant: 'warning' as const,
-    title: 'Mapping status',
-    text: `${field.previousValue || '—'} → ${field.incomingValue || '—'}`,
-  }
+  return mappingStatusChangeAlert(review.fields.find((item) => item.side === 'MATCH' && item.status === 'pending'))
 })
-
-function linkOffer(columnId: string) {
-  return linkReview.value?.laraDiffs.find((diff) => diff.field === columnId)
-}
-
-function useTemporary(columnId: string) {
-  const diff = linkOffer(columnId)
-  if (diff) onLaraInput(columnId, diff.temporary)
-}
-
-function keepFormal(columnId: string) {
-  const diff = linkOffer(columnId)
-  if (diff) onLaraInput(columnId, diff.official)
-}
 
 function offerForColumn(columnId: string) {
   if (!fieldCompare.value) return undefined
@@ -636,10 +598,7 @@ function formDirty() {
 
 function requestSync(side: 'LARA' | 'Terminal') {
   const current = vessel.value
-  if (!current || current.recordStatus === 'Inactive') {
-    toast.error('An inactive record cannot be synced')
-    return
-  }
+  if (!current) return
   if (side === 'Terminal' && !coverage.canCallFeituo(current.pointCode)) {
     toast.error('This port has no terminal coverage, so no terminal request is sent')
     return
@@ -713,7 +672,7 @@ function statusAfterSave(current: VesselRecord): MatchingStatus {
     || updatedDetails().length
     || chosen,
   )
-  if (current.matchingStatus === 'Manual matched' || current.terminalSource === 'manual' || edited) {
+  if (current.matchingStatus === 'Manual matched' || edited) {
     return 'Manual matched'
   }
   if (!selectedId.value) {
@@ -805,9 +764,6 @@ const confirmCopy = computed(() => {
   if (pendingSyncFields.value.some((field) => field.side !== 'MATCH')) {
     lines.push('Watched fields you edited are saved from the value in each field.')
   }
-  if (linkReview.value) {
-    lines.push('The temporary vessel link is confirmed from the values in this form.')
-  }
   const chosen = manualMatch()
   if (chosen) {
     lines.push(chosen.to === 'Unconfirmed' ? 'Match: cancel the current terminal match.' : `Match: ${chosen.from} → ${chosen.to}.`)
@@ -815,9 +771,9 @@ const confirmCopy = computed(() => {
     lines.push(`Match: keep ${matchLabel(selectedRow.value)}.`)
   }
   return {
-    title: 'Save review',
+    title: 'Confirm review',
     description: lines.join(' '),
-    confirmLabel: 'Save',
+    confirmLabel: 'Confirm',
   }
 })
 
@@ -833,45 +789,7 @@ function hasReviewEdits() {
 }
 
 function hasChanges() {
-  return hasReviewEdits() || pendingSyncFields.value.length > 0 || Boolean(linkReview.value)
-}
-
-function commitLinkReview(current: VesselRecord) {
-  const review = current.linkReview
-  if (!review) return true
-  const fields: Record<string, 'official' | 'temporary'> = {}
-  const values: Record<string, string> = {}
-  for (const diff of review.laraDiffs) {
-    const value = laraValues.value[diff.field] ?? diff.official
-    values[diff.field] = value
-    fields[diff.field] = value === diff.temporary ? 'temporary' : 'official'
-  }
-  let terminalId: string | null = null
-  let terminalSchedule: TerminalSchedule | null = null
-  if (!review.terminalMatched) {
-    const row = rows.value.find((item) => item.id === selectedId.value)
-    terminalId = row?.linkChoiceId ?? null
-    if (!row || !terminalId) {
-      toast.error('Select one terminal record')
-      confirmOpen.value = false
-      return false
-    }
-    const choice = review.terminalChoices.find((item) => item.id === terminalId)
-    terminalSchedule = draftToSchedule(row.draft, choice?.schedule)
-  }
-  const saved = store.confirmTemporaryLink(current.id, {
-    fields,
-    values,
-    terminalId,
-    terminalSchedule,
-    reason: remark.value,
-  })
-  if (!saved) {
-    toast.error('Link review could not be saved')
-    confirmOpen.value = false
-    return false
-  }
-  return true
+  return hasReviewEdits() || pendingSyncFields.value.length > 0
 }
 
 function closePage() {
@@ -892,16 +810,6 @@ function openHistory() {
   void router.push(`/vessels/${current.id}/activity-log`)
 }
 
-function openVessel(id: string) {
-  const row = store.byId(id)
-  void router.push(row ? vesselDetailPath(row) : `/vessels/${id}/view`)
-}
-
-function onVesselDeleted() {
-  quickAction.value = null
-  void router.push('/search')
-}
-
 function cancelEdits() {
   const current = vessel.value
   if (!current) return
@@ -915,7 +823,7 @@ function cancelEdits() {
 function save() {
   if (!vessel.value) return
   if (!hasChanges()) {
-    toast.error('Nothing to save')
+    toast.error('Nothing to confirm')
     return
   }
   confirmOpen.value = true
@@ -924,17 +832,6 @@ function save() {
 async function confirmSave() {
   const current = vessel.value
   if (!current) return
-  const pendingLink = current.linkReview
-  if (pendingLink) {
-    laraBaseline.value = { ...laraValues.value }
-    laraOrigin.value = { ...laraValues.value }
-    for (const row of rows.value) row.baseline = cloneDraft(row.draft)
-    committedDrafts.value = rows.value.map((row) => cloneDraft(row.draft))
-    originDrafts.value = committedDrafts.value.map(cloneDraft)
-    loggedMatchLabel.value = matchLabel(rows.value.find((row) => row.id === selectedId.value))
-    pendingSyncs.value = []
-    pendingMatches.value = []
-  }
   if (structure.value) schedule.keepShape(current.id)
   const chosen = manualMatch()
   const matches = [...pendingMatches.value, ...(chosen ? [chosen] : [])]
@@ -966,9 +863,8 @@ async function confirmSave() {
       )
     }
   }
-  if (pendingLink && !commitLinkReview(current)) return
   confirmOpen.value = false
-  toast.success('Review saved')
+  toast.success('Review confirmed')
   await nextTick()
   closePage()
 }
@@ -987,14 +883,11 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
       <PageBreadcrumb
         :items="[
           { label: 'Vessel schedule search', to: '/search' },
-          { label: vessel.vesselName, to: vesselDetailPath(vessel) },
+          { label: vessel.vesselName, to: `/vessels/${vessel.id}/view` },
           { label: 'Review' },
         ]"
       />
       <div class="flex flex-wrap items-center gap-2">
-        <Button v-if="linkTarget" type="button" variant="outline" @click="openVessel(linkTarget.id)">
-          Active LARA record
-        </Button>
         <VesselAdjustMenu :vessel="vessel" size="default" hide-mismatch @pick="quickAction = $event" />
         <Button type="button" variant="outline" @click="openHistory">Activity logs</Button>
         <Button type="button" variant="outline" @click="requestSync('LARA')">Sync latest LARA</Button>
@@ -1017,13 +910,6 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
         <Button type="button" variant="outline" size="sm" @click="addRow">Add</Button>
       </div>
     </Alert>
-    <Alert v-if="linkReview && temporaryVessel" variant="warning">
-      <AlertTitle>Temporary vessel</AlertTitle>
-      <AlertDescription>
-        {{ temporaryVessel.vesselName }} matches this schedule by voyage, point code, pool location, and visit no.
-        Formal values stay in each field unless you choose the temporary value.
-      </AlertDescription>
-    </Alert>
     <Alert v-if="mappingAlert" :variant="mappingAlert.variant">
       <AlertTitle>{{ mappingAlert.title }}</AlertTitle>
       <AlertDescription>{{ mappingAlert.text }}</AlertDescription>
@@ -1033,27 +919,16 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
         <dl>
           <template v-for="column in LARA_COLUMNS" :key="column.id">
             <template v-if="!HIDDEN_LARA.has(column.id)">
-            <ReadonlyField v-if="CALCULATED_LARA.has(column.id)" layout="row" :label="column.label" :value="displayLara(column.id, column.kind)" />
-            <div v-else class="grid gap-1 border-b py-2 sm:grid-cols-[11rem_1fr] sm:items-center">
+            <div class="grid gap-1 border-b py-2 sm:grid-cols-[11rem_1fr] sm:items-center">
               <div class="flex items-center gap-1 text-sm text-muted-foreground">
                 {{ column.label }}
                 <SyncFieldAlert v-if="fieldCompare" :schedule-id="vessel.id" :column-id="column.id" />
               </div>
-              <DateTimePicker
-                v-if="column.kind === 'datetime'"
-                :model-value="datetimeInputValue(laraValues[column.id] ?? '')"
-                @update:model-value="onLaraInput(column.id, datetimeToIso($event))"
-              />
-              <Input v-else :model-value="laraValues[column.id]" class="h-8" @update:model-value="onLaraInput(column.id, String($event))" />
+              <p class="text-sm">{{ displayLara(column.id, column.kind) }}</p>
               <p v-if="offerForColumn(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
                 <span>Latest {{ offerLabel(offerForColumn(column.id)!.incomingValue, column.kind) }}</span>
                 <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepCurrent(column.id)">Keep current</Button>
                 <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useLatest(column.id)">Use latest</Button>
-              </p>
-              <p v-if="linkOffer(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
-                <span>Temporary {{ offerLabel(linkOffer(column.id)!.temporary, column.kind) }}</span>
-                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepFormal(column.id)">Keep formal</Button>
-                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useTemporary(column.id)">Use temporary</Button>
               </p>
             </div>
             </template>
@@ -1062,7 +937,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
       </DataSection>
 
       <DataSection title="Terminal">
-        <template v-if="activeRow && rows.length > 1 && (linkTerminalOpen || structure !== 'many')" #actions>
+        <template v-if="allowSelectTerminal && activeRow && rows.length > 1 && structure !== 'many'" #actions>
           <Button type="button" variant="outline" size="sm" @click="openSelect">Select</Button>
         </template>
         <div
@@ -1073,18 +948,17 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
           <p class="text-sm text-muted-foreground">
             Add a record to enter terminal information.
           </p>
-          <Button type="button" variant="outline" size="sm" @click="addRow">Add</Button>
+          <Button v-if="allowAddTerminal" type="button" variant="outline" size="sm" @click="addRow">Add</Button>
         </div>
         <div
           v-else-if="!activeRow"
           class="flex flex-col items-center gap-2 rounded-md border border-dashed px-6 py-10 text-center"
         >
           <p class="text-sm font-medium">Multiple terminal records</p>
-          <p class="text-sm text-muted-foreground">Select one record to edit.</p>
-          <Button type="button" variant="outline" size="sm" @click="openSelect">Select</Button>
+          <p class="text-sm text-muted-foreground">Select one record to bind.</p>
+          <Button v-if="allowSelectTerminal" type="button" variant="outline" size="sm" @click="openSelect">Select</Button>
         </div>
         <div v-else>
-          <p v-if="activeRow.linkSource" class="mb-2 text-sm text-muted-foreground">Source: {{ activeRow.linkSource }}</p>
           <dl>
             <template v-for="column in terminalFields" :key="column.id">
               <div
@@ -1096,16 +970,19 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
                   <SyncFieldAlert v-if="fieldCompare" :schedule-id="vessel.id" :column-id="column.id" />
                 </div>
                 <DateTimePicker
-                  v-if="column.kind === 'datetime'"
+                  v-if="draftEditable(draftKeyForColumn(column.id)!) && column.kind === 'datetime'"
                   :model-value="datetimeInputValue(activeRow.draft[draftKeyForColumn(column.id)!])"
                   @update:model-value="onTerminalInput(draftKeyForColumn(column.id)!, datetimeToIso($event))"
                 />
                 <Input
-                  v-else
+                  v-else-if="draftEditable(draftKeyForColumn(column.id)!)"
                   :model-value="activeRow.draft[draftKeyForColumn(column.id)!]"
                   class="h-8"
                   @update:model-value="onTerminalInput(draftKeyForColumn(column.id)!, String($event))"
                 />
+                <p v-else class="text-sm">
+                  {{ displayDraftValue(activeRow.draft, draftKeyForColumn(column.id)!, column.kind === 'datetime' ? 'datetime' : 'text') }}
+                </p>
                 <p v-if="offerForColumn(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
                   <span>Latest {{ offerLabel(offerForColumn(column.id)!.incomingValue, column.kind) }}</span>
                   <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepCurrent(column.id)">Keep current</Button>
@@ -1115,7 +992,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
             </template>
           </dl>
           <Button
-            v-if="activeRow.source === 'manual'"
+            v-if="activeRow.source === 'manual' && editMode === 'all'"
             type="button"
             variant="outline"
             size="sm"
@@ -1135,14 +1012,13 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
       </label>
       <div class="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" @click="cancelEdits">Cancel</Button>
-        <Button type="button" variant="primary" @click="save">Save</Button>
+        <Button type="button" variant="primary" @click="save">Confirm</Button>
       </div>
     </div>
     <VesselQuickActions
       :vessel="vessel"
       :action="quickAction"
       @close="quickAction = null"
-      @deleted="onVesselDeleted"
     />
   </div>
   <Alert v-else variant="warning">
@@ -1186,7 +1062,6 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
           <TableHeader>
             <TableRow>
               <TableHead class="whitespace-nowrap">Match</TableHead>
-              <TableHead v-if="linkTerminalOpen" class="whitespace-nowrap">Source</TableHead>
               <TableHead v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                 {{ column.label }}
               </TableHead>
@@ -1201,7 +1076,6 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
               @click="pendingSelectId = row.id"
             >
               <TableCell class="whitespace-nowrap">{{ row.id === selectedId ? 'Current' : '' }}</TableCell>
-              <TableCell v-if="linkTerminalOpen" class="whitespace-nowrap">{{ row.linkSource }}</TableCell>
               <TableCell v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                 {{ displayDraftValue(row.draft, column.id, column.kind) }}
               </TableCell>

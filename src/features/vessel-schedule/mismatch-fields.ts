@@ -43,7 +43,7 @@ export const CANDIDATE_COLUMN_DEFS: Array<{
 }> = [
   { id: 'evoyage', label: 'Export voyage', kind: 'text' },
   { id: 'ivoyage', label: 'Import voyage', kind: 'text' },
-  { id: 'vesselNameCn', label: 'Vessel name Cn', kind: 'text' },
+  { id: 'vesselNameCn', label: 'Vessel name CN', kind: 'text' },
   { id: 'terminal', label: 'Terminal name', kind: 'text' },
   { id: 'eta', label: 'ETA', kind: 'datetime' },
   { id: 'ata', label: 'ATA', kind: 'datetime' },

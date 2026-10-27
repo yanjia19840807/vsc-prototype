@@ -12,7 +12,7 @@ export type TerminalQueryStatus = 'PENDING' | 'FOUND' | 'NOT_FOUND' | 'FAILED'
 
 export type VoyageStatus = 'ACTIVE' | 'OMIT'
 
-export type ScheduleOrigin = 'LARA' | 'MANUAL'
+export type ScheduleOrigin = 'LARA'
 
 export type VersionSource = 'SYNC' | 'USER'
 
@@ -177,15 +177,6 @@ export type FieldDecision = {
   updatedAt: string
 }
 
-export type LaraLink = {
-  id: string
-  sourceScheduleId: string
-  targetScheduleId: string
-  reason: string
-  updatedBy: string
-  updatedAt: string
-}
-
 export type ScheduleState = {
   seq: number
   schedules: VesselSchedule[]
@@ -198,7 +189,6 @@ export type ScheduleState = {
   laraRuns: LaraSyncRun[]
   terminalSyncRuns: TerminalSyncRun[]
   terminalQueries: TerminalQuery[]
-  laraLinks: LaraLink[]
 }
 
 export type LaraPayloadInput = Omit<LaraPayload, 'id' | 'runId' | 'scheduleId' | 'capturedAt'> & {

@@ -1,6 +1,6 @@
 import { displayedLara, displayedTerminal } from '@/domain/schedule-model/display'
 import { applyTerminalPayload, hasBoundMatch, laraVersion, type SyncPolicy } from '@/domain/schedule-model/sync-diff'
-import { addDays, isLinkSource, isLinkTarget, nextId, parseTime } from '@/domain/schedule-model/state'
+import { addDays, nextId, parseTime } from '@/domain/schedule-model/state'
 import type {
   ScheduleState,
   ScheduleTrigger,
@@ -46,7 +46,7 @@ export function openTerminalSync(
   }
   let next = { ...issued.state, terminalSyncRuns: [...issued.state.terminalSyncRuns, run] }
   if (input.failedToIssue) return next
-  const due = next.schedules.filter((schedule) => !isLinkSource(next, schedule.id) && !isLinkTarget(next, schedule.id) && isDue(next, schedule, input.startedAt, etaLeadDays, atdLagDays))
+  const due = next.schedules.filter((schedule) => isDue(next, schedule, input.startedAt, etaLeadDays, atdLagDays))
   for (const schedule of due) {
     next = appendQuery(next, schedule, {
       syncRunId: run.id,
@@ -71,7 +71,6 @@ export function openSingleTerminalQuery(
 ) {
   const schedule = state.schedules.find((item) => item.id === input.scheduleId)
   if (!schedule) throw new Error('Vessel schedule was not found')
-  if (isLinkSource(state, schedule.id) || isLinkTarget(state, schedule.id)) throw new Error('A linked schedule is left out of sync')
   return appendQuery(state, schedule, {
     syncRunId: null,
     trigger: input.trigger,
@@ -111,22 +110,12 @@ export function completeTerminalQuery(
       next = { ...issued.state, terminalPayloads: [...issued.state.terminalPayloads, payload] }
     }
   }
-  if (!isLinkSource(next, query.scheduleId) && !isLinkTarget(next, query.scheduleId)) {
-    const comparable = input.matchingStatus
-      ? input.matchingStatus === 'Auto matched' || input.matchingStatus === 'Manual matched'
-      : hasBoundMatch(next, query.scheduleId)
-    const hasTerminal = hasBoundMatch(next, query.scheduleId)
-    if (!comparable) {
-      if (!hasTerminal && input.status === 'FOUND' && payloads.length === 1) {
-        next = applyTerminalPayload(next, {
-          scheduleId: query.scheduleId,
-          payloadId: payloads[0]!.id,
-          updatedBy: query.requestedBy,
-          updatedAt: input.respondedAt,
-          policy: input.policy,
-        })
-      }
-    } else if (input.status === 'FOUND' && payloads.length === 1) {
+  const comparable = input.matchingStatus
+    ? input.matchingStatus === 'Auto matched' || input.matchingStatus === 'Manual matched'
+    : hasBoundMatch(next, query.scheduleId)
+  const hasTerminal = hasBoundMatch(next, query.scheduleId)
+  if (!comparable) {
+    if (!hasTerminal && input.status === 'FOUND' && payloads.length === 1) {
       next = applyTerminalPayload(next, {
         scheduleId: query.scheduleId,
         payloadId: payloads[0]!.id,
@@ -135,6 +124,14 @@ export function completeTerminalQuery(
         policy: input.policy,
       })
     }
+  } else if (input.status === 'FOUND' && payloads.length === 1) {
+    next = applyTerminalPayload(next, {
+      scheduleId: query.scheduleId,
+      payloadId: payloads[0]!.id,
+      updatedBy: query.requestedBy,
+      updatedAt: input.respondedAt,
+      policy: input.policy,
+    })
   }
   if (query.syncRunId) next = settleRun(next, query.syncRunId, input.respondedAt)
   return next

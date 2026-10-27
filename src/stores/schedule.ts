@@ -27,6 +27,7 @@ import {
   type SyncPolicy,
   type TerminalField,
 } from '@/domain/schedule-model'
+import { scheduleNeedsReview } from '@/features/vessel-schedule/review-access'
 import { bindingFor } from '@/features/vessel-schedule/sync-columns'
 import { CURRENT_USER } from '@/mock/ports'
 import { useListSettingsStore } from '@/stores/list-settings'
@@ -40,8 +41,6 @@ export type SyncChoice = {
   incomingValue: string
   typed: string
 }
-
-const COMPARED_STATUSES = new Set(['Auto matched', 'Manual matched'])
 
 export const useScheduleStore = defineStore('schedule', () => {
   const vessels = useVesselStore()
@@ -68,12 +67,13 @@ export const useScheduleStore = defineStore('schedule', () => {
   }
 
   function review(scheduleId: string): ScheduleReview {
+    return reviewSchedule(state.value, scheduleId, policy())
+  }
+
+  function needsReview(scheduleId: string) {
     const vessel = vessels.byId(scheduleId)
-    const result = reviewSchedule(state.value, scheduleId, policy())
-    if (!vessel || !COMPARED_STATUSES.has(vessel.matchingStatus)) {
-      return { scheduleId, pending: false, changed: false, fields: [], shape: null, candidateCount: 0, queryId: null }
-    }
-    return result
+    if (!vessel) return false
+    return scheduleNeedsReview(vessel, review(scheduleId))
   }
 
   function candidates(scheduleId: string) {
@@ -168,7 +168,12 @@ export const useScheduleStore = defineStore('schedule', () => {
       laraEtd: lara.laraEtd,
       cutoff: lara.cutoff,
     }
-    const versionId = state.value.matches.find((match) => match.id === schedule.matchId)?.terminalVersionId
+    const match = state.value.matches.find((item) => item.id === schedule.matchId)
+    const versionId = match?.terminalVersionId
+    if (match?.method === 'AUTO' && versionId) {
+      fields.matchingStatus = 'Auto matched'
+      fields.terminalSource = 'freightower'
+    }
     if (versionId) {
       fields.vesselOperator = terminal.vesselOperator
       fields.tmlEta = terminal.eta
@@ -208,7 +213,9 @@ export const useScheduleStore = defineStore('schedule', () => {
     vessels.patchDisplay(scheduleId, fields)
   }
 
-  return { review, history, confirm, candidates, keepShape, adoptNone, adoptCandidate }
+  for (const schedule of state.value.schedules) project(schedule.id)
+
+  return { review, needsReview, history, confirm, candidates, keepShape, adoptNone, adoptCandidate }
 })
 
 function settleLara(state: ReturnType<typeof seedSchedule>['state'], scheduleId: string, choice: SyncChoice, at: string) {

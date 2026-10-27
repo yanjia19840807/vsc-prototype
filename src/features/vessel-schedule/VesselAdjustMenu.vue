@@ -1,18 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
 
 import { Button } from '@/components/ui/button'
 import type { ButtonVariants } from '@/components/ui/button'
 import {
-  canDeleteManualVessel,
-  canEditManualVessel,
-} from '@/features/vessel-schedule/manual-vessel-actions'
-import {
   mismatchActionForVessel,
-  mismatchActionLabel,
   type ScheduleQuickAction,
 } from '@/features/vessel-schedule/mismatch-actions'
+import { useScheduleStore } from '@/stores/schedule'
 import type { VesselRecord } from '@/types/vsp'
 
 const props = withDefaults(
@@ -29,49 +24,26 @@ const emit = defineEmits<{
   pick: [action: ScheduleQuickAction]
 }>()
 
-const router = useRouter()
-const mismatchAction = computed(() => (props.hideMismatch || props.vessel.createdManually ? null : mismatchActionForVessel(props.vessel)))
-const mismatchLabel = computed(() => (mismatchAction.value ? mismatchActionLabel(props.vessel) : null))
-const showTemporaryReview = computed(() => !props.hideMismatch && Boolean(props.vessel.createdManually))
-const canEdit = computed(() => props.hideMismatch && canEditManualVessel(props.vessel))
-const canDelete = computed(() => props.hideMismatch && canDeleteManualVessel(props.vessel))
-const show = computed(
-  () => showTemporaryReview.value || canEdit.value || canDelete.value || Boolean(mismatchAction.value) || Boolean(props.vessel.linkReview),
-)
+const schedule = useScheduleStore()
+const canReview = computed(() => schedule.needsReview(props.vessel.id))
+const mismatchAction = computed(() => mismatchActionForVessel(props.vessel) ?? 'reviewMatch')
 
 function openReview() {
-  void router.push(`/vessels/${props.vessel.id}/review`)
+  if (!canReview.value) return
+  emit('pick', mismatchAction.value)
 }
 </script>
 
 <template>
-  <div v-if="show" class="flex flex-wrap items-center gap-1">
-    <Button v-if="showTemporaryReview" type="button" variant="outline" :size="size" @click="openReview">
-      Review
-    </Button>
+  <div v-if="!hideMismatch" class="flex flex-wrap items-center gap-1">
     <Button
-      v-else-if="vessel.linkReview && !hideMismatch && !mismatchAction"
       type="button"
       variant="outline"
       :size="size"
-      @click="emit('pick', 'linkReview')"
+      :disabled="!canReview"
+      @click="openReview"
     >
       Review
-    </Button>
-    <Button
-      v-if="mismatchAction"
-      type="button"
-      variant="outline"
-      :size="size"
-      @click="emit('pick', mismatchAction)"
-    >
-      {{ mismatchLabel }}
-    </Button>
-    <Button v-if="canEdit" type="button" variant="outline" :size="size" @click="emit('pick', 'editVessel')">
-      Edit vessel
-    </Button>
-    <Button v-if="canDelete" type="button" variant="destructive" :size="size" @click="emit('pick', 'deleteVessel')">
-      Delete
     </Button>
   </div>
 </template>

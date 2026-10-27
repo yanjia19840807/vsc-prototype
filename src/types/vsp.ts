@@ -18,9 +18,6 @@ export type MatchingStatus =
 /** Where the bound terminal row came from. Manual rows are not Freightower results. */
 export type TerminalSource = 'freightower' | 'manual'
 
-/** List visibility. Inactive rows stay stored and are omitted from the default query. */
-export type RecordStatus = 'Active' | 'Inactive'
-
 export type ManualOverride = {
   source: string
   manual: string
@@ -292,8 +289,6 @@ export type VesselRecord = {
   manualOverrides: Record<string, ManualOverride>
   /** Freightower rows kept for multiple-match selection, including after confirmation. */
   terminalCandidates: TerminalSchedule[]
-  /** Open comparison against one temporary vessel. Formal data stays on screen until the user confirms. */
-  linkReview?: LinkReview
   /** Confirmation and reselection history for a multiple match. */
   matchHistory: MatchChange[]
   /**
@@ -314,41 +309,6 @@ export type VesselRecord = {
   lastRefreshTime: string
   notFoundFields?: string[]
   rowNotFound?: boolean
-  /** Created via Manual Add Vessel (not from LARA sync). */
-  createdManually?: boolean
-  /** Active rows appear in the default query. Inactive rows are linked manual sources. */
-  recordStatus?: RecordStatus
-  /** Manual vessel is the source of a LARA link. */
-  laraLinked?: boolean
-  /** Formal LARA vessel this manual row points at. First id when several visits match. */
-  laraLinkTargetId?: string
-  /** Every formal visit linked from this temporary vessel. */
-  laraLinkTargetIds?: string[]
-  /** Manual vessel that points at this formal LARA row. */
-  laraLinkSourceId?: string
-}
-
-export type LinkLaraDiff = {
-  field: string
-  label: string
-  official: string
-  temporary: string
-}
-
-export type LinkTerminalSource = 'Official' | 'Temporary' | 'Both'
-
-export type LinkTerminalChoice = {
-  id: string
-  source: LinkTerminalSource
-  schedule: TerminalSchedule
-}
-
-export type LinkReview = {
-  temporaryId: string
-  laraDiffs: LinkLaraDiff[]
-  terminalChoices: LinkTerminalChoice[]
-  /** Current terminal snapshots already match, so the popup stays closed. */
-  terminalMatched: boolean
 }
 
 export type PortDef = {

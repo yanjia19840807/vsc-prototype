@@ -13,21 +13,12 @@ export function emptyScheduleState(): ScheduleState {
     laraRuns: [],
     terminalSyncRuns: [],
     terminalQueries: [],
-    laraLinks: [],
   }
 }
 
 export function nextId(state: ScheduleState, prefix: string): { state: ScheduleState; id: string } {
   const id = `${prefix}-${state.seq}`
   return { state: { ...state, seq: state.seq + 1 }, id }
-}
-
-export function isLinkSource(state: ScheduleState, scheduleId: string) {
-  return state.laraLinks.some((link) => link.sourceScheduleId === scheduleId)
-}
-
-export function isLinkTarget(state: ScheduleState, scheduleId: string) {
-  return state.laraLinks.some((link) => link.targetScheduleId === scheduleId)
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000

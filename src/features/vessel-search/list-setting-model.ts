@@ -1,12 +1,10 @@
-import { isLaraLinkSource } from '@/features/vessel-schedule/lara-link'
 import type { MatchingStatus, VesselRecord } from '@/types/vsp'
 
 import { isMainVoyage } from '@/domain/main-voyage'
-import {
-  LARA_BRANDS,
-  LARA_VESSEL_TYPES,
-  LARA_VOYAGE_STATUSES,
-} from '@/features/vessel-schedule/manual-vessel-schemas'
+
+const LARA_VESSEL_TYPES = ['Group vsl', 'Partner vsl', '3PF'] as const
+const LARA_BRANDS = ['CMA', 'ANL', 'APL', 'CNC'] as const
+const LARA_VOYAGE_STATUSES = ['Active', 'Omit'] as const
 import {
   COLUMN_GROUP_ORDER,
   LOCKED_COLUMN_ID,
@@ -519,8 +517,6 @@ function inDateRange(raw: string | number, from: string, to: string) {
 }
 
 export function vesselMatchesFilters(vessel: VesselRecord, session: Record<string, FilterState>) {
-  if (vessel.recordStatus === 'Inactive') return false
-  if (vessel.createdManually && isLaraLinkSource(vessel)) return false
   for (const field of CATALOG) {
     const state = session[field.id] ?? emptyFilterState(field.kind)
     if (!filterMatches(vessel, field, state)) return false
