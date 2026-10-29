@@ -59,7 +59,7 @@ import { formatDateTime } from '@/lib/vessel-utils'
 import { useTabsStore } from '@/stores/tabs'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
 import { useVesselStore } from '@/stores/vessels'
-import type { HistoryDetail, MatchingStatus, TerminalSchedule, VesselRecord } from '@/types/vsp'
+import type { HistoryDetail, TerminalSchedule, VesselRecord } from '@/types/vsp'
 
 const route = useRoute()
 const router = useRouter()
@@ -224,14 +224,6 @@ function rowSource(current: VesselRecord, draft: TerminalDraft): TerminalRow['so
   return current.terminalSource === 'manual' && sameSchedule(current.terminalSchedule, draft) ? 'manual' : 'sync'
 }
 
-function etdGapDays(lara: string, terminal: string) {
-  if (!lara || !terminal) return null
-  const left = new Date(lara).getTime()
-  const right = new Date(terminal).getTime()
-  if (!Number.isFinite(left) || !Number.isFinite(right)) return null
-  return Math.abs(left - right) / (24 * 60 * 60 * 1000)
-}
-
 function matchLabel(row: TerminalRow | null | undefined) {
   if (!row) return 'Unconfirmed'
   return `Export ${row.draft.evoyage || '—'} · Import ${row.draft.ivoyage || '—'} · ${row.draft.terminal || '—'}`
@@ -319,7 +311,7 @@ const pendingSyncFields = computed(() => {
 })
 
 function syncChoices(): SyncChoice[] {
-  return pendingSyncFields.value.filter((field) => field.side !== 'MATCH').map((field) => ({
+  return pendingSyncFields.value.map((field) => ({
     side: field.side,
     field: field.field,
     payloadId: field.payloadId,
@@ -352,7 +344,9 @@ const structure = computed(() => {
   return schedule.review(current.id).shape
 })
 const fieldCompare = computed(() => {
-  if (!comparable.value || structure.value) return false
+  if (!comparable.value) return false
+  if (pendingSyncFields.value.some((field) => field.side !== 'MATCH')) return true
+  if (structure.value) return false
   return rows.value.length <= 1
 })
 
@@ -416,7 +410,10 @@ function payloadText(payload: { exportVoyage: string; importVoyage: string; vess
   return column?.kind === 'datetime' ? formatDateTime(value) : value
 }
 
-function payloadIsCurrent(payload: { exportVoyage: string; terminalName: string; etd: string }) {
+function payloadIsCurrent(payload: { id: string; exportVoyage: string; terminalName: string; etd: string }) {
+  const current = vessel.value
+  const compared = current ? schedule.review(current.id).comparedPayloadId : null
+  if (compared) return payload.id === compared
   const row = activeRow.value
   if (!row) return false
   return payload.exportVoyage === row.draft.evoyage && (!payload.terminalName || payload.terminalName === row.draft.terminal) && payload.etd === row.draft.etd
@@ -661,29 +658,8 @@ function adoptListed(payloadId: string) {
   init(current)
 }
 
-function statusAfterSave(current: VesselRecord): MatchingStatus {
-  const chosen = manualMatch()
-  if (chosen?.to === 'Unconfirmed') {
-    return rows.value.length ? 'Multiple terminal records' : 'No terminal record'
-  }
-  const edited = Boolean(
-    laraManualChanges().length
-    || createdDetails().length
-    || updatedDetails().length
-    || chosen,
-  )
-  if (current.matchingStatus === 'Manual matched' || edited) {
-    return 'Manual matched'
-  }
-  if (!selectedId.value) {
-    return rows.value.length ? 'Multiple terminal records' : 'No terminal record'
-  }
-  if (rows.value.length > 1) return 'Multiple terminal records'
-  const row = rows.value[0]
-  if (!row || !row.draft.evoyage.trim() || !row.draft.ivoyage.trim()) return 'No external voyage'
-  const gap = etdGapDays(laraValues.value.laraEtd ?? '', row.draft.etd)
-  if (gap == null || gap > 3) return 'ETD gap > 3 days'
-  return 'Auto matched'
+function statusAfterSave(): 'Manual matched' {
+  return 'Manual matched'
 }
 
 function confirmSync() {
@@ -821,8 +797,13 @@ function cancelEdits() {
 }
 
 function save() {
-  if (!vessel.value) return
-  if (!hasChanges()) {
+  const current = vessel.value
+  if (!current) return
+  if (!selectedRow.value) {
+    toast.error('Select one terminal record before confirming')
+    return
+  }
+  if (!hasChanges() && current.matchingStatus === 'Manual matched') {
     toast.error('Nothing to confirm')
     return
   }
@@ -831,7 +812,11 @@ function save() {
 
 async function confirmSave() {
   const current = vessel.value
-  if (!current) return
+  const selected = selectedRow.value
+  if (!current || !selected) {
+    toast.error('Select one terminal record before confirming')
+    return
+  }
   if (structure.value) schedule.keepShape(current.id)
   const chosen = manualMatch()
   const matches = [...pendingMatches.value, ...(chosen ? [chosen] : [])]
@@ -846,7 +831,7 @@ async function confirmSave() {
     reason: remark.value,
     syncs: pendingSyncs.value.map((sync) => ({ ...sync, changes: [...sync.changes] })),
     matches,
-    matchingStatus: statusAfterSave(current),
+    matchingStatus: statusAfterSave(),
   })
   const choices = syncChoices()
   if (choices.length) {
@@ -863,6 +848,7 @@ async function confirmSave() {
       )
     }
   }
+  schedule.sealReviewed(current.id, draftToSchedule(selected.draft), selected.draft.vesselOperator, remark.value)
   confirmOpen.value = false
   toast.success('Review confirmed')
   await nextTick()
@@ -1094,7 +1080,11 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
     <DialogContent size="2xl" class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[calc(100%-4rem)]">
       <DialogHeader>
         <DialogTitle>Select a terminal record</DialogTitle>
-        <DialogDescription>Adopting a record replaces the current terminal record.</DialogDescription>
+        <DialogDescription>
+          {{ structure === 'many' && vessel?.matchingStatus === 'Manual matched'
+            ? 'The current row is only the default used for comparison. Choose another record to compare instead.'
+            : 'Adopting a record replaces the current terminal record.' }}
+        </DialogDescription>
       </DialogHeader>
       <div class="overflow-x-auto rounded-md border">
         <Table>

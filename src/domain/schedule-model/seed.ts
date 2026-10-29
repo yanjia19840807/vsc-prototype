@@ -9,6 +9,7 @@ import {
   keepLaraField,
   keepTerminalField,
   keepTerminalShape,
+  settleOpenShape,
 } from '@/domain/schedule-model/sync-diff'
 import type { LaraField } from '@/domain/schedule-model/snapshot'
 import { emptyScheduleState, nextId } from '@/domain/schedule-model/state'
@@ -30,7 +31,7 @@ const TERMINAL_SHIFT = new Set(['v8'])
 
 export type ScheduleDisplayPatch = {
   id: string
-  fields: Partial<Pick<VesselRecord, 'laraEtb' | 'tmlEtb'>>
+  fields: Partial<Pick<VesselRecord, 'laraEtb' | 'tmlEtb' | 'tmlEta'>>
 }
 
 type ScenarioSeed = (state: ScheduleState, vessel: VesselRecord, patches: ScheduleDisplayPatch[]) => ScheduleState
@@ -38,6 +39,8 @@ type ScenarioSeed = (state: ScheduleState, vessel: VesselRecord, patches: Schedu
 const scenarioSeeders: Record<string, ScenarioSeed> = {
   v6: (state, vessel) => seedHeldVoyage(state, vessel),
   v26: (state, vessel) => seedManyAfterMatch(state, vessel),
+  v4: (state, vessel) => seedFirstNone(state, vessel),
+  v5: (state, vessel) => seedOpenMany(state, vessel),
   v29: (state, vessel) => seedNoneAfterMatch(state, vessel),
   v32: (state, vessel) => seedPendingLara(state, vessel, 'laraEtb'),
   v33: (state, vessel) => seedPendingTerminal(state, vessel, { etb: 1 }),
@@ -48,11 +51,16 @@ const scenarioSeeders: Record<string, ScenarioSeed> = {
   v38: (state, vessel) => seedAppliedVoyage(state, vessel),
   v39: (state, vessel) => seedAppliedTerminalEtb(state, vessel),
   v40: (state, vessel) => seedMixedLaraPending(state, vessel),
-  v41: (state, vessel) => seedKeptShape(state, vessel),
+  v41: (state, vessel) => seedKeptNoneAfterManual(state, vessel),
   v42: (state, vessel) => seedPendingTerminal(state, vessel, { etb: 1, exportVoyage: '-S' }),
   v44: (state, vessel) => seedKeptTerminal(state, vessel),
   v45: (state, vessel) => seedAcceptedTerminal(state, vessel),
-  v46: (state, vessel) => seedManyAfterMatch(state, vessel),
+  v46: (state, vessel) => seedOpenMany(state, vessel),
+  v49: (state, vessel) => seedNoneAfterManual(state, vessel),
+  v50: (state, vessel) => seedMissingVoyageAfterManual(state, vessel),
+  v47: (state, vessel) => seedVoyageTwinAfterManual(state, vessel),
+  v48: (state, vessel, patches) => seedGapAfterManual(state, vessel, patches),
+  v51: (state, vessel) => seedManyUnmatchedAfterManual(state, vessel),
 }
 
 export function seedSchedule(vessels: VesselRecord[]) {
@@ -123,6 +131,73 @@ function seedManyAfterMatch(state: ScheduleState, vessel: VesselRecord) {
   const candidates = vessel.terminalCandidates.length ? vessel.terminalCandidates : []
   if (candidates.length < 2) return next
   return storePayloads(next, vessel.id, candidates.map((schedule) => snapshotFromCandidate(vessel, schedule)), T2)
+}
+
+function seedVoyageTwinAfterManual(state: ScheduleState, vessel: VesselRecord) {
+  let next = addSchedule(state, vessel)
+  next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
+  const current = terminalFrom(vessel)
+  next = adoptTerminal(next, vessel.id, current, T0, true)
+  next = editTerminalFields(next, {
+    scheduleId: vessel.id,
+    fields: { etd: current.etd },
+    reason: 'Selected terminal',
+    updatedBy: CURRENT_USER,
+    updatedAt: T1,
+  })
+  const matched = {
+    ...current,
+    etb: shiftIso(current.etb, 2),
+    etd: shiftIso(current.etd, 2),
+  }
+  const other = {
+    ...current,
+    exportVoyage: `${current.exportVoyage}-W`,
+    importVoyage: `${current.importVoyage}X`,
+  }
+  return storePayloads(next, vessel.id, [matched, other], T2)
+}
+
+function seedManyUnmatchedAfterManual(state: ScheduleState, vessel: VesselRecord) {
+  let next = addSchedule(state, vessel)
+  next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
+  const current = terminalFrom(vessel)
+  next = adoptTerminal(next, vessel.id, current, T0, true)
+  next = editTerminalFields(next, {
+    scheduleId: vessel.id,
+    fields: { etd: current.etd },
+    reason: 'Selected terminal',
+    updatedBy: CURRENT_USER,
+    updatedAt: T1,
+  })
+  const first = {
+    ...current,
+    exportVoyage: `${current.exportVoyage}-A`,
+    importVoyage: `${current.importVoyage}A`,
+  }
+  const second = {
+    ...current,
+    exportVoyage: `${current.exportVoyage}-B`,
+    importVoyage: `${current.importVoyage}B`,
+  }
+  return storePayloads(next, vessel.id, [first, second], T2)
+}
+
+function seedGapAfterManual(state: ScheduleState, vessel: VesselRecord, patches: ScheduleDisplayPatch[]) {
+  let next = addSchedule(state, vessel)
+  next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
+  const current = terminalFrom(vessel)
+  next = adoptTerminal(next, vessel.id, current, T0, true)
+  next = editTerminalFields(next, {
+    scheduleId: vessel.id,
+    fields: { etd: current.etd },
+    reason: 'Selected terminal',
+    updatedBy: CURRENT_USER,
+    updatedAt: T1,
+  })
+  const eta = shiftIso(current.eta, 5)
+  patches.push({ id: vessel.id, fields: { tmlEta: eta } })
+  return adoptTerminal(next, vessel.id, { ...current, eta }, T2, true)
 }
 
 function seedNoneAfterMatch(state: ScheduleState, vessel: VesselRecord) {
@@ -299,14 +374,59 @@ function seedMixedLaraPending(state: ScheduleState, vessel: VesselRecord) {
   return adoptLara(next, vessel.id, { ...lara, laraEtb: shiftIso(lara.laraEtb, 1) }, T2)
 }
 
-function seedKeptShape(state: ScheduleState, vessel: VesselRecord) {
-  const next = seedNoneAfterMatch(state, vessel)
+function seedFirstNone(state: ScheduleState, vessel: VesselRecord) {
+  const next = addSchedule(state, vessel)
+  return recordNotFound(adoptLara(next, vessel.id, laraFrom(vessel), T0), vessel.id, T2)
+}
+
+function seedOpenMany(state: ScheduleState, vessel: VesselRecord) {
+  let next = addSchedule(state, vessel)
+  next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
+  if (vessel.terminalCandidates.length < 2) return next
+  return storePayloads(
+    next,
+    vessel.id,
+    vessel.terminalCandidates.map((schedule) => snapshotFromCandidate(vessel, schedule)),
+    T2,
+  )
+}
+
+function markManual(state: ScheduleState, vessel: VesselRecord) {
+  const current = terminalFrom(vessel)
+  return editTerminalFields(state, {
+    scheduleId: vessel.id,
+    fields: { etd: current.etd },
+    reason: 'Terminal confirmed',
+    updatedBy: CURRENT_USER,
+    updatedAt: T1,
+  })
+}
+
+function seedNoneAfterManual(state: ScheduleState, vessel: VesselRecord) {
+  let next = addSchedule(state, vessel)
+  next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
+  next = adoptTerminal(next, vessel.id, terminalFrom(vessel), T0, true)
+  next = markManual(next, vessel)
+  return recordNotFound(next, vessel.id, T2)
+}
+
+function seedKeptNoneAfterManual(state: ScheduleState, vessel: VesselRecord) {
+  const next = seedNoneAfterManual(state, vessel)
   return keepTerminalShape(next, {
     scheduleId: vessel.id,
     queryId: latestQueryId(next, vessel.id),
     updatedBy: CURRENT_USER,
     updatedAt: T2,
   })
+}
+
+function seedMissingVoyageAfterManual(state: ScheduleState, vessel: VesselRecord) {
+  let next = addSchedule(state, vessel)
+  next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
+  const current = terminalFrom(vessel)
+  next = adoptTerminal(next, vessel.id, current, T0, true)
+  next = markManual(next, vessel)
+  return adoptTerminal(next, vessel.id, { ...current, exportVoyage: '', importVoyage: '' }, T2, true)
 }
 
 function bindTerminal(state: ScheduleState, vessel: VesselRecord) {
@@ -419,7 +539,8 @@ function storePayloads(state: ScheduleState, scheduleId: string, snapshots: Term
     const payload = { ...snapshot, id: payloadIssued.id, queryId: query.id, scheduleId }
     next = { ...payloadIssued.state, terminalPayloads: [...payloadIssued.state.terminalPayloads, payload] }
   }
-  return next
+  if (snapshots.length === 1) return next
+  return settleOpenShape(next, { scheduleId, queryId: query.id, updatedBy: 'System', updatedAt: at })
 }
 
 function recordNotFound(state: ScheduleState, scheduleId: string, at: string) {
@@ -438,7 +559,8 @@ function recordNotFound(state: ScheduleState, scheduleId: string, at: string) {
     respondedAt: at,
     failureReason: '',
   }
-  return { ...issued.state, terminalQueries: [...issued.state.terminalQueries, query] }
+  const next = { ...issued.state, terminalQueries: [...issued.state.terminalQueries, query] }
+  return settleOpenShape(next, { scheduleId, queryId: query.id, updatedBy: 'System', updatedAt: at })
 }
 
 function snapshotFromCandidate(vessel: VesselRecord, schedule: TerminalSchedule): TerminalSnapshot {

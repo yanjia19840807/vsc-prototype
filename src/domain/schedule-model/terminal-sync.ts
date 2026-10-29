@@ -1,5 +1,5 @@
 import { displayedLara, displayedTerminal } from '@/domain/schedule-model/display'
-import { applyTerminalPayload, hasBoundMatch, laraVersion, type SyncPolicy } from '@/domain/schedule-model/sync-diff'
+import { applyTerminalPayload, hasBoundMatch, laraVersion, settleOpenShape, type SyncPolicy } from '@/domain/schedule-model/sync-diff'
 import { addDays, nextId, parseTime } from '@/domain/schedule-model/state'
 import type {
   ScheduleState,
@@ -131,6 +131,14 @@ export function completeTerminalQuery(
       updatedBy: query.requestedBy,
       updatedAt: input.respondedAt,
       policy: input.policy,
+    })
+  }
+  if (input.status === 'NOT_FOUND' || payloads.length > 1) {
+    next = settleOpenShape(next, {
+      scheduleId: query.scheduleId,
+      queryId: query.id,
+      updatedBy: query.requestedBy,
+      updatedAt: input.respondedAt,
     })
   }
   if (query.syncRunId) next = settleRun(next, query.syncRunId, input.respondedAt)

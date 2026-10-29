@@ -64,11 +64,11 @@ export function mappingHeaderAlert(
   switch (vessel.matchingStatus) {
     case 'Multiple terminal records':
       return multipleTerminalAlert(vessel.terminalCandidates.length, previous)
-    case 'ETD gap > 3 days':
+    case 'ETA gap > 3 days':
       return {
         variant: 'warning',
-        title: 'ETD gap > 3 days',
-        text: withPreviousStatus(MISMATCH_ALERT.reviewMatch, previous, 'ETD gap > 3 days'),
+        title: 'ETA gap > 3 days',
+        text: withPreviousStatus(MISMATCH_ALERT.reviewMatch, previous, 'ETA gap > 3 days'),
       }
     case 'No external voyage':
       return {

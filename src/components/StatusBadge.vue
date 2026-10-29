@@ -36,7 +36,7 @@ const variant = computed<BadgeVariants['variant'] | null>(() => {
   if (
     [
       'Multiple terminal records',
-      'ETD gap > 3 days',
+      'ETA gap > 3 days',
       'No external voyage',
       'No terminal record',
     ].includes(status)

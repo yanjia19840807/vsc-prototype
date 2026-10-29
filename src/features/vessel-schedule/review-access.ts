@@ -7,7 +7,7 @@ const OPEN_REVIEW_STATUSES = new Set<MatchingStatus>([
   'No terminal record',
   'Multiple terminal records',
   'No external voyage',
-  'ETD gap > 3 days',
+  'ETA gap > 3 days',
 ])
 
 const VOYAGE_KEYS = new Set<TerminalDraftKey>(['evoyage', 'ivoyage'])

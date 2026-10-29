@@ -11,7 +11,7 @@ export type MatchingStatus =
   | 'Auto matched'
   | 'Manual matched'
   | 'Multiple terminal records'
-  | 'ETD gap > 3 days'
+  | 'ETA gap > 3 days'
   | 'No external voyage'
   | 'No terminal record'
 

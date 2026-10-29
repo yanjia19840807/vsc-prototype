@@ -25,7 +25,7 @@ export const MISMATCH_EDIT_LABEL: Record<MismatchQuickAction, string> = {
 export const MISMATCH_ALERT: Record<MismatchQuickAction, string> = {
   selectMatch: 'Multiple terminal schedules match this LARA voyage. Select one to confirm.',
   reviewMatch:
-    'The LARA ETD and terminal ETD differ by more than 3 days. Review and confirm or edit terminal data.',
+    'The LARA ETA and terminal ETA differ by more than 3 days. Review and confirm or edit terminal data.',
   addTerminal: 'No terminal schedule was found for this port/voyage. Add terminal information manually.',
 }
 
@@ -50,7 +50,7 @@ export function mismatchActionForStatus(vessel: VesselRecord): MismatchQuickActi
   switch (vessel.matchingStatus) {
     case 'Multiple terminal records':
       return 'selectMatch'
-    case 'ETD gap > 3 days':
+    case 'ETA gap > 3 days':
     case 'No external voyage':
       return 'reviewMatch'
     case 'No terminal record':

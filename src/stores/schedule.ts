@@ -7,6 +7,7 @@ import {
   acceptTerminalField,
   acceptTerminalPayload,
   adoptNoTerminal,
+  confirmReviewedMatch,
   displayedLara,
   displayedTerminal,
   editLaraFields,
@@ -17,7 +18,9 @@ import {
   keepTerminalShape,
   laraFieldHistory,
   matchHistory,
+  pinTerminalCandidate,
   defaultSyncPolicy,
+  displayedMatchingStatus,
   reviewSchedule,
   terminalFieldHistory,
   watchKey,
@@ -28,6 +31,8 @@ import {
   type TerminalField,
 } from '@/domain/schedule-model'
 import { scheduleNeedsReview } from '@/features/vessel-schedule/review-access'
+import type { TerminalSchedule } from '@/types/vsp'
+import type { TerminalSnapshot } from '@/domain/schedule-model/types'
 import { bindingFor } from '@/features/vessel-schedule/sync-columns'
 import { CURRENT_USER } from '@/mock/ports'
 import { useListSettingsStore } from '@/stores/list-settings'
@@ -99,12 +104,53 @@ export const useScheduleStore = defineStore('schedule', () => {
 
   function adoptCandidate(scheduleId: string, payloadId: string) {
     const at = new Date().toISOString()
+    const review = reviewSchedule(state.value, scheduleId, policy())
+    const schedule = state.value.schedules.find((item) => item.id === scheduleId)
+    const manual = schedule ? state.value.matches.find((item) => item.id === schedule.matchId)?.method === 'USER' : false
+    if (review.shape === 'many' && manual) {
+      state.value = pinTerminalCandidate(state.value, {
+        scheduleId,
+        payloadId,
+        updatedBy: CURRENT_USER,
+        updatedAt: at,
+      })
+      return
+    }
     state.value = acceptTerminalPayload(state.value, {
       scheduleId,
       payloadId,
       updatedBy: CURRENT_USER,
       updatedAt: at,
       method: 'USER',
+    })
+    project(scheduleId)
+  }
+
+  function sealReviewed(scheduleId: string, row: TerminalSchedule, vesselOperator: string, reason: string) {
+    const at = new Date().toISOString()
+    const snapshot: TerminalSnapshot = {
+      vesselOperator,
+      exportVoyage: row.evoyage ?? '',
+      importVoyage: row.ivoyage ?? '',
+      vesselNameCn: row.vesselNameCn ?? '',
+      terminalName: row.terminal ?? '',
+      eta: row.eta ?? '',
+      ata: row.ata ?? '',
+      etb: row.etb ?? '',
+      atb: row.atb ?? '',
+      etd: row.etd ?? '',
+      atd: row.atd ?? '',
+      cyOpen: row.cyOpen ?? '',
+      cyCutoff: row.cyClosing ?? '',
+      vesselStatus: row.status ?? '',
+      updateTime: row.updateTime ?? '',
+    }
+    state.value = confirmReviewedMatch(state.value, {
+      scheduleId,
+      snapshot,
+      reason,
+      updatedBy: CURRENT_USER,
+      updatedAt: at,
     })
     project(scheduleId)
   }
@@ -170,8 +216,17 @@ export const useScheduleStore = defineStore('schedule', () => {
     }
     const match = state.value.matches.find((item) => item.id === schedule.matchId)
     const versionId = match?.terminalVersionId
-    if (match?.method === 'AUTO' && versionId) {
-      fields.matchingStatus = 'Auto matched'
+    const status = displayedMatchingStatus(state.value, scheduleId)
+    if (status === 'Multiple terminal records' || status === 'No terminal record') {
+      vessels.patchDisplay(scheduleId, fields)
+      if (status === 'Multiple terminal records') vessels.markMultiple(scheduleId)
+      else vessels.markNoTerminal(scheduleId)
+      return
+    }
+    if (status === 'Manual matched') {
+      fields.matchingStatus = 'Manual matched'
+    } else if (status) {
+      fields.matchingStatus = status
       fields.terminalSource = 'freightower'
     }
     if (versionId) {
@@ -215,7 +270,7 @@ export const useScheduleStore = defineStore('schedule', () => {
 
   for (const schedule of state.value.schedules) project(schedule.id)
 
-  return { review, needsReview, history, confirm, candidates, keepShape, adoptNone, adoptCandidate }
+  return { review, needsReview, history, confirm, candidates, keepShape, adoptNone, adoptCandidate, sealReviewed }
 })
 
 function settleLara(state: ReturnType<typeof seedSchedule>['state'], scheduleId: string, choice: SyncChoice, at: string) {

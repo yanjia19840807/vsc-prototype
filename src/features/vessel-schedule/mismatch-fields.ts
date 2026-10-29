@@ -199,12 +199,12 @@ export function datetimeToIso(local: string) {
   return Number.isNaN(date.getTime()) ? local : date.toISOString()
 }
 
-/** Highlight ETD when the LARA–terminal ETD gap exceeds 3 days. */
+/** Highlight ETA when the LARA–terminal ETA gap exceeds 3 days. */
 export function reviewWarnKeys(vessel: VesselRecord, schedule: TerminalSchedule | null | undefined): Set<TerminalDraftKey> {
   if (isMissingExternalVoyage(vessel)) return new Set<TerminalDraftKey>(['evoyage', 'ivoyage'])
   const warn = new Set<TerminalDraftKey>()
   if (!schedule) {
-    warn.add('etd')
+    warn.add('eta')
     return warn
   }
   const dayMs = 24 * 60 * 60 * 1000
@@ -215,8 +215,8 @@ export function reviewWarnKeys(vessel: VesselRecord, schedule: TerminalSchedule 
     if (!Number.isFinite(a) || !Number.isFinite(b)) return null
     return Math.abs(a - b) / dayMs
   }
-  const etdGap = gapDays(vessel.laraEtd, schedule.etd)
-  if (etdGap == null || etdGap > 3) warn.add('etd')
+  const etaGap = gapDays(vessel.laraEta, schedule.eta)
+  if (etaGap == null || etaGap > 3) warn.add('eta')
   return warn
 }
 
@@ -227,13 +227,13 @@ export function reviewAlertText(vessel: VesselRecord, schedule: TerminalSchedule
   const warn = reviewWarnKeys(vessel, schedule)
   const parts: string[] = []
   const dayMs = 24 * 60 * 60 * 1000
-  if (warn.has('etd') && schedule?.etd && vessel.laraEtd) {
-    const days = Math.round(Math.abs(new Date(vessel.laraEtd).getTime() - new Date(schedule.etd).getTime()) / dayMs)
-    if (Number.isFinite(days)) parts.push(`ETD gap is about ${days} day(s)`)
+  if (warn.has('eta') && schedule?.eta && vessel.laraEta) {
+    const days = Math.round(Math.abs(new Date(vessel.laraEta).getTime() - new Date(schedule.eta).getTime()) / dayMs)
+    if (Number.isFinite(days)) parts.push(`ETA gap is about ${days} day(s)`)
   }
   const base = MISMATCH_ALERT_REVIEW
   return parts.length ? `${base} ${parts.join('; ')}.` : base
 }
 
 const MISMATCH_ALERT_REVIEW =
-  'The LARA ETD and terminal ETD differ by more than 3 days. Review and confirm or edit terminal data.'
+  'The LARA ETA and terminal ETA differ by more than 3 days. Review and confirm or edit terminal data.'

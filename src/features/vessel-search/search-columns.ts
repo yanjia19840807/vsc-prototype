@@ -193,7 +193,7 @@ export function isMissingExternalVoyage(v: VesselRecord) {
 
 /** Match found but not confirmed. Terminal cells show an em dash. */
 export function isUnconfirmedMatch(v: VesselRecord) {
-  return v.matchingStatus === 'Multiple terminal records' || v.matchingStatus === 'ETD gap > 3 days'
+  return v.matchingStatus === 'Multiple terminal records' || v.matchingStatus === 'ETA gap > 3 days'
 }
 
 export function candidateCountLabel(v: VesselRecord) {

@@ -410,6 +410,15 @@ const visibleColCount = computed(
 
     <div ref="tableWrap" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border">
       <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-card px-3 py-2 text-xs">
+        <span class="inline-flex items-center gap-1.5">
+          <span class="size-3 shrink-0 rounded-sm bg-accent ring-1 ring-foreground/15" />
+          Changed
+        </span>
+        <span class="inline-flex items-center gap-1.5">
+          <span class="size-2 shrink-0 rounded-full bg-red-600" />
+          Expired
+        </span>
+        <span class="h-3 w-px shrink-0 bg-border" />
         <span
           v-for="group in COLUMN_GROUP_ORDER"
           :key="group"

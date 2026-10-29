@@ -153,7 +153,7 @@ const MAPPING_STATUSES: MatchingStatus[] = [
   'Auto matched',
   'Manual matched',
   'Multiple terminal records',
-  'ETD gap > 3 days',
+  'ETA gap > 3 days',
   'No external voyage',
   'No terminal record',
 ]
@@ -268,7 +268,7 @@ function normalizeStoredFilter(field: FilterFieldDef, raw: Partial<FilterState> 
   base.to = source.to ?? ''
   base.values = field.kind === 'lines'
     ? parseLineList((source.values ?? []).join('\n'))
-    : [...(source.values ?? [])].map((value) => (value === 'ETD gap > 5 days' ? 'ETD gap > 3 days' : value))
+    : [...(source.values ?? [])].map((value) => (value === 'ETD gap > 5 days' || value === 'ETD gap > 3 days' ? 'ETA gap > 3 days' : value))
   if (field.kind !== 'datetime' || source.dateMode !== 'relative') return base
   return {
     ...base,

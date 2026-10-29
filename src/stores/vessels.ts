@@ -262,6 +262,28 @@ export const useVesselStore = defineStore('vessels', () => {
     refreshCalculated(vessel)
   }
 
+  function markMultiple(id: string) {
+    const vessel = byId(id)
+    if (!vessel) return
+    vessel.matchingStatus = 'Multiple terminal records'
+    vessel.terminalSchedule = null
+    vessel.terminalSource = null
+    refreshCalculated(vessel)
+    vessel.terminalName = ''
+    vessel.tmlEta = ''
+    vessel.tmlAta = ''
+    vessel.tmlEtb = ''
+    vessel.tmlAtb = ''
+    vessel.tmlEtd = ''
+    vessel.tmlAtd = ''
+    vessel.cyOpen = ''
+    vessel.cyCutoff = ''
+    vessel.externalVoyage = ''
+    vessel.externalExportVoyage = ''
+    vessel.externalImportVoyage = ''
+    vessel.localVoyage = ''
+  }
+
   function markNoTerminal(id: string) {
     const vessel = byId(id)
     if (!vessel) return
@@ -1202,6 +1224,7 @@ export const useVesselStore = defineStore('vessels', () => {
     filteredHistory,
     byId,
     patchDisplay,
+    markMultiple,
     markNoTerminal,
     clearFilters,
     toggleSelect,

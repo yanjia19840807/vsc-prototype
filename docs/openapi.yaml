@@ -1,0 +1,1477 @@
+# 字段含义和示例见 vessel-schedules-api.md。
+openapi: 3.0.3
+info:
+  title: 船期平台
+  version: 0.1.0
+  description: |
+    页面对外的读写。JSON 用页面字段名，不返回库列名。响应里只有 id，不返回 URL。
+    表结构见 vessel-schedules-api.md。lara_sync_run、lara_payload、terminal_sync_run、terminal_query、terminal_payload、field_decision 不在这份规范里。
+
+    后端管筛选、排序、分页、匹配状态、待确认差异、同步落库、保存、活动日志。后端不按某个人的列表方案裁剪结果。
+    列表方案、列标题、空值占位、时间格式、按钮、提示文案、高亮由前端处理。相对日期先折成绝对日期再提交。导出由服务端按当前筛选条件生成 Excel，包含过滤后的全部船期。
+    接口不返回能否点 Review、输入框是否可编、候选条数文案、系统同步的说明句子，也不返回 Visit no、cutoff、合作方、同步运行记录。
+
+    关注字段是服务端固定的一组：LARA 的 ETB、ETD，码头的 ETB、ETD、ATB、ATD、出口航次、进口航次。
+    天数阈值由前端在多条码头记录的日期比较里使用；相差天数不超过阈值的日期不放进 changes。出口航次、进口航次没有天数阈值。
+
+    当前不是 Manual matched 时，同步写入全部最新字段并重算 matchingStatus，changes.pending 为 false。
+    正好一条码头记录、进出口航次都有，并且 LARA ETA 与码头 ETA 相差不超过 3 天，结果是 Auto matched。
+    缺航次是 No external voyage，天数差算不出来或超过 3 天是 ETA gap > 3 days，多条是 Multiple terminal records，没有记录是 No terminal record。
+
+    当前是 Manual matched 时，状态保持 Manual matched，不改回 Auto matched。已保存的关注字段不覆盖，这些差异 pending 为 true，当前值仍是 previousValue。
+    不在关注字段里的差异仍然写入，pending 为 false。下一次仍是一条记录且会算出 ETA gap > 3 days、No external voyage 或 No terminal record 时，changes 里增加匹配状态，确认前 pending 为 true。确认后该状态差异 pending 为 false，已保存状态仍是 Manual matched。下一次仍会是 Auto matched 时，不写这条状态差异。
+
+    Manual matched 之后下一次仍是多条时，出口航次和进口航次都有值且只有一条候选两个都相同，该条只是默认比对对象。terminalPending 仍为 many，并写出匹配状态差异。改选只换比对对象，不整条覆盖已保存的码头记录。
+
+    审核确认成功后 matchingStatus 一定是 Manual matched。没有选中一条码头记录时返回 409，不写入。缺航次或 ETA 相差超过 3 天不阻止确认。
+    已挂到正式航次上的手工临时船不进入这些接口。手工船的新建、修改、删除，以及临时船关联，不在这里。
+servers:
+  - url: /
+tags:
+  - name: vessel-schedules
+    description: 船期搜索、列表、明细
+  - name: review
+    description: 审核、码头候选、单笔同步
+  - name: activity-logs
+    description: 活动日志
+  - name: terminal-voyages
+    description: 已入库的码头航次
+  - name: coverage
+    description: 区域、港口、码头代码
+paths:
+  /v1/vessel-schedules:
+    get:
+      tags: [vessel-schedules]
+      operationId: queryVesselSchedules
+      summary: 查询船期
+      description: |
+        筛选、排序和分页都是查询参数。不带筛选参数时不附加筛选。默认排序 -LARA.etb。
+        多选和多行重复同一个 side.field。子串参数只出现一次。日期用 side.fieldFrom 与 side.fieldTo。
+        列表在没有绑定、matchingStatus 为 Multiple terminal records 或 ETA gap > 3 days、或港口未覆盖且不是手工补录时，terminal 为 null。
+        changes 没有差异时为 null。pending 为 true 时当前值是 previousValue；pending 为 false 时当前值是 incomingValue。
+      parameters:
+        - $ref: "#/components/parameters/scheduleSort"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          description: 船期页
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchedulePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /v1/vessel-schedules/export:
+    get:
+      tags: [vessel-schedules]
+      operationId: exportVesselSchedules
+      summary: 导出船期
+      description: |
+        服务端生成 Excel。筛选参数和 sort 与查询船期相同，不带 page、pageSize。数据范围是本次条件命中的全部船期。
+        工作表一行一条船期。列表上 terminal 为 null 的格子在表里留空。不包含 visit_no。时刻写成 YYYY-MM-DD HH:mm。
+      parameters:
+        - $ref: "#/components/parameters/scheduleSort"
+      responses:
+        "200":
+          description: Excel 文件。
+          headers:
+            Content-Disposition:
+              description: 附件文件名，例如 attachment; filename="vessel-schedules.xlsx"。
+              schema:
+                type: string
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /v1/vessel-schedules/{scheduleId}:
+    get:
+      tags: [vessel-schedules]
+      operationId: getVesselSchedule
+      summary: 读取船期明细
+      description: |
+        在列表行之外增加 remark 和 sources。列表不返回这两项。明细不改数据。
+        标题用 lara.pointCode、lara.voyage、remark、matchingStatus、candidateCount、sharedLaraCount、voyageStatus。
+        terminal.enteredManually 为 true 时，前端在码头区标题标明手工录入。
+      parameters:
+        - $ref: "#/components/parameters/scheduleId"
+      responses:
+        "200":
+          description: 船期明细
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/vessel-schedules/{scheduleId}/review:
+    get:
+      tags: [review]
+      operationId: getVesselScheduleReview
+      summary: 读取审核
+      description: |
+        返回标题、当前 LARA、当前绑定的码头记录、待确认差异。不返回候选表，也不返回 lastModifiedBy。
+        remark 是已保存备注。页面上新的备注框从空开始，不回填这个值。
+        terminal 尚未绑定时为 null。已绑定则带上全部码头字段，包括列表里被藏起来的值。
+        前端按这些值决定表单：No terminal record 可新增码头记录；No external voyage 只能改 exportVoyage 和 importVoyage；Manual matched 且 enteredManually 可改并可删除；其余状态码头字段只读。
+        pending 为 true 的字段只在 previousValue 和 incomingValue 之间选。LARA 字段不能手输。
+        terminalPending 为 many 时展示状态变化和选择按钮。none 先处理没有码头记录。取消编辑不请求接口。
+      parameters:
+        - $ref: "#/components/parameters/scheduleId"
+      responses:
+        "200":
+          description: 审核
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [review]
+      operationId: saveVesselScheduleReview
+      summary: 保存审核
+      description: |
+        没有变化返回 400。没有选中一条码头记录返回 409，不写入。成功时 matchingStatus 为 Manual matched，并写一条活动日志。
+        fields 只放这次确认的待确认字段。没出现的待确认字段保持待确认。LARA 的 value 必须是该字段的 previousValue 或 incomingValue。
+        vesselType 和 Terminal 9code 提交了也忽略。candidateId 只在尚未绑定、用户从候选里选了一条时出现。
+        terminal 和 candidateId 一起出现时，覆盖该候选上被改过的字段。terminal 单独出现时，表示修改当前绑定或新建手工记录。删掉手工记录时 terminal 为 null。码头没有改动时不要带 terminal 和 candidateId。
+        请求里不带 matchingStatus。
+      parameters:
+        - $ref: "#/components/parameters/scheduleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewSave"
+      responses:
+        "200":
+          description: 保存后的审核
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "400":
+          description: 无变化，或字段取值不在允许范围内。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 没有选中一条码头记录。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/vessel-schedules/{scheduleId}/terminal-candidates:
+    get:
+      tags: [review]
+      operationId: listTerminalCandidates
+      summary: 读取码头候选
+      description: |
+        打开选择框时读取。没有候选时 data 为空数组。
+        尚未绑定且状态是 Multiple terminal records 时，选中的 id 留在页面上，跟确认一起提交。
+        terminalPending 为 many 时，选中一条后只更换比对对象。能按航次唯一对上时，current 为 true 的是默认记录。
+      parameters:
+        - $ref: "#/components/parameters/scheduleId"
+      responses:
+        "200":
+          description: 候选列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalCandidateList"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/vessel-schedules/{scheduleId}/terminal-resolution:
+    post:
+      tags: [review]
+      operationId: resolveTerminalShape
+      summary: 决定码头形态
+      description: |
+        只在 terminalPending 非空时有效，否则 409。不带备注。写入后返回审核。
+        none 使用 keep 或 clear。keep 保留当前绑定。clear 解除绑定。
+        many 使用 adopt。已经是 Manual matched 时，candidateId 只更换比对对象。尚未审核时，candidateId 写入当前码头记录，matchingStatus 要等确认保存才变成 Manual matched。
+        candidateId 必须来自这次候选。
+      parameters:
+        - $ref: "#/components/parameters/scheduleId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TerminalResolution"
+            examples:
+              keep:
+                value:
+                  action: keep
+              clear:
+                value:
+                  action: clear
+              adopt:
+                value:
+                  action: adopt
+                  candidateId: cand-1
+      responses:
+        "200":
+          description: 写入后的审核
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "400":
+          description: 候选 id 不属于这次结果，或 action 与当前 terminalPending 不符。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 当前没有待决定的码头形态。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/vessel-schedules/{scheduleId}/lara-sync:
+    post:
+      tags: [review]
+      operationId: syncLara
+      summary: 单笔同步 LARA
+      description: 审核页的 Sync latest。页面先丢掉未保存编辑再发起。没有请求正文。成功后返回审核，不返回运行记录。
+      parameters:
+        - $ref: "#/components/parameters/scheduleId"
+      responses:
+        "200":
+          description: 同步后的审核
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/vessel-schedules/{scheduleId}/terminal-sync:
+    post:
+      tags: [review]
+      operationId: syncTerminal
+      summary: 单笔同步码头
+      description: |
+        查询使用船期上当时的英文船名和 Point code，对应报文里的 vesselNameEn 和 portCode。这页不能临时改这两个条件。
+        港口未覆盖时返回 409。没有请求正文。成功后返回审核，不返回运行记录。
+      parameters:
+        - $ref: "#/components/parameters/scheduleId"
+      responses:
+        "200":
+          description: 同步后的审核
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 港口没有码头覆盖。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/vessel-schedules/{scheduleId}/activity-logs:
+    get:
+      tags: [activity-logs]
+      operationId: listActivityLogs
+      summary: 查询活动日志
+      description: |
+        一次保存或一次自动落库产生一条日志。changes 是这一次的原值和新值，展开明细用这个数组。
+        remark 只包含用户写下的备注。系统写入时 remark 为空，前端再按 changes 的 side 和 match 生成说明。
+        从某一列进入时，前端把列换成 field，不提交列标题。
+      parameters:
+        - $ref: "#/components/parameters/scheduleId"
+        - name: field
+          in: query
+          description: 字段名子串，忽略大小写。
+          schema:
+            type: string
+        - name: triggeredBy
+          in: query
+          description: 操作人子串，忽略大小写。
+          schema:
+            type: string
+        - name: from
+          in: query
+          description: 日期，包含这一天。
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          description: 日期，包含这一天。
+          schema:
+            type: string
+            format: date
+        - name: sort
+          in: query
+          description: 默认 -triggeredAt。还可以排 triggeredBy、remark。减号表示降序。
+          schema:
+            type: string
+            default: "-triggeredAt"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          description: 活动日志页
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActivityLogPage"
+        "400":
+          description: 排序或分页非法。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/terminal-voyages:
+    get:
+      tags: [terminal-voyages]
+      operationId: queryTerminalVoyages
+      summary: 查询码头航次
+      description: |
+        筛选、排序和分页都是查询参数。不带筛选参数时不附加筛选。
+        vesselName、voyage、region、portCode、status 可重复。日期用 etaFrom、etaTo 这种名字。
+        一条成功同步返回的码头记录是一行。更早一次同步留下的旧记录不返回。默认排序 -eta。
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: "-eta"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          description: 码头航次页
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalVoyagePage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /v1/terminal-voyages/{voyageId}:
+    get:
+      tags: [terminal-voyages]
+      operationId: getTerminalVoyage
+      summary: 读取一条码头航次
+      description: 值为 null 的字段仍然返回。字段标题和时间格式由前端处理。
+      parameters:
+        - name: voyageId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 码头航次
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TerminalVoyage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/regions:
+    get:
+      tags: [coverage]
+      operationId: listRegions
+      summary: 查询区域
+      responses:
+        "200":
+          description: 区域列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegionList"
+
+  /v1/regions/{code}:
+    put:
+      tags: [coverage]
+      operationId: saveRegion
+      summary: 保存区域
+      description: code 已存在则更新，否则新建。active 为 false 的区域不能再选给新港口，已有港口仍保留原代码。
+      parameters:
+        - $ref: "#/components/parameters/regionCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Region"
+            example:
+              code: CC
+              name: China domestic
+              active: true
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Region"
+        "201":
+          description: 已新建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Region"
+        "400":
+          description: 路径中的 code 与正文不一致。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+    patch:
+      tags: [coverage]
+      operationId: setRegionActive
+      summary: 停用或启用区域
+      parameters:
+        - $ref: "#/components/parameters/regionCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActiveChange"
+      responses:
+        "200":
+          description: 更新后的区域
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Region"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [coverage]
+      operationId: deleteRegion
+      summary: 删除区域
+      description: 已被港口使用时返回 409。
+      parameters:
+        - $ref: "#/components/parameters/regionCode"
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 区域仍被港口使用。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+  /v1/ports:
+    get:
+      tags: [coverage]
+      operationId: listPorts
+      summary: 查询港口
+      description: |
+        portCode、portName 是子串，忽略大小写。region 多选，精确匹配区域代码。coverage 为空表示全部。
+        pointCovered 就是 apiCovered。码头查询只发给 active 和 apiCovered 都为 true 的港口。
+      parameters:
+        - name: portCode
+          in: query
+          schema:
+            type: string
+        - name: portName
+          in: query
+          schema:
+            type: string
+        - name: region
+          in: query
+          style: form
+          explode: true
+          schema:
+            type: array
+            items:
+              type: string
+        - name: coverage
+          in: query
+          schema:
+            type: string
+            enum: [covered, not-covered]
+      responses:
+        "200":
+          description: 港口列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PortList"
+
+  /v1/ports/{portCode}:
+    put:
+      tags: [coverage]
+      operationId: savePort
+      summary: 保存港口
+      description: |
+        portCode 已存在则更新，否则新建。terminals 整组替换该港的代码。一个 9 位码可以挂多个 code。
+        code 是报文里的 terminal，也是矩阵缩写。停用区域不能选作 regionCode。
+        正文不带 active，已有港口保持原来的 active。
+      parameters:
+        - $ref: "#/components/parameters/portCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PortWrite"
+            example:
+              portCode: CNNGB
+              portName: NINGBO
+              regionCode: CC
+              apiCovered: true
+              terminals:
+                - nineCode: CNNGBYAN
+                  code: YS01
+                  nameZh: 大榭招商
+                - nineCode: CNNGBYAN
+                  code: YAN1
+                  nameZh: 大榭招商
+      responses:
+        "200":
+          description: 已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Port"
+        "201":
+          description: 已新建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Port"
+        "400":
+          description: 路径与正文的 portCode 不一致，或 regionCode 已停用、不存在。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "409":
+          description: 码头代码或 9 位码和其他港口冲突。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+    patch:
+      tags: [coverage]
+      operationId: setPortActive
+      summary: 停用或启用港口
+      description: 只改 active。停用后历史船期仍显示原 Point code，新建筛选不能再选，也不再发码头查询。
+      parameters:
+        - $ref: "#/components/parameters/portCode"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActiveChange"
+      responses:
+        "200":
+          description: 更新后的港口
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Port"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [coverage]
+      operationId: deletePort
+      summary: 删除港口
+      description: 已被船期引用时返回 409，可以改为停用。
+      parameters:
+        - $ref: "#/components/parameters/portCode"
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: 港口已被船期引用。
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+components:
+  parameters:
+    scheduleId:
+      name: scheduleId
+      in: path
+      required: true
+      schema:
+        type: string
+    portCode:
+      name: portCode
+      in: path
+      required: true
+      schema:
+        type: string
+    regionCode:
+      name: code
+      in: path
+      required: true
+      schema:
+        type: string
+    page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    pageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
+    scheduleSort:
+      name: sort
+      in: query
+      description: 写成 side.field，减号表示降序，例如 -LARA.etb,TERMINAL.etd。默认 -LARA.etb。
+      schema:
+        type: string
+        default: "-LARA.etb"
+
+  responses:
+    BadRequest:
+      description: 字段未知、日期非法，或取值不在允许范围内。
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: 资源不存在。
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+
+  schemas:
+    Problem:
+      type: object
+      description: RFC 7807。Content-Type 为 application/problem+json。
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+
+    Page:
+      type: object
+      required: [number, size, totalElements, totalPages]
+      properties:
+        number:
+          type: integer
+          minimum: 1
+        size:
+          type: integer
+        totalElements:
+          type: integer
+        totalPages:
+          type: integer
+
+    Side:
+      type: string
+      enum: [LARA, TERMINAL, PLATFORM]
+
+    MatchingStatus:
+      type: string
+      description: |
+        由服务端计算，请求里不带。审核确认成功后是 Manual matched。
+        尚未审核时：没有绑定且仍有候选为 Multiple terminal records，没有候选为 No terminal record，绑着的记录缺少进口或出口航次为 No external voyage，LARA ETA 与码头 ETA 的天数差算不出来或超过 3 天为 ETA gap > 3 days，其余为 Auto matched。
+      enum:
+        - Auto matched
+        - Manual matched
+        - Multiple terminal records
+        - ETA gap > 3 days
+        - No external voyage
+        - No terminal record
+
+    VoyageStatus:
+      type: string
+      description: Active 或 Omit。后续批量里不再出现的船期也是 Omit，对应 platform_omit。
+      enum: [Active, Omit]
+
+    TerminalPending:
+      type: string
+      nullable: true
+      description: |
+        只在 Manual matched 时为 many 或 none。many 表示仍有多条候选。none 表示没有记录。
+        其他状态已经自动改成最新状态时为 null。
+      enum: [many, none]
+
+    DateTime:
+      type: string
+      format: date-time
+      nullable: true
+
+    Scalar:
+      type: string
+      nullable: true
+      description: 业务值。时刻用 ISO-8601。空为 null。
+
+    Lara:
+      type: object
+      description: |
+        页面 LARA 区。vesselOperator 来自 OPERATOR_CODE。brand、vesselType、terminal（Terminal 9code）由服务端计算，提交了也忽略。
+        terminal 按 pointCode 和码头代码从港口覆盖连接。
+      required: [voyage, pointCode, poolLocation, vesselName, vesselOperator, brand, service, eta, etb, etd, vesselType, terminal]
+      properties:
+        voyage:
+          type: string
+        pointCode:
+          type: string
+        poolLocation:
+          type: string
+          nullable: true
+        vesselName:
+          type: string
+        vesselOperator:
+          type: string
+          nullable: true
+        brand:
+          type: string
+          nullable: true
+        service:
+          type: string
+          nullable: true
+        eta:
+          $ref: "#/components/schemas/DateTime"
+        etb:
+          $ref: "#/components/schemas/DateTime"
+        etd:
+          $ref: "#/components/schemas/DateTime"
+        vesselType:
+          type: string
+          nullable: true
+        terminal:
+          type: string
+          nullable: true
+          description: Terminal 9code。列表上格子不展示时为 null。
+
+    TerminalRecord:
+      type: object
+      description: 当前绑定的码头记录。enteredManually 为 true 表示手工补录。报文没有 vesselOperator。
+      required: [enteredManually, exportVoyage, importVoyage, vesselNameCn, name, eta, ata, etb, atb, etd, atd, cyOpen, cyCutoff, vesselStatus, updateTime]
+      properties:
+        enteredManually:
+          type: boolean
+        exportVoyage:
+          type: string
+          nullable: true
+        importVoyage:
+          type: string
+          nullable: true
+        vesselNameCn:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+          description: 报文 terminal，例如 YS01。
+        eta:
+          $ref: "#/components/schemas/DateTime"
+        ata:
+          $ref: "#/components/schemas/DateTime"
+        etb:
+          $ref: "#/components/schemas/DateTime"
+        atb:
+          $ref: "#/components/schemas/DateTime"
+        etd:
+          $ref: "#/components/schemas/DateTime"
+        atd:
+          $ref: "#/components/schemas/DateTime"
+        cyOpen:
+          $ref: "#/components/schemas/DateTime"
+        cyCutoff:
+          $ref: "#/components/schemas/DateTime"
+        vesselStatus:
+          type: string
+          nullable: true
+          description: 报文 status，例如计划、在港、离港。不是匹配状态。
+        updateTime:
+          $ref: "#/components/schemas/DateTime"
+
+    TerminalInput:
+      type: object
+      description: 保存时提交的码头记录。不含 enteredManually。
+      required: [exportVoyage, importVoyage, vesselNameCn, name, eta, ata, etb, atb, etd, atd, cyOpen, cyCutoff, vesselStatus, updateTime]
+      properties:
+        exportVoyage:
+          type: string
+          nullable: true
+        importVoyage:
+          type: string
+          nullable: true
+        vesselNameCn:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        eta:
+          $ref: "#/components/schemas/DateTime"
+        ata:
+          $ref: "#/components/schemas/DateTime"
+        etb:
+          $ref: "#/components/schemas/DateTime"
+        atb:
+          $ref: "#/components/schemas/DateTime"
+        etd:
+          $ref: "#/components/schemas/DateTime"
+        atd:
+          $ref: "#/components/schemas/DateTime"
+        cyOpen:
+          $ref: "#/components/schemas/DateTime"
+        cyCutoff:
+          $ref: "#/components/schemas/DateTime"
+        vesselStatus:
+          type: string
+          nullable: true
+        updateTime:
+          $ref: "#/components/schemas/DateTime"
+
+    FieldDiff:
+      type: object
+      description: |
+        当前值与最新值的一个字段。没有更早的历史。没有差异时，外层 changes 为 null，不返回空数组。
+        pending 为 true 表示仍要人确认，页面显示 previousValue。pending 为 false 表示已经写入，页面显示 incomingValue，只作提示。
+      required: [side, field, previousValue, incomingValue, pending]
+      properties:
+        side:
+          $ref: "#/components/schemas/Side"
+        field:
+          type: string
+          description: 该侧对象里的属性名。匹配状态用 matchingStatus。
+        previousValue:
+          $ref: "#/components/schemas/Scalar"
+        incomingValue:
+          $ref: "#/components/schemas/Scalar"
+        pending:
+          type: boolean
+
+    FieldSource:
+      type: object
+      description: 手工改过的字段在改之前的来源值。只包含页面会标出来源的项。
+      required: [side, field, value]
+      properties:
+        side:
+          $ref: "#/components/schemas/Side"
+        field:
+          type: string
+        value:
+          $ref: "#/components/schemas/Scalar"
+
+    ScheduleRow:
+      type: object
+      required: [id, voyageStatus, pointCovered, matchingStatus, candidateCount, sharedLaraCount, terminalPending, lara, terminal, lastModifiedBy, lastModifiedAt, changes]
+      properties:
+        id:
+          type: string
+        voyageStatus:
+          $ref: "#/components/schemas/VoyageStatus"
+        pointCovered:
+          type: boolean
+          description: 这个 Point code 是否对接码头接口，对应 port.api_covered。
+        matchingStatus:
+          $ref: "#/components/schemas/MatchingStatus"
+        candidateCount:
+          type: integer
+          minimum: 0
+          description: 当前待选码头记录的条数，没有则为 0。
+        sharedLaraCount:
+          type: integer
+          minimum: 1
+          description: 共用同一港口、码头和出口航次的船期条数，只有一条时为 1。
+        terminalPending:
+          $ref: "#/components/schemas/TerminalPending"
+        lara:
+          $ref: "#/components/schemas/Lara"
+        terminal:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/TerminalRecord"
+        lastModifiedBy:
+          type: string
+          description: 实际操作者，包括 System。来自最新活动日志。
+        lastModifiedAt:
+          type: string
+          format: date-time
+        changes:
+          type: array
+          nullable: true
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/FieldDiff"
+
+    SchedulePage:
+      type: object
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduleRow"
+        page:
+          $ref: "#/components/schemas/Page"
+
+    ScheduleDetail:
+      allOf:
+        - $ref: "#/components/schemas/ScheduleRow"
+        - type: object
+          required: [remark, sources]
+          properties:
+            remark:
+              type: string
+              description: 已保存备注。来自最新一条非空的用户备注。没有时为空字符串。
+            sources:
+              type: array
+              nullable: true
+              minItems: 1
+              items:
+                $ref: "#/components/schemas/FieldSource"
+
+    Review:
+      type: object
+      required: [id, voyageStatus, pointCovered, matchingStatus, candidateCount, sharedLaraCount, terminalPending, remark, lara, terminal, changes]
+      properties:
+        id:
+          type: string
+        voyageStatus:
+          $ref: "#/components/schemas/VoyageStatus"
+        pointCovered:
+          type: boolean
+        matchingStatus:
+          $ref: "#/components/schemas/MatchingStatus"
+        candidateCount:
+          type: integer
+          minimum: 0
+        sharedLaraCount:
+          type: integer
+          minimum: 1
+        terminalPending:
+          $ref: "#/components/schemas/TerminalPending"
+        remark:
+          type: string
+        lara:
+          $ref: "#/components/schemas/Lara"
+        terminal:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/TerminalRecord"
+        changes:
+          type: array
+          nullable: true
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/FieldDiff"
+
+    ScheduleFilter:
+      type: object
+      required: [side, field]
+      description: |
+        values、value、from/to 三选一。
+        values：多选精确匹配，或船名、航次的多行精确匹配。多行字段为 LARA 的 vesselName、voyage，以及码头的 vesselNameCn、exportVoyage、importVoyage，忽略大小写。代码类多选区分大小写。
+        value：单行文本，子串匹配，忽略大小写。用于 LARA 的 poolLocation、service、vesselOperator，以及 lastModifiedBy。
+        from、to：日期，包含两端，可只给一端。
+        可筛选字段与列表列一致，另加 PLATFORM.region。matchingStatus、vesselType、brand、pointCode、terminal、码头 name、码头 vesselStatus 用 values。
+      properties:
+        side:
+          $ref: "#/components/schemas/Side"
+        field:
+          type: string
+        values:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        value:
+          type: string
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+      additionalProperties: false
+
+    ScheduleQuery:
+      type: object
+      required: [filters]
+      properties:
+        filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduleFilter"
+        sort:
+          type: string
+          default: "-LARA.etb"
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+      additionalProperties: false
+
+    ScheduleExport:
+      type: object
+      required: [filters]
+      properties:
+        filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduleFilter"
+        sort:
+          type: string
+          default: "-LARA.etb"
+      additionalProperties: false
+
+    ConfirmedField:
+      type: object
+      required: [side, field, value]
+      properties:
+        side:
+          $ref: "#/components/schemas/Side"
+        field:
+          type: string
+        value:
+          $ref: "#/components/schemas/Scalar"
+      additionalProperties: false
+
+    ReviewSave:
+      type: object
+      required: [remark, fields]
+      properties:
+        remark:
+          type: string
+          description: 这次保存的备注，写入活动日志。可以是空字符串。
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConfirmedField"
+        candidateId:
+          type: string
+        terminal:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/TerminalInput"
+      additionalProperties: false
+
+    TerminalCandidate:
+      type: object
+      required: [id, current, exportVoyage, importVoyage, vesselNameCn, name, eta, ata, etb, atb, etd, atd, cyOpen, cyCutoff, vesselStatus, updateTime]
+      properties:
+        id:
+          type: string
+          description: terminal_payload.id。
+        current:
+          type: boolean
+          description: 这条就是现在用于比对或绑定的记录。选择框用它标出 Current。
+        exportVoyage:
+          type: string
+          nullable: true
+        importVoyage:
+          type: string
+          nullable: true
+        vesselNameCn:
+          type: string
+          nullable: true
+        name:
+          type: string
+          nullable: true
+        eta:
+          $ref: "#/components/schemas/DateTime"
+        ata:
+          $ref: "#/components/schemas/DateTime"
+        etb:
+          $ref: "#/components/schemas/DateTime"
+        atb:
+          $ref: "#/components/schemas/DateTime"
+        etd:
+          $ref: "#/components/schemas/DateTime"
+        atd:
+          $ref: "#/components/schemas/DateTime"
+        cyOpen:
+          $ref: "#/components/schemas/DateTime"
+        cyCutoff:
+          $ref: "#/components/schemas/DateTime"
+        vesselStatus:
+          type: string
+          nullable: true
+        updateTime:
+          $ref: "#/components/schemas/DateTime"
+
+    TerminalCandidateList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/TerminalCandidate"
+
+    TerminalResolutionKeep:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [keep]
+      additionalProperties: false
+
+    TerminalResolutionClear:
+      type: object
+      required: [action]
+      properties:
+        action:
+          type: string
+          enum: [clear]
+      additionalProperties: false
+
+    TerminalResolutionAdopt:
+      type: object
+      required: [action, candidateId]
+      properties:
+        action:
+          type: string
+          enum: [adopt]
+        candidateId:
+          type: string
+      additionalProperties: false
+
+    TerminalResolution:
+      oneOf:
+        - $ref: "#/components/schemas/TerminalResolutionKeep"
+        - $ref: "#/components/schemas/TerminalResolutionClear"
+        - $ref: "#/components/schemas/TerminalResolutionAdopt"
+      discriminator:
+        propertyName: action
+        mapping:
+          keep: "#/components/schemas/TerminalResolutionKeep"
+          clear: "#/components/schemas/TerminalResolutionClear"
+          adopt: "#/components/schemas/TerminalResolutionAdopt"
+
+    ActivityLogChange:
+      type: object
+      required: [side, field, original, updated]
+      properties:
+        side:
+          $ref: "#/components/schemas/Side"
+        field:
+          type: string
+          description: 页面字段名。
+        original:
+          $ref: "#/components/schemas/Scalar"
+        updated:
+          $ref: "#/components/schemas/Scalar"
+
+    ActivityMatch:
+      type: string
+      nullable: true
+      description: null 表示没有改变码头绑定。confirm 建立起绑定。switch 从已绑定的一条改到另一条。cancel 取消绑定。
+      enum: [confirm, switch, cancel]
+
+    ActivityLog:
+      type: object
+      required: [id, triggeredAt, triggeredBy, remark, match, changes]
+      properties:
+        id:
+          type: string
+        triggeredAt:
+          type: string
+          format: date-time
+        triggeredBy:
+          type: string
+        remark:
+          type: string
+        match:
+          $ref: "#/components/schemas/ActivityMatch"
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityLogChange"
+
+    ActivityLogSchedule:
+      type: object
+      required: [id, vesselName, pointCode, voyage]
+      properties:
+        id:
+          type: string
+        vesselName:
+          type: string
+        pointCode:
+          type: string
+        voyage:
+          type: string
+
+    ActivityLogPage:
+      type: object
+      required: [schedule, data, page]
+      properties:
+        schedule:
+          $ref: "#/components/schemas/ActivityLogSchedule"
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActivityLog"
+        page:
+          $ref: "#/components/schemas/Page"
+
+    TerminalVoyageFilter:
+      type: object
+      required: [field]
+      description: |
+        vesselName：多行精确，忽略大小写，匹配 vesselNameEn 或 vesselNameCn。
+        voyage：多行精确，忽略大小写，匹配 evoyage 或 ivoyage。
+        region、portCode、status：多选精确匹配。
+        eta、ata、etb、atb、etd、atd：日期，包含两端，可只给一端。
+      properties:
+        field:
+          type: string
+          enum: [vesselName, voyage, region, portCode, status, eta, ata, etb, atb, etd, atd]
+        values:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+      additionalProperties: false
+
+    TerminalVoyageQuery:
+      type: object
+      required: [filters]
+      properties:
+        filters:
+          type: array
+          items:
+            $ref: "#/components/schemas/TerminalVoyageFilter"
+        sort:
+          type: string
+          default: "-eta"
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+      additionalProperties: false
+
+    SourceTimestamp:
+      type: string
+      nullable: true
+      description: 报文时刻原文，例如 2025-06-13 17:00:00。
+
+    TerminalVoyage:
+      type: object
+      required: [id, status, vesselNameEn, vesselNameCn, shipCode, shipName, agentCode, agentName, lineCode, terminal, portsEn, portsCn, eta, ata, etb, atb, etd, atd, cyOpen, cyClosing, portCloseDate, customsCloseDate, updateTime, ivoyage, evoyage]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          nullable: true
+        vesselNameEn:
+          type: string
+          nullable: true
+        vesselNameCn:
+          type: string
+          nullable: true
+        shipCode:
+          type: string
+          nullable: true
+        shipName:
+          type: string
+          nullable: true
+        agentCode:
+          type: string
+          nullable: true
+        agentName:
+          type: string
+          nullable: true
+        lineCode:
+          type: string
+          nullable: true
+        terminal:
+          type: string
+          nullable: true
+        portsEn:
+          type: string
+          nullable: true
+        portsCn:
+          type: string
+          nullable: true
+        eta:
+          $ref: "#/components/schemas/SourceTimestamp"
+        ata:
+          $ref: "#/components/schemas/SourceTimestamp"
+        etb:
+          $ref: "#/components/schemas/SourceTimestamp"
+        atb:
+          $ref: "#/components/schemas/SourceTimestamp"
+        etd:
+          $ref: "#/components/schemas/SourceTimestamp"
+        atd:
+          $ref: "#/components/schemas/SourceTimestamp"
+        cyOpen:
+          $ref: "#/components/schemas/SourceTimestamp"
+        cyClosing:
+          $ref: "#/components/schemas/SourceTimestamp"
+        portCloseDate:
+          $ref: "#/components/schemas/SourceTimestamp"
+        customsCloseDate:
+          $ref: "#/components/schemas/SourceTimestamp"
+        updateTime:
+          $ref: "#/components/schemas/SourceTimestamp"
+        ivoyage:
+          type: string
+          nullable: true
+        evoyage:
+          type: string
+          nullable: true
+
+    TerminalVoyagePage:
+      type: object
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/TerminalVoyage"
+        page:
+          $ref: "#/components/schemas/Page"
+
+    Region:
+      type: object
+      required: [code, name, active]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        active:
+          type: boolean
+          description: true 时新建港口可以选。false 时停用，已经挂在港口上的代码仍显示。
+      additionalProperties: false
+
+    RegionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Region"
+
+    PortTerminal:
+      type: object
+      required: [nineCode, code, nameZh]
+      properties:
+        nineCode:
+          type: string
+        code:
+          type: string
+        nameZh:
+          type: string
+          nullable: true
+      additionalProperties: false
+
+    Port:
+      type: object
+      required: [portCode, portName, regionCode, active, apiCovered, terminals]
+      properties:
+        portCode:
+          type: string
+        portName:
+          type: string
+        regionCode:
+          type: string
+        active:
+          type: boolean
+        apiCovered:
+          type: boolean
+        terminals:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortTerminal"
+
+    PortWrite:
+      type: object
+      required: [portCode, portName, regionCode, apiCovered, terminals]
+      properties:
+        portCode:
+          type: string
+        portName:
+          type: string
+        regionCode:
+          type: string
+        apiCovered:
+          type: boolean
+        terminals:
+          type: array
+          items:
+            $ref: "#/components/schemas/PortTerminal"
+      additionalProperties: false
+
+    PortList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Port"
+
+    ActiveChange:
+      type: object
+      required: [active]
+      properties:
+        active:
+          type: boolean
+      additionalProperties: false
