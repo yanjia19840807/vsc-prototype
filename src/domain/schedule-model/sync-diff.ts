@@ -158,6 +158,54 @@ function laraVersionsOf(state: ScheduleState, scheduleId: string) {
   return state.laraVersions.filter((version) => version.scheduleId === scheduleId).sort((a, b) => a.seq - b.seq)
 }
 
+/** Already-written LARA values. A terminal binding is not required. */
+function writtenLaraDiffs(state: ScheduleState, schedule: VesselSchedule, policy: SyncPolicy): FieldReview[] {
+  const current = laraVersion(state, schedule.laraVersionId)
+  if (!current) return []
+  const previous = laraVersionsOf(state, schedule.id).find((version) => version.seq === current.seq - 1)
+  if (!previous) return []
+  const fields: FieldReview[] = []
+  for (const field of LARA_FIELDS) {
+    const value = laraValue(current, field)
+    const prior = laraValue(previous, field)
+    const key = watchKey('LARA', field)
+    if (!policy.watched.has(key) || !countsAsChange(key, prior, value, policy)) continue
+    fields.push({
+      side: 'LARA',
+      field,
+      previousValue: prior,
+      incomingValue: value,
+      status: 'applied',
+      payloadId: current.payloadId ?? '',
+    })
+  }
+  return fields
+}
+
+/** Already-written terminal values, including a value kept by manual review. */
+function writtenTerminalDiffs(state: ScheduleState, schedule: VesselSchedule, policy: SyncPolicy): FieldReview[] {
+  const current = currentTerminal(state, schedule)
+  if (!current) return []
+  const previous = terminalVersionsOf(state, schedule.id).find((version) => version.seq === current.seq - 1)
+  if (!previous) return []
+  const fields: FieldReview[] = []
+  for (const field of TERMINAL_FIELDS) {
+    const value = terminalValue(current, field)
+    const prior = terminalValue(previous, field)
+    const key = watchKey('TERMINAL', field)
+    if (!policy.watched.has(key) || !countsAsChange(key, prior, value, policy)) continue
+    fields.push({
+      side: 'TERMINAL',
+      field,
+      previousValue: prior,
+      incomingValue: value,
+      status: 'applied',
+      payloadId: current.payloadId ?? '',
+    })
+  }
+  return fields
+}
+
 function terminalVersionsOf(state: ScheduleState, scheduleId: string) {
   return state.terminalVersions.filter((version) => version.scheduleId === scheduleId).sort((a, b) => a.seq - b.seq)
 }
@@ -168,14 +216,6 @@ function laraPayload(state: ScheduleState, id: string) {
 
 function terminalPayload(state: ScheduleState, id: string) {
   return state.terminalPayloads.find((payload) => payload.id === id)
-}
-
-function laraDecided(state: ScheduleState, scheduleId: string, field: string, incoming: string) {
-  return state.fieldDecisions.some((decision) => {
-    if (decision.scheduleId !== scheduleId || decision.side !== 'LARA' || decision.field !== field) return false
-    const payload = laraPayload(state, decision.payloadId)
-    return Boolean(payload && laraValue(payload, field as LaraField) === incoming)
-  })
 }
 
 function terminalDecided(state: ScheduleState, scheduleId: string, field: string, incoming: string) {
@@ -192,6 +232,16 @@ function matchDecided(state: ScheduleState, scheduleId: string, incoming: Termin
     const payload = terminalPayload(state, decision.payloadId)
     return Boolean(payload && sameTerminal(payload, incoming))
   })
+}
+
+/** Review already kept the previous mapping status for this terminal query. */
+function matchReviewed(state: ScheduleState, scheduleId: string, queryId: string) {
+  const payloadIds = new Set(payloadsForQuery(state, queryId).map((payload) => payload.id))
+  return state.fieldDecisions.some((decision) => (
+    decision.scheduleId === scheduleId
+    && decision.field === MATCH_FIELD
+    && (decision.payloadId === queryId || payloadIds.has(decision.payloadId))
+  ))
 }
 
 function requireSchedule(state: ScheduleState, scheduleId: string) {
@@ -235,7 +285,7 @@ function appendLaraVersion(
 function appendTerminalVersion(
   state: ScheduleState,
   schedule: VesselSchedule,
-  input: { snapshot: TerminalSnapshot; source: 'SYNC' | 'USER'; payloadId: string | null; reason: string; updatedBy: string; updatedAt: string },
+  input: { snapshot: TerminalSnapshot; source: 'SYNC' | 'USER'; payloadId: string | null; enteredManually?: boolean; reason: string; updatedBy: string; updatedAt: string },
 ) {
   const seq = terminalVersionsOf(state, schedule.id).length + 1
   const issued = nextId(state, 'terminal-version')
@@ -246,6 +296,7 @@ function appendTerminalVersion(
     seq,
     source: input.source,
     payloadId: input.payloadId,
+    enteredManually: input.enteredManually ?? false,
     reason: input.reason,
     updatedBy: input.updatedBy,
     updatedAt: input.updatedAt,
@@ -306,6 +357,38 @@ function isManualMatch(state: ScheduleState, schedule: VesselSchedule) {
   return matchOf(state, schedule)?.method === 'USER'
 }
 
+/** A person already changed this field, so a later difference needs review. */
+function fieldWasModified(state: ScheduleState, scheduleId: string, side: 'LARA' | 'TERMINAL', field: string) {
+  if (state.fieldDecisions.some((decision) => (
+    decision.scheduleId === scheduleId && decision.side === side && decision.field === field
+  ))) return true
+  if (side === 'LARA') {
+    const versions = laraVersionsOf(state, scheduleId)
+    for (let index = 1; index < versions.length; index += 1) {
+      const version = versions[index]!
+      if (version.source !== 'USER') continue
+      if (laraValue(version, field as LaraField) !== laraValue(versions[index - 1], field as LaraField)) return true
+    }
+    return false
+  }
+  const versions = terminalVersionsOf(state, scheduleId)
+  for (let index = 1; index < versions.length; index += 1) {
+    const version = versions[index]!
+    if (version.source !== 'USER') continue
+    if (terminalValue(version, field as TerminalField) !== terminalValue(versions[index - 1], field as TerminalField)) return true
+  }
+  return false
+}
+
+/** Saved terminal values already equal one auto-matchable record, so a prior manual edit no longer decides the binding. */
+function agreesWithAutoMatch(state: ScheduleState, schedule: VesselSchedule, payload: TerminalPayload) {
+  const siblings = state.terminalPayloads.filter((item) => item.queryId === payload.queryId)
+  if (siblings.length !== 1) return false
+  if (!TERMINAL_FIELDS.some((field) => fieldWasModified(state, schedule.id, 'TERMINAL', field))) return false
+  const laraEta = laraVersion(state, schedule.laraVersionId)?.laraEta ?? ''
+  return oneRecordStatus(laraEta, payload) === 'Auto matched'
+}
+
 function oneRecordStatus(laraEta: string, terminal: Pick<TerminalSnapshot, 'exportVoyage' | 'importVoyage' | 'eta'>) {
   if (!terminal.exportVoyage.trim() || !terminal.importVoyage.trim()) return 'No external voyage'
   const days = dayDistance(laraEta, terminal.eta)
@@ -334,7 +417,9 @@ export function displayedMatchingStatus(state: ScheduleState, scheduleId: string
   if (shape === 'none') return 'No terminal record' as const
   const match = matchOf(state, schedule)
   if (!match?.terminalVersionId) return null
-  if (match.method === 'USER') return 'Manual matched' as const
+  if (match.method === 'USER') {
+    return reviewSchedule(state, scheduleId).pending ? 'Pending match' as const : 'Manual matched' as const
+  }
   const terminal = currentTerminal(state, schedule)
   if (!terminal) return null
   const laraEta = laraVersion(state, schedule.laraVersionId)?.laraEta ?? ''
@@ -348,27 +433,19 @@ export function applyLaraPayload(
   const schedule = requireSchedule(state, input.scheduleId)
   const payload = laraPayload(state, input.payloadId)
   if (!payload || payload.scheduleId !== schedule.id) throw new Error('LARA payload was not found')
-  const policy = input.policy ?? defaultSyncPolicy()
-  const manual = isManualMatch(state, schedule)
   const current = laraVersion(state, schedule.laraVersionId) ?? emptyLaraSnapshot()
   const adopted: Partial<LaraSnapshot> = {}
-  let pending = false
   for (const field of LARA_FIELDS) {
     const incoming = laraValue(payload, field)
     const previous = laraValue(current, field)
     if (previous === incoming) continue
-    const key = watchKey('LARA', field)
-    if (manual && policy.watched.has(key) && !laraDecided(state, schedule.id, field, incoming)) {
-      pending = true
-      continue
-    }
     adopted[field] = incoming as never
   }
   if (!Object.keys(adopted).length) return state
   const snapshot = { ...pickLara(current as LaraSnapshot), ...adopted }
   return appendLaraVersion(state, freshSchedule(state, schedule.id), {
     snapshot,
-    source: pending ? 'USER' : 'SYNC',
+    source: 'SYNC',
     payloadId: payload.id,
     reason: '',
     updatedBy: input.updatedBy,
@@ -383,18 +460,31 @@ export function applyTerminalPayload(
   const schedule = requireSchedule(state, input.scheduleId)
   const payload = terminalPayload(state, input.payloadId)
   if (!payload || payload.scheduleId !== schedule.id) throw new Error('Terminal payload was not found')
-  const policy = input.policy ?? defaultSyncPolicy()
   const current = currentTerminal(state, schedule) ?? emptyTerminalSnapshot()
   const manual = (input.method ?? matchOf(state, schedule)?.method) === 'USER'
-  if (sameTerminal(current, payload) && currentTerminal(state, schedule) && !input.method) return state
+  if (sameTerminal(current, payload) && currentTerminal(state, schedule) && !input.method) {
+    if (manual && agreesWithAutoMatch(state, schedule, payload)) {
+      const match = matchOf(state, schedule)
+      if (match?.terminalVersionId) {
+        return appendMatch(state, {
+          schedule,
+          terminalVersionId: match.terminalVersionId,
+          method: 'AUTO',
+          reason: '',
+          updatedBy: input.updatedBy,
+          updatedAt: input.updatedAt,
+        })
+      }
+    }
+    return state
+  }
   const adopted: Partial<TerminalSnapshot> = {}
   let pending = false
   for (const field of TERMINAL_FIELDS) {
     const incoming = terminalValue(payload, field)
     const previous = terminalValue(current, field)
     if (previous === incoming) continue
-    const key = watchKey('TERMINAL', field)
-    if (manual && policy.watched.has(key) && !terminalDecided(state, schedule.id, field, incoming)) {
+    if (manual && !terminalDecided(state, schedule.id, field, incoming)) {
       pending = true
       continue
     }
@@ -407,6 +497,7 @@ export function applyTerminalPayload(
     snapshot,
     source: manual ? 'USER' : 'SYNC',
     payloadId: payload.id,
+    enteredManually: false,
     reason: '',
     updatedBy: input.updatedBy,
     updatedAt: input.updatedAt,
@@ -483,7 +574,7 @@ function shapeDecided(state: ScheduleState, scheduleId: string, queryId: string)
 /** A review confirm keeps one terminal record and is always a manual match. */
 export function confirmReviewedMatch(
   state: ScheduleState,
-  input: { scheduleId: string; snapshot: TerminalSnapshot; reason: string; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; snapshot: TerminalSnapshot; enteredManually?: boolean; reason: string; updatedBy: string; updatedAt: string },
 ) {
   const schedule = requireSchedule(state, input.scheduleId)
   const current = currentTerminal(state, schedule)
@@ -495,6 +586,7 @@ export function confirmReviewedMatch(
       snapshot: input.snapshot,
       source: 'USER',
       payloadId: null,
+      enteredManually: input.enteredManually ?? current?.enteredManually ?? false,
       reason: input.reason,
       updatedBy: input.updatedBy,
       updatedAt: input.updatedAt,
@@ -518,6 +610,20 @@ export function confirmReviewedMatch(
       payloadId: query.id,
       field: TERMINAL_SHAPE,
       action: 'EDIT',
+      versionId,
+      updatedBy: input.updatedBy,
+      updatedAt: input.updatedAt,
+    })
+  }
+  const solePayload = query?.status === 'FOUND' ? payloadsForQuery(next, query.id) : []
+  const sole = solePayload.length === 1 ? solePayload[0] : undefined
+  if (query && !matchReviewed(next, schedule.id, query.id)) {
+    next = appendDecision(next, {
+      scheduleId: schedule.id,
+      side: 'TERMINAL',
+      payloadId: sole?.id ?? query.id,
+      field: MATCH_FIELD,
+      action: 'KEEP',
       versionId,
       updatedBy: input.updatedBy,
       updatedAt: input.updatedAt,
@@ -717,6 +823,7 @@ export function acceptTerminalField(
     snapshot,
     source: done ? 'SYNC' : 'USER',
     payloadId: payload.id,
+    enteredManually: current.enteredManually,
     reason: '',
     updatedBy: input.updatedBy,
     updatedAt: input.updatedAt,
@@ -742,6 +849,7 @@ export function acceptTerminalPayload(
     snapshot: pickTerminal(payload),
     source: 'SYNC',
     payloadId: payload.id,
+    enteredManually: false,
     reason: '',
     updatedBy: input.updatedBy,
     updatedAt: input.updatedAt,
@@ -772,7 +880,7 @@ export function acceptTerminalPayload(
 
 export function editTerminalFields(
   state: ScheduleState,
-  input: { scheduleId: string; payloadId?: string; fields: Partial<TerminalSnapshot>; reason: string; updatedBy: string; updatedAt: string },
+  input: { scheduleId: string; payloadId?: string; fields: Partial<TerminalSnapshot>; enteredManually?: boolean; reason: string; updatedBy: string; updatedAt: string },
 ) {
   const schedule = requireSchedule(state, input.scheduleId)
   const current = currentTerminal(state, schedule) ?? emptyTerminalSnapshot()
@@ -781,6 +889,7 @@ export function editTerminalFields(
     snapshot,
     source: 'USER',
     payloadId: input.payloadId ?? null,
+    enteredManually: input.enteredManually ?? currentTerminal(state, schedule)?.enteredManually ?? false,
     reason: input.reason,
     updatedBy: input.updatedBy,
     updatedAt: input.updatedAt,
@@ -875,10 +984,14 @@ export function reviewSchedule(state: ScheduleState, scheduleId: string, policy:
   const pinned = query && terminal ? pinnedCandidate(state, scheduleId, query.id, terminalPayloads) : undefined
   const twin = bound && terminal && isManualMatch(state, schedule) && !pinned ? voyageTwin(terminal, terminalPayloads) : undefined
   if (bound && terminal && query && !shapeDecided(state, scheduleId, query.id) && isManualMatch(state, schedule)) {
-    const needsChoice = query.status === 'NOT_FOUND' || (terminalPayloads.length > 1 && !twin)
+    const ignoredEmptySync = query.status === 'NOT_FOUND' && terminal.enteredManually
+    const needsChoice = !ignoredEmptySync && (query.status === 'NOT_FOUND' || (terminalPayloads.length > 1 && !twin))
     if (needsChoice) {
       const shape: TerminalShape = query.status === 'NOT_FOUND' ? 'none' : 'many'
-      const shapeFields: FieldReview[] = []
+      const shapeFields: FieldReview[] = [
+        ...writtenLaraDiffs(state, schedule, policy),
+        ...writtenTerminalDiffs(state, schedule, policy),
+      ]
       if (policy.watched.has(watchKey('MATCH', MATCH_FIELD))) {
         const match = matchOf(state, schedule)
         const previousStatus = boundMappingStatus(match?.method)
@@ -924,48 +1037,22 @@ export function reviewSchedule(state: ScheduleState, scheduleId: string, policy:
       }
     }
   }
-  const currentLara = laraVersion(state, schedule.laraVersionId)
-  const payload = latestLaraPayload(state, scheduleId)
-  if (currentLara && payload && bound) {
-    const previous = laraVersionsOf(state, scheduleId).find((version) => version.seq === currentLara.seq - 1)
-    for (const field of LARA_FIELDS) {
-      const incoming = laraValue(payload, field)
-      const value = laraValue(currentLara, field)
-      const prior = laraValue(previous, field)
-      const key = watchKey('LARA', field)
-      if (!policy.watched.has(key)) continue
-      if (!countsAsChange(key, value, incoming, policy) && value === prior) continue
-      if (isManualMatch(state, schedule) && policy.watched.has(key) && value !== incoming && !laraDecided(state, scheduleId, field, incoming)) {
-        fields.push({ side: 'LARA', field, previousValue: value, incomingValue: incoming, status: 'pending', payloadId: payload.id })
-      } else if (previous && currentLara.payloadId === payload.id && value !== prior && countsAsChange(key, prior, value, policy)) {
-        fields.push({ side: 'LARA', field, previousValue: prior, incomingValue: value, status: 'applied', payloadId: payload.id })
-      }
-    }
-  }
+  fields.push(...writtenLaraDiffs(state, schedule, policy), ...writtenTerminalDiffs(state, schedule, policy))
   const resolvedMany = terminalPayloads.length > 1 ? (pinned ?? twin) : undefined
   const sole = terminalPayloads.length === 1 ? terminalPayloads[0] : resolvedMany
-  const withinThreshold = Boolean(resolvedMany)
   const match = matchOf(state, schedule)
   if (bound && sole && terminal) {
-    const versions = terminalVersionsOf(state, scheduleId)
-    const previous = versions.find((version) => version.seq === terminal.seq - 1)
     for (const field of TERMINAL_FIELDS) {
       const incoming = terminalValue(sole, field)
       const value = terminalValue(terminal, field)
-      const prior = terminalValue(previous, field)
-      const key = watchKey('TERMINAL', field)
-      if (!policy.watched.has(key)) continue
-      const outside = withinThreshold ? countsAsChange(key, value, incoming, policy) : value !== incoming
-      if (match?.method === 'USER' && policy.watched.has(key) && outside && !terminalDecided(state, scheduleId, field, incoming)) {
+      const manualHold = match?.method === 'USER' && value !== incoming && !terminalDecided(state, scheduleId, field, incoming)
+      if (manualHold && fieldWasModified(state, scheduleId, 'TERMINAL', field)) {
         fields.push({ side: 'TERMINAL', field, previousValue: value, incomingValue: incoming, status: 'pending', payloadId: sole.id })
-      } else if (previous && terminal.payloadId === sole.id && value !== prior && countsAsChange(key, prior, value, policy)) {
-        fields.push({ side: 'TERMINAL', field, previousValue: prior, incomingValue: value, status: 'applied', payloadId: sole.id })
       }
     }
     if (
       terminalPayloads.length === 1
       && isManualMatch(state, schedule)
-      && policy.watched.has(watchKey('MATCH', MATCH_FIELD))
       && !fields.some((field) => field.side === 'MATCH' && field.field === MATCH_FIELD)
     ) {
       const laraEta = latestLaraPayload(state, scheduleId)?.laraEta
@@ -973,13 +1060,13 @@ export function reviewSchedule(state: ScheduleState, scheduleId: string, policy:
         ?? ''
       const incomingStatus = oneRecordStatus(laraEta, sole)
       const previousStatus = boundMappingStatus(match?.method)
-      if (incomingStatus !== 'Auto matched') {
+      if (incomingStatus !== 'Auto matched' && !matchDecided(state, scheduleId, sole)) {
         fields.push({
           side: 'MATCH',
           field: MATCH_FIELD,
           previousValue: previousStatus,
           incomingValue: incomingStatus,
-          status: matchDecided(state, scheduleId, sole) ? 'applied' : 'pending',
+          status: 'pending',
           payloadId: sole.id,
         })
       }
@@ -1013,14 +1100,16 @@ export function reviewSchedule(state: ScheduleState, scheduleId: string, policy:
     && query?.status === 'FOUND'
     && isManualMatch(state, schedule)
     && terminalPayloads.length > 1
+    && query
+    && !matchReviewed(state, scheduleId, query.id)
     && !state.fieldDecisions.some((item) => (
       item.scheduleId === scheduleId
       && item.field === TERMINAL_SHAPE
-      && item.payloadId === query?.id
+      && item.payloadId === query.id
       && item.action === 'KEEP'
     )),
   )
-  if (manyOpen && query && policy.watched.has(watchKey('MATCH', MATCH_FIELD))) {
+  if (manyOpen && query) {
     const previousStatus = boundMappingStatus(match?.method)
     const incomingStatus = incomingMappingStatus('many')
     if (previousStatus !== incomingStatus && !fields.some((field) => field.side === 'MATCH' && field.field === MATCH_FIELD)) {

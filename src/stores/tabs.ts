@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import type { RouteLocationNormalizedLoaded } from 'vue-router'
 
 import { findTerminalVoyage } from '@/features/terminal-voyage/model'
+import { useScheduleStore } from '@/stores/schedule'
 import { useVesselStore } from '@/stores/vessels'
 
 export type PageTab = {
@@ -33,7 +34,7 @@ function tabTitle(to: RouteLocationNormalizedLoaded) {
     return vessel ? `Review · ${vessel.vesselName}` : 'Review'
   }
   if (to.name === 'terminal-voyage-detail') {
-    const row = findTerminalVoyage(useVesselStore().vessels, String(to.params.id))
+    const row = findTerminalVoyage(useScheduleStore().payloadState, useVesselStore().vessels, String(to.params.id))
     return row?.vesselNameEn || row?.vesselNameCn || 'Terminal voyage'
   }
   return typeof to.meta.title === 'string' ? to.meta.title : 'Page'

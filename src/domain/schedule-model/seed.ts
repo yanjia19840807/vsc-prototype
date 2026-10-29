@@ -61,6 +61,7 @@ const scenarioSeeders: Record<string, ScenarioSeed> = {
   v47: (state, vessel) => seedVoyageTwinAfterManual(state, vessel),
   v48: (state, vessel, patches) => seedGapAfterManual(state, vessel, patches),
   v51: (state, vessel) => seedManyUnmatchedAfterManual(state, vessel),
+  v53: (state, vessel) => seedIgnoredNoneAfterManualEntry(state, vessel),
 }
 
 export function seedSchedule(vessels: VesselRecord[]) {
@@ -407,6 +408,20 @@ function seedNoneAfterManual(state: ScheduleState, vessel: VesselRecord) {
   next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
   next = adoptTerminal(next, vessel.id, terminalFrom(vessel), T0, true)
   next = markManual(next, vessel)
+  return recordNotFound(next, vessel.id, T2)
+}
+
+function seedIgnoredNoneAfterManualEntry(state: ScheduleState, vessel: VesselRecord) {
+  let next = addSchedule(state, vessel)
+  next = adoptLara(next, vessel.id, laraFrom(vessel), T0)
+  next = editTerminalFields(next, {
+    scheduleId: vessel.id,
+    fields: terminalFrom(vessel),
+    enteredManually: true,
+    reason: 'Terminal record added',
+    updatedBy: CURRENT_USER,
+    updatedAt: T1,
+  })
   return recordNotFound(next, vessel.id, T2)
 }
 

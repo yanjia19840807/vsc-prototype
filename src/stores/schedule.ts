@@ -1,12 +1,11 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 import { seedSchedule } from '@/domain/schedule-model/seed'
 import {
   acceptLaraField,
   acceptTerminalField,
   acceptTerminalPayload,
-  adoptNoTerminal,
   confirmReviewedMatch,
   displayedLara,
   displayedTerminal,
@@ -52,6 +51,7 @@ export const useScheduleStore = defineStore('schedule', () => {
   const listSettings = useListSettingsStore()
   const seeded = seedSchedule(vessels.vessels)
   const state = ref(seeded.state)
+  const payloadState = computed(() => state.value)
   for (const patch of seeded.patches) vessels.patchDisplay(patch.id, patch.fields)
 
   function policy(): SyncPolicy {
@@ -94,14 +94,6 @@ export const useScheduleStore = defineStore('schedule', () => {
     state.value = keepTerminalShape(state.value, { scheduleId, queryId, updatedBy: CURRENT_USER, updatedAt: at })
   }
 
-  function adoptNone(scheduleId: string) {
-    const queryId = review(scheduleId).queryId
-    if (!queryId) return
-    const at = new Date().toISOString()
-    state.value = adoptNoTerminal(state.value, { scheduleId, queryId, updatedBy: CURRENT_USER, updatedAt: at })
-    project(scheduleId, true)
-  }
-
   function adoptCandidate(scheduleId: string, payloadId: string) {
     const at = new Date().toISOString()
     const review = reviewSchedule(state.value, scheduleId, policy())
@@ -126,7 +118,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     project(scheduleId)
   }
 
-  function sealReviewed(scheduleId: string, row: TerminalSchedule, vesselOperator: string, reason: string) {
+  function sealReviewed(scheduleId: string, row: TerminalSchedule, vesselOperator: string, reason: string, enteredManually = false) {
     const at = new Date().toISOString()
     const snapshot: TerminalSnapshot = {
       vesselOperator,
@@ -148,6 +140,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     state.value = confirmReviewedMatch(state.value, {
       scheduleId,
       snapshot,
+      enteredManually,
       reason,
       updatedBy: CURRENT_USER,
       updatedAt: at,
@@ -216,6 +209,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     }
     const match = state.value.matches.find((item) => item.id === schedule.matchId)
     const versionId = match?.terminalVersionId
+    const version = versionId ? state.value.terminalVersions.find((item) => item.id === versionId) : undefined
     const status = displayedMatchingStatus(state.value, scheduleId)
     if (status === 'Multiple terminal records' || status === 'No terminal record') {
       vessels.patchDisplay(scheduleId, fields)
@@ -223,13 +217,14 @@ export const useScheduleStore = defineStore('schedule', () => {
       else vessels.markNoTerminal(scheduleId)
       return
     }
-    if (status === 'Manual matched') {
-      fields.matchingStatus = 'Manual matched'
+    if (status === 'Manual matched' || status === 'Pending match') {
+      fields.matchingStatus = status
     } else if (status) {
       fields.matchingStatus = status
       fields.terminalSource = 'freightower'
     }
     if (versionId) {
+      fields.terminalSource = version?.enteredManually ? 'manual' : 'freightower'
       fields.vesselOperator = terminal.vesselOperator
       fields.tmlEta = terminal.eta
       fields.tmlAta = terminal.ata
@@ -270,7 +265,7 @@ export const useScheduleStore = defineStore('schedule', () => {
 
   for (const schedule of state.value.schedules) project(schedule.id)
 
-  return { review, needsReview, history, confirm, candidates, keepShape, adoptNone, adoptCandidate, sealReviewed }
+  return { review, needsReview, history, confirm, candidates, keepShape, adoptCandidate, sealReviewed, payloadState }
 })
 
 function settleLara(state: ReturnType<typeof seedSchedule>['state'], scheduleId: string, choice: SyncChoice, at: string) {

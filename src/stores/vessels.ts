@@ -11,7 +11,6 @@ import type {
   HistoryTrigger,
   HistoryType,
   MatchChange,
-  MatchingStatus,
   ScheduleRefresh,
   TerminalSchedule,
   VesselRecord,
@@ -499,14 +498,14 @@ export const useVesselStore = defineStore('vessels', () => {
 
   /** Confirmed rows keep their relationship label. Everything else is still unconfirmed. */
   function previousMatchLabel(v: VesselRecord) {
-    if (v.matchingStatus === 'Manual matched' || v.matchingStatus === 'Auto matched') {
+    if (v.matchingStatus === 'Manual matched' || v.matchingStatus === 'Pending match' || v.matchingStatus === 'Auto matched') {
       return selectionLabel(v.terminalSchedule)
     }
     return 'Unconfirmed'
   }
 
   function alreadyMatched(v: VesselRecord) {
-    return v.matchingStatus === 'Manual matched' || v.matchingStatus === 'Auto matched'
+    return v.matchingStatus === 'Manual matched' || v.matchingStatus === 'Pending match' || v.matchingStatus === 'Auto matched'
   }
 
   /** A field edit on the bound row changes the label without changing which record is matched. */
@@ -997,6 +996,28 @@ export const useVesselStore = defineStore('vessels', () => {
     )
   }
 
+  function recordKeptBinding(id: string, reason: string) {
+    const v = byId(id)
+    if (!v) return
+    pushHistory(v, {
+      type: 'Manual terminal',
+      reason,
+      summary: 'Kept the current terminal binding',
+      details: [{ field: 'matchingStatus', from: 'No terminal record', to: 'Manual matched' }],
+    })
+  }
+
+  function recordClearedTerminal(id: string, reason: string, from: string) {
+    const v = byId(id)
+    if (!v || from === 'No terminal record') return
+    pushHistory(v, {
+      type: 'Manual terminal',
+      reason,
+      summary: 'Cleared the terminal record',
+      details: [{ field: 'matchingStatus', from, to: 'No terminal record' }],
+    })
+  }
+
   function recordConfirmedFields(id: string, details: HistoryDetail[], reason: string) {
     const v = byId(id)
     if (!v) return
@@ -1038,7 +1059,6 @@ export const useVesselStore = defineStore('vessels', () => {
       reason: string
       syncs: { source: 'LARA' | 'Terminal'; at: string; changes: HistoryDetail[] }[]
       matches: { at: string; from: string; to: string; auto: boolean }[]
-      matchingStatus: MatchingStatus
     },
   ) {
     const v = byId(id)
@@ -1067,13 +1087,13 @@ export const useVesselStore = defineStore('vessels', () => {
     if (!selected) {
       v.terminalSchedule = null
       v.terminalSource = null
-      v.matchingStatus = input.matchingStatus
+      v.matchingStatus = input.rows.length > 1 ? 'Multiple terminal records' : 'No terminal record'
       v.manualRemediation = input.rows.length ? 'reviewMatch' : 'addTerminal'
     } else {
       const manualTerminal = input.terminalCreated.length > 0 || v.terminalSource === 'manual'
       bindSchedule(v, { ...selected }, manualTerminal ? 'manual' : 'freightower')
-      v.matchingStatus = input.matchingStatus
-      v.manualRemediation = input.matchingStatus === 'Manual matched' ? 'reviewMatch' : v.manualRemediation
+      v.matchingStatus = 'Manual matched'
+      v.manualRemediation = 'reviewMatch'
     }
     if (input.terminalCreated.length) {
       pushHistory(v, {
@@ -1252,6 +1272,8 @@ export const useVesselStore = defineStore('vessels', () => {
     addManualTerminalFromDraft,
     saveTerminalOverrides,
     saveReviewMatch,
+    recordKeptBinding,
+    recordClearedTerminal,
     recordConfirmedFields,
     pushLog,
   }

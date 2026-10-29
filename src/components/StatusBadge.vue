@@ -43,7 +43,7 @@ const variant = computed<BadgeVariants['variant'] | null>(() => {
   ) {
     return 'warning'
   }
-  if (status.startsWith('No ')) return 'destructive'
+  if (status === 'Pending match' || status.startsWith('No ')) return 'destructive'
   return 'secondary'
 })
 </script>

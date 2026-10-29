@@ -5,25 +5,24 @@ info:
   version: 0.1.0
   description: |
     页面对外的读写。JSON 用页面字段名，不返回库列名。响应里只有 id，不返回 URL。
-    表结构见 vessel-schedules-api.md。lara_sync_run、lara_payload、terminal_sync_run、terminal_query、terminal_payload、field_decision 不在这份规范里。
+    表结构见 vessel-schedules-api.md。lara_sync_run、lara_payload、terminal_sync_run、terminal_query、terminal_payload 不在这份规范里。保留上一版还是采用这次同步留在页面上，确认时只写入最终的码头值和匹配状态。
 
     后端管筛选、排序、分页、匹配状态、待确认差异、同步落库、保存、活动日志。后端不按某个人的列表方案裁剪结果。
     列表方案、列标题、空值占位、时间格式、按钮、提示文案、高亮由前端处理。相对日期先折成绝对日期再提交。导出由服务端按当前筛选条件生成 Excel，包含过滤后的全部船期。
     接口不返回能否点 Review、输入框是否可编、候选条数文案、系统同步的说明句子，也不返回 Visit no、cutoff、合作方、同步运行记录。
 
-    关注字段是服务端固定的一组：LARA 的 ETB、ETD，码头的 ETB、ETD、ATB、ATD、出口航次、进口航次。
-    天数阈值由前端在多条码头记录的日期比较里使用；相差天数不超过阈值的日期不放进 changes。出口航次、进口航次没有天数阈值。
+    用户在列表方案里勾选的字段和天数阈值，只决定这个用户看到哪些已经写入的差异。不决定能不能自动写入，也不决定是否进入审核。LARA 与上一版不同就写入差异，不要求已经绑上码头。人工确认后留下的码头值，与上一版不同且被该用户关注时，同样写入差异。天数阈值只过滤日期。pending 为 false 的差异用于高亮。审核页上该字段已经展开上一版和这次同步时，不再另放提示图标。
 
-    当前不是 Manual matched 时，同步写入全部最新字段并重算 matchingStatus，changes.pending 为 false。
+    当前不是 Manual matched、也不是 Pending match 时，同步写入全部最新字段并写入 platformMatchingStatus，changes.pending 为 false。
     正好一条码头记录、进出口航次都有，并且 LARA ETA 与码头 ETA 相差不超过 3 天，结果是 Auto matched。
     缺航次是 No external voyage，天数差算不出来或超过 3 天是 ETA gap > 3 days，多条是 Multiple terminal records，没有记录是 No terminal record。
 
-    当前是 Manual matched 时，状态保持 Manual matched，不改回 Auto matched。已保存的关注字段不覆盖，这些差异 pending 为 true，当前值仍是 previousValue。
-    不在关注字段里的差异仍然写入，pending 为 false。下一次仍是一条记录且会算出 ETA gap > 3 days、No external voyage 或 No terminal record 时，changes 里增加匹配状态，确认前 pending 为 true。确认后该状态差异 pending 为 false，已保存状态仍是 Manual matched。下一次仍会是 Auto matched 时，不写这条状态差异。
+    当前是 Manual matched 或 Pending match 时，不自动覆盖已保存的码头字段。LARA 每次成功同步都写入最新值，页面始终显示最新 LARA。已保存的码头字段与这次同步有差异，或这次不再是一条已确认绑定，platformMatchingStatus 写成 Pending match，相关码头差异 pending 为 true。确认前列表和明细的码头格子显示 —，审核页仍显示已保存的值。确认必须选择或新建一条码头记录，结果为 Manual matched。已保存的每个码头字段都和这次同步相同、绑定仍是这一条时，platformMatchingStatus 保持 Manual matched。
+    terminal_source 为 USER 时，下一次码头同步没有记录则忽略这次结果：码头列和 platformMatchingStatus 保持原值，platformTerminalPending 为 null，不进入审核。
 
-    Manual matched 之后下一次仍是多条时，出口航次和进口航次都有值且只有一条候选两个都相同，该条只是默认比对对象。terminalPending 仍为 many，并写出匹配状态差异。改选只换比对对象，不整条覆盖已保存的码头记录。
+    Manual matched 或 Pending match 之后下一次仍是多条时，出口航次和进口航次都有值且只有一条候选两个都相同，该条只是比对对象。platformTerminalPending 仍为 many。改选只换比对对象，不整条覆盖已保存的码头记录。确认当前记录时保留已保存的值。
 
-    审核确认成功后 matchingStatus 一定是 Manual matched。没有选中一条码头记录时返回 409，不写入。缺航次或 ETA 相差超过 3 天不阻止确认。
+    审核确认必须选择或新建一条码头记录，platformMatchingStatus 为 Manual matched。没有码头记录时返回 409，不写入。缺航次或 ETA 相差超过 3 天不阻止确认。
     已挂到正式航次上的手工临时船不进入这些接口。手工船的新建、修改、删除，以及临时船关联，不在这里。
 servers:
   - url: /
@@ -45,9 +44,9 @@ paths:
       operationId: queryVesselSchedules
       summary: 查询船期
       description: |
-        筛选、排序和分页都是查询参数。不带筛选参数时不附加筛选。默认排序 -LARA.etb。
-        多选和多行重复同一个 side.field。子串参数只出现一次。日期用 side.fieldFrom 与 side.fieldTo。
-        列表在没有绑定、matchingStatus 为 Multiple terminal records 或 ETA gap > 3 days、或港口未覆盖且不是手工补录时，terminal 为 null。
+        筛选、排序和分页都是查询参数，直接用字段名。不带筛选参数时不附加筛选。默认排序 -laraEtb。
+        多选和多行重复同一个字段名。子串参数只出现一次。日期用字段名加 From、To，例如 laraEtbFrom、laraEtbTo。
+        列表在没有绑定、platformMatchingStatus 为 Multiple terminal records 或 ETA gap > 3 days、或港口未覆盖且不是手工补录时，terminal 字段为 null。
         changes 没有差异时为 null。pending 为 true 时当前值是 previousValue；pending 为 false 时当前值是 incomingValue。
       parameters:
         - $ref: "#/components/parameters/scheduleSort"
@@ -70,7 +69,7 @@ paths:
       summary: 导出船期
       description: |
         服务端生成 Excel。筛选参数和 sort 与查询船期相同，不带 page、pageSize。数据范围是本次条件命中的全部船期。
-        工作表一行一条船期。列表上 terminal 为 null 的格子在表里留空。不包含 visit_no。时刻写成 YYYY-MM-DD HH:mm。
+        工作表一行一条船期。列表上 terminal 字段为 null 的格子在表里留空。不包含 lara_visit_no。时刻写成 YYYY-MM-DD HH:mm。
       parameters:
         - $ref: "#/components/parameters/scheduleSort"
       responses:
@@ -95,9 +94,9 @@ paths:
       operationId: getVesselSchedule
       summary: 读取船期明细
       description: |
-        在列表行之外增加 remark 和 sources。列表不返回这两项。明细不改数据。
-        标题用 lara.pointCode、lara.voyage、remark、matchingStatus、candidateCount、sharedLaraCount、voyageStatus。
-        terminal.enteredManually 为 true 时，前端在码头区标题标明手工录入。
+        在列表行之外增加 sources。列表不返回这项。明细不改数据。用户备注在活动日志里。
+        标题用 laraPointCode、laraVoyage、platformMatchingStatus、platformCandidateCount、platformSharedLaraCount、platformVoyageStatus。
+        terminalManual 为 true 时，前端在码头区标题标明手工录入。
       parameters:
         - $ref: "#/components/parameters/scheduleId"
       responses:
@@ -116,12 +115,12 @@ paths:
       operationId: getVesselScheduleReview
       summary: 读取审核
       description: |
-        返回标题、当前 LARA、当前绑定的码头记录、待确认差异。不返回候选表，也不返回 lastModifiedBy。
-        remark 是已保存备注。页面上新的备注框从空开始，不回填这个值。
-        terminal 尚未绑定时为 null。已绑定则带上全部码头字段，包括列表里被藏起来的值。
-        前端按这些值决定表单：No terminal record 可新增码头记录；No external voyage 只能改 exportVoyage 和 importVoyage；Manual matched 且 enteredManually 可改并可删除；其余状态码头字段只读。
+        返回标题、当前 LARA 字段、当前绑定的码头字段、待确认差异。不返回候选表，也不返回 platformLastModifiedBy。
+        用户备注不在这个响应里。页面上的备注框从空开始，确认时写入活动日志。
+        码头字段尚未绑定时为 null。已绑定则带上全部码头字段，包括列表里被藏起来的值。
+        前端按这些值决定表单：No terminal record 必须新建一条码头记录后才能确认；No external voyage 只能改 terminalExportVoyage 和 terminalImportVoyage；Manual matched 且 terminalManual 可改。删除当前手工记录后，必须再选择或新建一条才能确认。其余状态码头字段只读。确认必须带上一条码头记录。
         pending 为 true 的字段只在 previousValue 和 incomingValue 之间选。LARA 字段不能手输。
-        terminalPending 为 many 时展示状态变化和选择按钮。none 先处理没有码头记录。取消编辑不请求接口。
+        platformTerminalPending 为 many 时展示状态变化和选择按钮。none 先处理没有码头记录。取消编辑不请求接口。
       parameters:
         - $ref: "#/components/parameters/scheduleId"
       responses:
@@ -138,11 +137,9 @@ paths:
       operationId: saveVesselScheduleReview
       summary: 保存审核
       description: |
-        没有变化返回 400。没有选中一条码头记录返回 409，不写入。成功时 matchingStatus 为 Manual matched，并写一条活动日志。
-        fields 只放这次确认的待确认字段。没出现的待确认字段保持待确认。LARA 的 value 必须是该字段的 previousValue 或 incomingValue。
-        vesselType 和 Terminal 9code 提交了也忽略。candidateId 只在尚未绑定、用户从候选里选了一条时出现。
-        terminal 和 candidateId 一起出现时，覆盖该候选上被改过的字段。terminal 单独出现时，表示修改当前绑定或新建手工记录。删掉手工记录时 terminal 为 null。码头没有改动时不要带 terminal 和 candidateId。
-        请求里不带 matchingStatus。
+        没有变化返回 400。没有选择或新建一条码头记录时返回 409，不写入。platformMatchingStatus 由服务端写入。同步按匹配规则计算。审核确认绑上一条码头记录时写成 Manual matched。请求不带这个字段，带了也忽略。码头字段不能全部为 null。已有码头记录且请求不带码头字段时，码头列保持不变。每种成功都写一条活动日志。
+        fields 是这次要写入的码头字段最终值。没出现的字段保持船期上已保存的值。LARA 和 platformMatchingStatus 不在 fields 里。
+        laraVesselType、laraTerminal、platformMatchingStatus 提交了也忽略。确认当前记录时不带 candidateId 和码头字段。改选另一条时带 candidateId 和该条码头字段。码头字段单独出现时，表示修改当前绑定或新建手工记录。
       parameters:
         - $ref: "#/components/parameters/scheduleId"
       requestBody:
@@ -167,7 +164,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: 没有选中一条码头记录。
+          description: 没有选择或新建一条码头记录。
           content:
             application/problem+json:
               schema:
@@ -181,7 +178,7 @@ paths:
       description: |
         打开选择框时读取。没有候选时 data 为空数组。
         尚未绑定且状态是 Multiple terminal records 时，选中的 id 留在页面上，跟确认一起提交。
-        terminalPending 为 many 时，选中一条后只更换比对对象。能按航次唯一对上时，current 为 true 的是默认记录。
+        platformTerminalPending 为 many 时，选中一条后只更换比对对象。能按航次唯一对上时，current 为 true 的是默认记录。
       parameters:
         - $ref: "#/components/parameters/scheduleId"
       responses:
@@ -193,57 +190,6 @@ paths:
                 $ref: "#/components/schemas/TerminalCandidateList"
         "404":
           $ref: "#/components/responses/NotFound"
-
-  /v1/vessel-schedules/{scheduleId}/terminal-resolution:
-    post:
-      tags: [review]
-      operationId: resolveTerminalShape
-      summary: 决定码头形态
-      description: |
-        只在 terminalPending 非空时有效，否则 409。不带备注。写入后返回审核。
-        none 使用 keep 或 clear。keep 保留当前绑定。clear 解除绑定。
-        many 使用 adopt。已经是 Manual matched 时，candidateId 只更换比对对象。尚未审核时，candidateId 写入当前码头记录，matchingStatus 要等确认保存才变成 Manual matched。
-        candidateId 必须来自这次候选。
-      parameters:
-        - $ref: "#/components/parameters/scheduleId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/TerminalResolution"
-            examples:
-              keep:
-                value:
-                  action: keep
-              clear:
-                value:
-                  action: clear
-              adopt:
-                value:
-                  action: adopt
-                  candidateId: cand-1
-      responses:
-        "200":
-          description: 写入后的审核
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Review"
-        "400":
-          description: 候选 id 不属于这次结果，或 action 与当前 terminalPending 不符。
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Problem"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          description: 当前没有待决定的码头形态。
-          content:
-            application/problem+json:
-              schema:
-                $ref: "#/components/schemas/Problem"
 
   /v1/vessel-schedules/{scheduleId}/lara-sync:
     post:
@@ -296,7 +242,7 @@ paths:
       summary: 查询活动日志
       description: |
         一次保存或一次自动落库产生一条日志。changes 是这一次的原值和新值，展开明细用这个数组。
-        remark 只包含用户写下的备注。系统写入时 remark 为空，前端再按 changes 的 side 和 match 生成说明。
+        人工确认的 remark 是用户写下的备注。用户留空时，前端按 changes 的 field 和 match 生成说明。系统落库时 remark 由服务端写成这次事件，例如系统同步 LARA、系统同步码头、系统自动建立匹配，前端直接显示。
         从某一列进入时，前端把列换成 field，不提交列标题。
       parameters:
         - $ref: "#/components/parameters/scheduleId"
@@ -354,7 +300,7 @@ paths:
       description: |
         筛选、排序和分页都是查询参数。不带筛选参数时不附加筛选。
         vesselName、voyage、region、portCode、status 可重复。日期用 etaFrom、etaTo 这种名字。
-        一条成功同步返回的码头记录是一行。更早一次同步留下的旧记录不返回。默认排序 -eta。
+        读取 terminal_payload。一条船期最近一次成功查询为 FOUND 时，这次的候选进入列表。NOT_FOUND 时该船期没有候选。FAILED 时仍是上一次成功查询的候选。portCode 取 terminal_query.port_code。同一 port_code、vessel_name_en、evoyage、ivoyage 只返回一行，id 是其中一条 terminal_payload.id。默认排序 -eta。
       parameters:
         - name: sort
           in: query
@@ -378,7 +324,7 @@ paths:
       tags: [terminal-voyages]
       operationId: getTerminalVoyage
       summary: 读取一条码头航次
-      description: 值为 null 的字段仍然返回。字段标题和时间格式由前端处理。
+      description: voyageId 是 terminal_payload.id。值为 null 的字段仍然返回。字段标题和时间格式由前端处理。
       parameters:
         - name: voyageId
           in: path
@@ -492,7 +438,7 @@ paths:
       summary: 查询港口
       description: |
         portCode、portName 是子串，忽略大小写。region 多选，精确匹配区域代码。coverage 为空表示全部。
-        pointCovered 就是 apiCovered。码头查询只发给 active 和 apiCovered 都为 true 的港口。
+        platformPointCovered 就是 apiCovered。码头查询只发给 active 和 apiCovered 都为 true 的港口。
       parameters:
         - name: portCode
           in: query
@@ -656,10 +602,10 @@ components:
     scheduleSort:
       name: sort
       in: query
-      description: 写成 side.field，减号表示降序，例如 -LARA.etb,TERMINAL.etd。默认 -LARA.etb。
+      description: 字段名，减号表示降序，例如 -laraEtb,terminalEtd。默认 -laraEtb。
       schema:
         type: string
-        default: "-LARA.etb"
+        default: "-laraEtb"
 
   responses:
     BadRequest:
@@ -705,18 +651,16 @@ components:
         totalPages:
           type: integer
 
-    Side:
-      type: string
-      enum: [LARA, TERMINAL, PLATFORM]
-
     MatchingStatus:
       type: string
       description: |
-        由服务端计算，请求里不带。审核确认成功后是 Manual matched。
-        尚未审核时：没有绑定且仍有候选为 Multiple terminal records，没有候选为 No terminal record，绑着的记录缺少进口或出口航次为 No external voyage，LARA ETA 与码头 ETA 的天数差算不出来或超过 3 天为 ETA gap > 3 days，其余为 Auto matched。
+        保存在船期上，请求里不带。同步和审核写入时更新。
+        空值只出现在还没写过状态的新船期。审核确认必须选择或新建一条码头记录，结果是 Manual matched。已保存的码头值与后来的同步相同、绑定也仍是这一条时保持 Manual matched，不覆盖码头字段。LARA 始终写入最新值。已是 Manual matched 或 Pending match，且已保存的码头字段或绑定结果与这次同步不同时，matching_status 写成 Pending match。terminal_source 为 USER 且这次码头同步没有记录时，matching_status 保持原值。No terminal record 只由没有记录的同步写入，不能由审核确认写入。
+        尚未审核时：正好一条、进出口航次都有、LARA ETA 与码头 ETA 相差不超过 3 天为 Auto matched。没有绑定且仍有候选为 Multiple terminal records，没有候选为 No terminal record，绑着的记录缺少进口或出口航次为 No external voyage，天数差算不出来或超过 3 天为 ETA gap > 3 days。
       enum:
         - Auto matched
         - Manual matched
+        - Pending match
         - Multiple terminal records
         - ETA gap > 3 days
         - No external voyage
@@ -731,8 +675,7 @@ components:
       type: string
       nullable: true
       description: |
-        只在 Manual matched 时为 many 或 none。many 表示仍有多条候选。none 表示没有记录。
-        其他状态已经自动改成最新状态时为 null。
+        只在 Manual matched 或 Pending match，且最近一次码头同步不再是一条时有值。many 表示仍有多条候选。none 表示没有记录。terminal_source 为 USER 且这次没有记录时为 null。其余为 null。
       enum: [many, none]
 
     DateTime:
@@ -748,122 +691,122 @@ components:
     Lara:
       type: object
       description: |
-        页面 LARA 区。vesselOperator 来自 OPERATOR_CODE。brand、vesselType、terminal（Terminal 9code）由服务端计算，提交了也忽略。
-        terminal 按 pointCode 和码头代码从港口覆盖连接。
-      required: [voyage, pointCode, poolLocation, vesselName, vesselOperator, brand, service, eta, etb, etd, vesselType, terminal]
+        船期行上的 LARA 字段。laraVesselOperator 来自 OPERATOR_CODE。laraBrand、laraVesselType、laraTerminal 由服务端计算，提交了也忽略。
+        laraTerminal 按 laraPointCode 和码头代码从港口覆盖连接。
+      required: [laraVoyage, laraPointCode, laraPoolLocation, laraVesselName, laraVesselOperator, laraBrand, laraService, laraEta, laraEtb, laraEtd, laraVesselType, laraTerminal]
       properties:
-        voyage:
+        laraVoyage:
           type: string
-        pointCode:
+        laraPointCode:
           type: string
-        poolLocation:
-          type: string
-          nullable: true
-        vesselName:
-          type: string
-        vesselOperator:
+        laraPoolLocation:
           type: string
           nullable: true
-        brand:
+        laraVesselName:
+          type: string
+        laraVesselOperator:
           type: string
           nullable: true
-        service:
+        laraBrand:
           type: string
           nullable: true
-        eta:
+        laraService:
+          type: string
+          nullable: true
+        laraEta:
           $ref: "#/components/schemas/DateTime"
-        etb:
+        laraEtb:
           $ref: "#/components/schemas/DateTime"
-        etd:
+        laraEtd:
           $ref: "#/components/schemas/DateTime"
-        vesselType:
+        laraVesselType:
           type: string
           nullable: true
-        terminal:
+        laraTerminal:
           type: string
           nullable: true
           description: Terminal 9code。列表上格子不展示时为 null。
 
     TerminalRecord:
       type: object
-      description: 当前绑定的码头记录。enteredManually 为 true 表示手工补录。报文没有 vesselOperator。
-      required: [enteredManually, exportVoyage, importVoyage, vesselNameCn, name, eta, ata, etb, atb, etd, atd, cyOpen, cyCutoff, vesselStatus, updateTime]
+      description: 船期行上的码头字段。没有绑定时这些字段为 null。terminalManual 为 true 表示手工补录。
+      required: [terminalManual, terminalExportVoyage, terminalImportVoyage, terminalVesselNameCn, terminalName, terminalEta, terminalAta, terminalEtb, terminalAtb, terminalEtd, terminalAtd, terminalCyOpen, terminalCyCutoff, terminalVesselStatus, terminalUpdateTime]
       properties:
-        enteredManually:
+        terminalManual:
           type: boolean
-        exportVoyage:
+          nullable: true
+        terminalExportVoyage:
           type: string
           nullable: true
-        importVoyage:
+        terminalImportVoyage:
           type: string
           nullable: true
-        vesselNameCn:
+        terminalVesselNameCn:
           type: string
           nullable: true
-        name:
+        terminalName:
           type: string
           nullable: true
           description: 报文 terminal，例如 YS01。
-        eta:
+        terminalEta:
           $ref: "#/components/schemas/DateTime"
-        ata:
+        terminalAta:
           $ref: "#/components/schemas/DateTime"
-        etb:
+        terminalEtb:
           $ref: "#/components/schemas/DateTime"
-        atb:
+        terminalAtb:
           $ref: "#/components/schemas/DateTime"
-        etd:
+        terminalEtd:
           $ref: "#/components/schemas/DateTime"
-        atd:
+        terminalAtd:
           $ref: "#/components/schemas/DateTime"
-        cyOpen:
+        terminalCyOpen:
           $ref: "#/components/schemas/DateTime"
-        cyCutoff:
+        terminalCyCutoff:
           $ref: "#/components/schemas/DateTime"
-        vesselStatus:
+        terminalVesselStatus:
           type: string
           nullable: true
           description: 报文 status，例如计划、在港、离港。不是匹配状态。
-        updateTime:
+        terminalUpdateTime:
           $ref: "#/components/schemas/DateTime"
 
     TerminalInput:
       type: object
-      description: 保存时提交的码头记录。不含 enteredManually。
-      required: [exportVoyage, importVoyage, vesselNameCn, name, eta, ata, etb, atb, etd, atd, cyOpen, cyCutoff, vesselStatus, updateTime]
+      description: 保存审核时可选的码头字段。已有码头记录且不带这些字段表示码头列保持不变。不能全部为 null。不含 terminalManual。
       properties:
-        exportVoyage:
+        terminalExportVoyage:
           type: string
           nullable: true
-        importVoyage:
+        terminalImportVoyage:
           type: string
           nullable: true
-        vesselNameCn:
+        terminalVesselNameCn:
           type: string
           nullable: true
-        name:
+        terminalName:
           type: string
           nullable: true
-        eta:
+        terminalEta:
           $ref: "#/components/schemas/DateTime"
-        ata:
+        terminalAta:
           $ref: "#/components/schemas/DateTime"
-        etb:
+        terminalEtb:
           $ref: "#/components/schemas/DateTime"
-        atb:
+        terminalAtb:
           $ref: "#/components/schemas/DateTime"
-        etd:
+        terminalEtd:
           $ref: "#/components/schemas/DateTime"
-        atd:
+        terminalAtd:
           $ref: "#/components/schemas/DateTime"
-        cyOpen:
+        terminalCyOpen:
           $ref: "#/components/schemas/DateTime"
-        cyCutoff:
+        terminalCyCutoff:
           $ref: "#/components/schemas/DateTime"
-        vesselStatus:
+        terminalVesselStatus:
           type: string
           nullable: true
-        updateTime:
+        terminalUpdateTime:
           $ref: "#/components/schemas/DateTime"
 
     FieldDiff:
@@ -871,13 +814,11 @@ components:
       description: |
         当前值与最新值的一个字段。没有更早的历史。没有差异时，外层 changes 为 null，不返回空数组。
         pending 为 true 表示仍要人确认，页面显示 previousValue。pending 为 false 表示已经写入，页面显示 incomingValue，只作提示。
-      required: [side, field, previousValue, incomingValue, pending]
+      required: [field, previousValue, incomingValue, pending]
       properties:
-        side:
-          $ref: "#/components/schemas/Side"
         field:
           type: string
-          description: 该侧对象里的属性名。匹配状态用 matchingStatus。
+          description: 船期字段名，例如 laraEtb、terminalEtd、platformMatchingStatus。
         previousValue:
           $ref: "#/components/schemas/Scalar"
         incomingValue:
@@ -888,56 +829,52 @@ components:
     FieldSource:
       type: object
       description: 手工改过的字段在改之前的来源值。只包含页面会标出来源的项。
-      required: [side, field, value]
+      required: [field, value]
       properties:
-        side:
-          $ref: "#/components/schemas/Side"
         field:
           type: string
+          description: 船期字段名，例如 terminalEtd。
         value:
           $ref: "#/components/schemas/Scalar"
 
     ScheduleRow:
-      type: object
-      required: [id, voyageStatus, pointCovered, matchingStatus, candidateCount, sharedLaraCount, terminalPending, lara, terminal, lastModifiedBy, lastModifiedAt, changes]
-      properties:
-        id:
-          type: string
-        voyageStatus:
-          $ref: "#/components/schemas/VoyageStatus"
-        pointCovered:
-          type: boolean
-          description: 这个 Point code 是否对接码头接口，对应 port.api_covered。
-        matchingStatus:
-          $ref: "#/components/schemas/MatchingStatus"
-        candidateCount:
-          type: integer
-          minimum: 0
-          description: 当前待选码头记录的条数，没有则为 0。
-        sharedLaraCount:
-          type: integer
-          minimum: 1
-          description: 共用同一港口、码头和出口航次的船期条数，只有一条时为 1。
-        terminalPending:
-          $ref: "#/components/schemas/TerminalPending"
-        lara:
-          $ref: "#/components/schemas/Lara"
-        terminal:
-          nullable: true
-          allOf:
-            - $ref: "#/components/schemas/TerminalRecord"
-        lastModifiedBy:
-          type: string
-          description: 实际操作者，包括 System。来自最新活动日志。
-        lastModifiedAt:
-          type: string
-          format: date-time
-        changes:
-          type: array
-          nullable: true
-          minItems: 1
-          items:
-            $ref: "#/components/schemas/FieldDiff"
+      allOf:
+        - $ref: "#/components/schemas/Lara"
+        - $ref: "#/components/schemas/TerminalRecord"
+        - type: object
+          required: [id, platformVoyageStatus, platformPointCovered, platformMatchingStatus, platformCandidateCount, platformSharedLaraCount, platformTerminalPending, platformLastModifiedBy, platformLastModifiedAt, changes]
+          properties:
+            id:
+              type: string
+            platformVoyageStatus:
+              $ref: "#/components/schemas/VoyageStatus"
+            platformPointCovered:
+              type: boolean
+              description: 这个 Point code 是否对接码头接口，对应 port.api_covered。
+            platformMatchingStatus:
+              $ref: "#/components/schemas/MatchingStatus"
+            platformCandidateCount:
+              type: integer
+              minimum: 0
+              description: 当前待选码头记录的条数，没有则为 0。
+            platformSharedLaraCount:
+              type: integer
+              minimum: 1
+              description: 共用同一港口、码头和出口航次的船期条数，只有一条时为 1。
+            platformTerminalPending:
+              $ref: "#/components/schemas/TerminalPending"
+            platformLastModifiedBy:
+              type: string
+              description: 实际操作者，包括 System。来自最新活动日志。
+            platformLastModifiedAt:
+              type: string
+              format: date-time
+            changes:
+              type: array
+              nullable: true
+              minItems: 1
+              items:
+                $ref: "#/components/schemas/FieldDiff"
 
     SchedulePage:
       type: object
@@ -954,11 +891,8 @@ components:
       allOf:
         - $ref: "#/components/schemas/ScheduleRow"
         - type: object
-          required: [remark, sources]
+          required: [sources]
           properties:
-            remark:
-              type: string
-              description: 已保存备注。来自最新一条非空的用户备注。没有时为空字符串。
             sources:
               type: array
               nullable: true
@@ -967,54 +901,49 @@ components:
                 $ref: "#/components/schemas/FieldSource"
 
     Review:
-      type: object
-      required: [id, voyageStatus, pointCovered, matchingStatus, candidateCount, sharedLaraCount, terminalPending, remark, lara, terminal, changes]
-      properties:
-        id:
-          type: string
-        voyageStatus:
-          $ref: "#/components/schemas/VoyageStatus"
-        pointCovered:
-          type: boolean
-        matchingStatus:
-          $ref: "#/components/schemas/MatchingStatus"
-        candidateCount:
-          type: integer
-          minimum: 0
-        sharedLaraCount:
-          type: integer
-          minimum: 1
-        terminalPending:
-          $ref: "#/components/schemas/TerminalPending"
-        remark:
-          type: string
-        lara:
-          $ref: "#/components/schemas/Lara"
-        terminal:
-          nullable: true
-          allOf:
-            - $ref: "#/components/schemas/TerminalRecord"
-        changes:
-          type: array
-          nullable: true
-          minItems: 1
-          items:
-            $ref: "#/components/schemas/FieldDiff"
+      allOf:
+        - $ref: "#/components/schemas/Lara"
+        - $ref: "#/components/schemas/TerminalRecord"
+        - type: object
+          required: [id, platformVoyageStatus, platformPointCovered, platformMatchingStatus, platformCandidateCount, platformSharedLaraCount, platformTerminalPending, changes]
+          properties:
+            id:
+              type: string
+            platformVoyageStatus:
+              $ref: "#/components/schemas/VoyageStatus"
+            platformPointCovered:
+              type: boolean
+            platformMatchingStatus:
+              $ref: "#/components/schemas/MatchingStatus"
+            platformCandidateCount:
+              type: integer
+              minimum: 0
+            platformSharedLaraCount:
+              type: integer
+              minimum: 1
+            platformTerminalPending:
+              $ref: "#/components/schemas/TerminalPending"
+            changes:
+              type: array
+              nullable: true
+              minItems: 1
+              items:
+                $ref: "#/components/schemas/FieldDiff"
 
     ScheduleFilter:
       type: object
-      required: [side, field]
+      required: [field]
       description: |
+        查询参数直接用字段名。这里描述列表方案里保存的一个筛选项。
         values、value、from/to 三选一。
-        values：多选精确匹配，或船名、航次的多行精确匹配。多行字段为 LARA 的 vesselName、voyage，以及码头的 vesselNameCn、exportVoyage、importVoyage，忽略大小写。代码类多选区分大小写。
-        value：单行文本，子串匹配，忽略大小写。用于 LARA 的 poolLocation、service、vesselOperator，以及 lastModifiedBy。
+        values：多选精确匹配，或船名、航次的多行精确匹配。多行字段为 laraVesselName、laraVoyage、terminalVesselNameCn、terminalExportVoyage、terminalImportVoyage，忽略大小写。代码类多选区分大小写。
+        value：单行文本，子串匹配，忽略大小写。用于 laraPoolLocation、laraService、laraVesselOperator、platformLastModifiedBy。
         from、to：日期，包含两端，可只给一端。
-        可筛选字段与列表列一致，另加 PLATFORM.region。matchingStatus、vesselType、brand、pointCode、terminal、码头 name、码头 vesselStatus 用 values。
+        可筛选字段与列表列一致，另加 platformRegion。platformMatchingStatus、laraVesselType、laraBrand、laraPointCode、laraTerminal、terminalName、terminalVesselStatus 用 values。
       properties:
-        side:
-          $ref: "#/components/schemas/Side"
         field:
           type: string
+          description: 船期字段名，例如 laraEtb、platformRegion。
         values:
           type: array
           minItems: 1
@@ -1040,7 +969,7 @@ components:
             $ref: "#/components/schemas/ScheduleFilter"
         sort:
           type: string
-          default: "-LARA.etb"
+          default: "-laraEtb"
         page:
           type: integer
           minimum: 1
@@ -1062,43 +991,40 @@ components:
             $ref: "#/components/schemas/ScheduleFilter"
         sort:
           type: string
-          default: "-LARA.etb"
+          default: "-laraEtb"
       additionalProperties: false
 
     ConfirmedField:
       type: object
-      required: [side, field, value]
+      required: [field, value]
       properties:
-        side:
-          $ref: "#/components/schemas/Side"
         field:
           type: string
+          description: 船期字段名。
         value:
           $ref: "#/components/schemas/Scalar"
       additionalProperties: false
 
     ReviewSave:
-      type: object
-      required: [remark, fields]
-      properties:
-        remark:
-          type: string
-          description: 这次保存的备注，写入活动日志。可以是空字符串。
-        fields:
-          type: array
-          items:
-            $ref: "#/components/schemas/ConfirmedField"
-        candidateId:
-          type: string
-        terminal:
-          nullable: true
-          allOf:
-            - $ref: "#/components/schemas/TerminalInput"
-      additionalProperties: false
+      allOf:
+        - $ref: "#/components/schemas/TerminalInput"
+        - type: object
+          required: [remark, fields]
+          properties:
+            remark:
+              type: string
+              description: 这次保存的备注，只写入活动日志。可以是空字符串。
+            fields:
+              type: array
+              items:
+                $ref: "#/components/schemas/ConfirmedField"
+            candidateId:
+              type: string
+              description: 改选另一条码头候选时带上 terminal_payload.id。确认当前绑定时省略。
 
     TerminalCandidate:
       type: object
-      required: [id, current, exportVoyage, importVoyage, vesselNameCn, name, eta, ata, etb, atb, etd, atd, cyOpen, cyCutoff, vesselStatus, updateTime]
+      required: [id, current, terminalExportVoyage, terminalImportVoyage, terminalVesselNameCn, terminalName, terminalEta, terminalAta, terminalEtb, terminalAtb, terminalEtd, terminalAtd, terminalCyOpen, terminalCyCutoff, terminalVesselStatus, terminalUpdateTime]
       properties:
         id:
           type: string
@@ -1106,38 +1032,38 @@ components:
         current:
           type: boolean
           description: 这条就是现在用于比对或绑定的记录。选择框用它标出 Current。
-        exportVoyage:
+        terminalExportVoyage:
           type: string
           nullable: true
-        importVoyage:
+        terminalImportVoyage:
           type: string
           nullable: true
-        vesselNameCn:
+        terminalVesselNameCn:
           type: string
           nullable: true
-        name:
+        terminalName:
           type: string
           nullable: true
-        eta:
+        terminalEta:
           $ref: "#/components/schemas/DateTime"
-        ata:
+        terminalAta:
           $ref: "#/components/schemas/DateTime"
-        etb:
+        terminalEtb:
           $ref: "#/components/schemas/DateTime"
-        atb:
+        terminalAtb:
           $ref: "#/components/schemas/DateTime"
-        etd:
+        terminalEtd:
           $ref: "#/components/schemas/DateTime"
-        atd:
+        terminalAtd:
           $ref: "#/components/schemas/DateTime"
-        cyOpen:
+        terminalCyOpen:
           $ref: "#/components/schemas/DateTime"
-        cyCutoff:
+        terminalCyCutoff:
           $ref: "#/components/schemas/DateTime"
-        vesselStatus:
+        terminalVesselStatus:
           type: string
           nullable: true
-        updateTime:
+        terminalUpdateTime:
           $ref: "#/components/schemas/DateTime"
 
     TerminalCandidateList:
@@ -1149,56 +1075,13 @@ components:
           items:
             $ref: "#/components/schemas/TerminalCandidate"
 
-    TerminalResolutionKeep:
-      type: object
-      required: [action]
-      properties:
-        action:
-          type: string
-          enum: [keep]
-      additionalProperties: false
-
-    TerminalResolutionClear:
-      type: object
-      required: [action]
-      properties:
-        action:
-          type: string
-          enum: [clear]
-      additionalProperties: false
-
-    TerminalResolutionAdopt:
-      type: object
-      required: [action, candidateId]
-      properties:
-        action:
-          type: string
-          enum: [adopt]
-        candidateId:
-          type: string
-      additionalProperties: false
-
-    TerminalResolution:
-      oneOf:
-        - $ref: "#/components/schemas/TerminalResolutionKeep"
-        - $ref: "#/components/schemas/TerminalResolutionClear"
-        - $ref: "#/components/schemas/TerminalResolutionAdopt"
-      discriminator:
-        propertyName: action
-        mapping:
-          keep: "#/components/schemas/TerminalResolutionKeep"
-          clear: "#/components/schemas/TerminalResolutionClear"
-          adopt: "#/components/schemas/TerminalResolutionAdopt"
-
     ActivityLogChange:
       type: object
-      required: [side, field, original, updated]
+      required: [field, original, updated]
       properties:
-        side:
-          $ref: "#/components/schemas/Side"
         field:
           type: string
-          description: 页面字段名。
+          description: 船期字段名，例如 laraEtb、terminalEtd、platformMatchingStatus。
         original:
           $ref: "#/components/schemas/Scalar"
         updated:
@@ -1314,6 +1197,7 @@ components:
       properties:
         id:
           type: string
+          description: terminal_payload.id。同一港口、英文船名、出口航次和进口航次有多条时，取其中一条。
         status:
           type: string
           nullable: true

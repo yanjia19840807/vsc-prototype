@@ -11,12 +11,14 @@ import {
   TERMINAL_VOYAGE_COLUMNS,
   findTerminalVoyage,
 } from '@/features/terminal-voyage/model'
+import { useScheduleStore } from '@/stores/schedule'
 import { useVesselStore } from '@/stores/vessels'
 
 const route = useRoute()
 const store = useVesselStore()
+const schedule = useScheduleStore()
 
-const row = computed(() => findTerminalVoyage(store.vessels, String(route.params.id)))
+const row = computed(() => findTerminalVoyage(schedule.payloadState, store.vessels, String(route.params.id)))
 const title = computed(() => row.value?.vesselNameEn || row.value?.vesselNameCn || 'Terminal voyage')
 </script>
 

@@ -35,10 +35,12 @@ import SearchFilterControl from '@/features/vessel-search/SearchFilterControl.vu
 import { copyFilterSession, isFilterFilled, portsForRegions, retainPointCodes, staticFilterOptions, type FilterFieldDef, type FilterState } from '@/features/vessel-search/list-setting-model'
 import { regionLabel, selectablePorts, selectableRegions } from '@/features/terminal-coverage/model'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
+import { useScheduleStore } from '@/stores/schedule'
 import { useVesselStore } from '@/stores/vessels'
 
 const router = useRouter()
 const store = useVesselStore()
+const schedule = useScheduleStore()
 const coverage = useTerminalCoverageStore()
 
 const filtersOpen = ref(true)
@@ -76,7 +78,7 @@ function fromDisplay(field: FilterFieldDef, state: FilterState): FilterState {
   }
 }
 
-const rows = computed(() => terminalVoyageRows(store.vessels))
+const rows = computed(() => terminalVoyageRows(schedule.payloadState, store.vessels))
 const results = computed(() => rows.value.filter((row) => terminalVoyageMatches(row, applied.value)))
 
 const columns = terminalVoyageColumnDefs()

@@ -30,14 +30,11 @@ import {
 import { tableActionsEdge } from '@/components/ui/table/chrome'
 import { useVesselDataTable } from '@/composables/useVesselDataTable'
 import { reviewForColumn } from '@/features/vessel-schedule/sync-columns'
-import { syncCellKey, syncPendingKey } from '@/features/vessel-schedule/sync-review'
+import { showsUnsettledDash, syncCellKey, syncPendingKey } from '@/features/vessel-schedule/sync-review'
 import SearchFilterControl from '@/features/vessel-search/SearchFilterControl.vue'
 import SearchRowActions from '@/features/vessel-search/SearchRowActions.vue'
 import {
   COLUMN_GROUP_CLASS,
-  COLUMN_GROUP_MARK,
-  COLUMN_GROUP_LABEL,
-  COLUMN_GROUP_ORDER,
   columnGroup,
   columnHeaderLabelById,
   groupColumnOrder,
@@ -234,7 +231,7 @@ function exportCsv() {
   const rows = sortedAllRows.value.map((vessel) => {
     const row: Record<string, string> = {}
     for (const id of visible) {
-      const text = searchCellText(vessel, id)
+      const text = showsUnsettledDash(vessel.matchingStatus, id) ? '—' : searchCellText(vessel, id)
       row[columnHeaderLabelById(id)] = text === '—' ? '' : text
     }
     return row
@@ -308,7 +305,7 @@ function headerFreezeClass(id: string) {
 }
 
 function rowChanged(vessel: VesselRecord) {
-  return schedule.review(vessel.id).changed
+  return schedule.review(vessel.id).fields.some((field) => field.status === 'applied')
 }
 
 function rowClass(vessel: VesselRecord) {
@@ -409,28 +406,6 @@ const visibleColCount = computed(
     </div>
 
     <div ref="tableWrap" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-md border">
-      <div class="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b bg-card px-3 py-2 text-xs">
-        <span class="inline-flex items-center gap-1.5">
-          <span class="size-3 shrink-0 rounded-sm bg-accent ring-1 ring-foreground/15" />
-          Changed
-        </span>
-        <span class="inline-flex items-center gap-1.5">
-          <span class="size-2 shrink-0 rounded-full bg-red-600" />
-          Expired
-        </span>
-        <span class="h-3 w-px shrink-0 bg-border" />
-        <span
-          v-for="group in COLUMN_GROUP_ORDER"
-          :key="group"
-          class="inline-flex items-center gap-1.5"
-        >
-          <span
-            class="size-3 shrink-0 rounded-sm"
-            :class="COLUMN_GROUP_MARK[group]"
-          />
-          {{ COLUMN_GROUP_LABEL[group] }}
-        </span>
-      </div>
       <div class="min-h-0 flex-1 overflow-auto">
         <Table :scrollable="false" class="min-w-max">
           <TableHeader pinned>

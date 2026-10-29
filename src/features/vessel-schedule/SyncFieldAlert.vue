@@ -14,28 +14,16 @@ const props = defineProps<{
 
 const lookup = inject(syncCellKey, null)
 const info = computed(() => lookup?.(props.scheduleId, props.columnId) ?? null)
-const pending = computed(() => info.value?.field.status === 'pending')
-
-const mapping = computed(() => props.columnId === 'mappingStatus')
+const field = computed(() => info.value?.field ?? null)
+const visible = computed(() => field.value?.status === 'applied')
 
 const rows = computed(() => {
-  const field = info.value?.field
-  if (!field) return []
-  if (mapping.value) {
-    return [
-      { label: 'Previous', value: display(field.previousValue) },
-      { label: 'This sync', value: display(field.incomingValue) },
-    ]
-  }
-  return pending.value
-    ? [
-        { label: 'Current', value: display(field.previousValue) },
-        { label: 'Latest', value: display(field.incomingValue) },
-      ]
-    : [
-        { label: 'Previous', value: display(field.previousValue) },
-        { label: 'Applied', value: display(field.incomingValue) },
-      ]
+  const current = field.value
+  if (!current) return []
+  return [
+    { label: 'Previous', value: display(current.previousValue) },
+    { label: 'Current', value: display(current.incomingValue) },
+  ]
 })
 
 function display(value: string) {
@@ -46,14 +34,13 @@ function display(value: string) {
 </script>
 
 <template>
-  <TooltipProvider v-if="info" :delay-duration="200">
+  <TooltipProvider v-if="visible" :delay-duration="200">
     <TooltipRoot>
       <TooltipTrigger as-child>
         <button
           type="button"
-          class="inline-flex size-5 items-center justify-center rounded-sm"
-          :class="pending ? 'text-amber-700' : 'text-sky-700'"
-          :aria-label="pending ? 'Sync change waiting for confirmation' : 'Sync change'"
+          class="inline-flex size-5 items-center justify-center rounded-sm text-sky-700"
+          aria-label="Previous and current"
           @click.stop
         >
           <TriangleAlert class="size-3.5" />
@@ -65,7 +52,7 @@ function display(value: string) {
           :side-offset="6"
           class="z-50 w-72 max-w-(--reka-tooltip-content-available-width) rounded-lg bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
         >
-          <p class="mb-2 font-medium">{{ pending ? 'Waiting for confirmation' : 'Applied this sync' }}</p>
+          <p class="mb-2 font-medium">This sync</p>
           <table class="w-full border-separate border-spacing-0 text-left">
             <thead>
               <tr class="text-xs text-muted-foreground">

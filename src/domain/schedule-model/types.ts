@@ -135,6 +135,8 @@ export type TerminalVersion = TerminalSnapshot & {
   seq: number
   source: VersionSource
   payloadId: string | null
+  /** True when this row was entered by hand, not adopted from a terminal payload. */
+  enteredManually: boolean
   reason: string
   updatedBy: string
   updatedAt: string

@@ -11,8 +11,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import SyncFieldAlert from '@/features/vessel-schedule/SyncFieldAlert.vue'
 import { reviewForColumn } from '@/features/vessel-schedule/sync-columns'
-import { syncCellKey, syncPendingKey } from '@/features/vessel-schedule/sync-review'
-import { mappingHeaderAlert, mappingStatusChangeAlert } from '@/features/vessel-schedule/mapping-header'
+import { syncCellKey, syncPendingKey, showsUnsettledDash } from '@/features/vessel-schedule/sync-review'
+import { mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
 import ScheduleRecordHeading from '@/features/vessel-schedule/ScheduleRecordHeading.vue'
 import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
 import { type ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
@@ -64,13 +64,6 @@ const headerAlert = computed(() => {
     previousStatus: matchField?.previousValue,
   })
 })
-const mappingAlert = computed(() => {
-  const current = vessel.value
-  if (!current) return null
-  const review = schedule.review(current.id)
-  if (review.shape) return null
-  return mappingStatusChangeAlert(review.fields.find((item) => item.side === 'MATCH' && item.status === 'pending'))
-})
 const panes = computed(() => [
   { source: 'lara' as ColumnSource, title: 'LARA', columns: SEARCH_COLUMNS.filter((column) => column.source === 'lara' && column.id !== 'voyageStatus') },
   { source: 'terminal' as ColumnSource, title: 'Terminal', columns: SEARCH_COLUMNS.filter((column) => column.source === 'terminal') },
@@ -85,10 +78,17 @@ function openHistory(fieldId?: string) {
   })
 }
 
+function cellText(columnId: string) {
+  const current = vessel.value
+  if (!current) return ''
+  if (showsUnsettledDash(current.matchingStatus, columnId)) return '—'
+  return searchCellText(current, columnId)
+}
+
 function fieldTone(columnId: string) {
   const current = vessel.value
   if (!current) return undefined
-  if (isWarningCellText(searchCellText(current, columnId), columnId)) return 'text-amber-800'
+  if (isWarningCellText(cellText(columnId), columnId)) return 'text-amber-800'
   return undefined
 }
 
@@ -123,19 +123,14 @@ function sourceText(columnId: string) {
       <AlertDescription>{{ headerAlert.text }}</AlertDescription>
     </Alert>
 
-    <Alert v-if="mappingAlert" :variant="mappingAlert.variant">
-      <AlertTitle>{{ mappingAlert.title }}</AlertTitle>
-      <AlertDescription>{{ mappingAlert.text }}</AlertDescription>
-    </Alert>
-
     <dl v-if="platformColumns.length" class="grid sm:grid-cols-2 sm:gap-x-6">
       <ReadonlyField v-for="column in platformColumns" :key="column.id" :label="column.label">
-        <StatusBadge v-if="STATUS_COLUMNS.has(column.id)" :status="searchCellText(vessel, column.id)" />
+        <StatusBadge v-if="STATUS_COLUMNS.has(column.id)" :status="cellText(column.id)" />
         <span
           v-else
-          :class="isWarningCellText(searchCellText(vessel, column.id), column.id) ? 'text-amber-800' : undefined"
+          :class="isWarningCellText(cellText(column.id), column.id) ? 'text-amber-800' : undefined"
         >
-          {{ searchCellText(vessel, column.id) }}
+          {{ cellText(column.id) }}
         </span>
         <span
           v-if="column.id === 'mappingStatus'
@@ -173,14 +168,14 @@ function sourceText(columnId: string) {
             :label="column.label"
           >
             <span class="inline-flex flex-wrap items-center gap-2">
-              <StatusBadge v-if="STATUS_COLUMNS.has(column.id)" :status="searchCellText(vessel, column.id)" />
+              <StatusBadge v-if="STATUS_COLUMNS.has(column.id)" :status="cellText(column.id)" />
               <span v-else :class="fieldTone(column.id)">
-                {{ searchCellText(vessel, column.id) }}
+                {{ cellText(column.id) }}
               </span>
               <CoverageIcon v-if="column.id === 'pointCode'" :covered="isPortApiCovered(vessel)" />
               <SyncFieldAlert :schedule-id="vessel.id" :column-id="column.id" />
             </span>
-            <p v-if="sourceText(column.id)" class="text-xs text-muted-foreground">Source {{ sourceText(column.id) }}</p>
+            <p v-if="sourceText(column.id) && !showsUnsettledDash(vessel.matchingStatus, column.id)" class="text-xs text-muted-foreground">Source {{ sourceText(column.id) }}</p>
           </ReadonlyField>
         </dl>
       </DataSection>

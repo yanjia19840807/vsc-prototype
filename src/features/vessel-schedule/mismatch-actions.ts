@@ -43,7 +43,7 @@ export function isManualTerminalEditable(vessel: VesselRecord) {
 }
 
 export function isMismatchReedit(vessel: VesselRecord) {
-  return vessel.matchingStatus === 'Manual matched'
+  return vessel.matchingStatus === 'Manual matched' || vessel.matchingStatus === 'Pending match'
 }
 
 export function mismatchActionForStatus(vessel: VesselRecord): MismatchQuickAction | null {

@@ -28,17 +28,16 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  canAddTerminalRecord,
   canEditTerminalDraft,
-  canSelectTerminalRecord,
   terminalEditMode,
 } from '@/features/vessel-schedule/review-access'
-import { mappingHeaderAlert, mappingStatusChangeAlert } from '@/features/vessel-schedule/mapping-header'
+import { mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
 import { type ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
 import ScheduleRecordHeading from '@/features/vessel-schedule/ScheduleRecordHeading.vue'
 import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
 import VesselQuickActions from '@/features/vessel-schedule/VesselQuickActions.vue'
 import SyncFieldAlert from '@/features/vessel-schedule/SyncFieldAlert.vue'
+import PendingFieldChoice from '@/features/vessel-schedule/PendingFieldChoice.vue'
 import { columnIdForReview, reviewForColumn } from '@/features/vessel-schedule/sync-columns'
 import { syncCellKey } from '@/features/vessel-schedule/sync-review'
 import { useScheduleStore, type SyncChoice } from '@/stores/schedule'
@@ -59,6 +58,7 @@ import { formatDateTime } from '@/lib/vessel-utils'
 import { useTabsStore } from '@/stores/tabs'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
 import { useVesselStore } from '@/stores/vessels'
+import type { TerminalPayload } from '@/domain/schedule-model/types'
 import type { HistoryDetail, TerminalSchedule, VesselRecord } from '@/types/vsp'
 
 const route = useRoute()
@@ -131,6 +131,11 @@ const loggedMatchLabel = ref('Unconfirmed')
 const pendingSyncs = ref<PendingSync[]>([])
 const pendingMatches = ref<PendingMatch[]>([])
 const confirmOpen = ref(false)
+const initialSelectedId = ref<string | null>(null)
+const initialPayloadId = ref<string | null>(null)
+const pickedPayloadId = ref<string | null>(null)
+const comparisonDismissed = ref(false)
+const dialogPayloadId = ref<string | null>(null)
 const syncSide = ref<'LARA' | 'Terminal' | null>(null)
 const terminalFields = terminalPanelColumns()
 const selectOpen = ref(false)
@@ -140,6 +145,7 @@ const replaceOpen = ref(false)
 const remark = ref('')
 const quickAction = ref<ScheduleQuickAction | null>(null)
 const syncDrafts = ref<Record<string, string>>({})
+const fieldChoices = ref<Record<string, 'previous' | 'sync'>>({})
 let rowSeq = 0
 
 function syncKey(side: string, field: string) {
@@ -294,9 +300,16 @@ function init(current: VesselRecord) {
   confirmOpen.value = false
   syncSide.value = null
   remark.value = ''
+  initialSelectedId.value = selectedId.value
+  const opened = schedule.review(current.id)
+  initialPayloadId.value = opened.comparedPayloadId
+  pickedPayloadId.value = opened.comparedPayloadId
+  comparisonDismissed.value = false
+  dialogPayloadId.value = opened.comparedPayloadId
+  fieldChoices.value = {}
   const drafts: Record<string, string> = {}
   for (const field of schedule.review(current.id).fields) {
-    if (field.status !== 'pending') continue
+    if (field.status !== 'pending' || field.side !== 'MATCH') continue
     drafts[syncKey(field.side, field.field)] = field.previousValue
   }
   syncDrafts.value = drafts
@@ -324,17 +337,16 @@ function syncChoices(): SyncChoice[] {
 const selectedRow = computed(() => rows.value.find((row) => row.id === selectedId.value) ?? null)
 const comparable = computed(() => {
   const status = vessel.value?.matchingStatus
-  return status === 'Auto matched' || status === 'Manual matched'
+  return status === 'Auto matched' || status === 'Manual matched' || status === 'Pending match'
 })
 const editMode = computed(() => (vessel.value ? terminalEditMode(vessel.value) : 'none'))
-const allowAddTerminal = computed(() => Boolean(vessel.value && canAddTerminalRecord(vessel.value)))
-const allowSelectTerminal = computed(() => {
-  const current = vessel.value
-  if (!current) return false
-  return canSelectTerminalRecord(current, schedule.review(current.id))
-})
+
+function addedManualRow() {
+  return rows.value.find((row) => row.source === 'manual' && !row.baseline) ?? null
+}
 
 function draftEditable(key: TerminalDraftKey) {
+  if (activeRow.value?.source === 'manual' && !activeRow.value.baseline) return true
   return vessel.value ? canEditTerminalDraft(vessel.value, key) : false
 }
 const activeRow = computed(() => selectedRow.value ?? (rows.value.length === 1 ? rows.value[0]! : null))
@@ -343,6 +355,7 @@ const structure = computed(() => {
   if (!current || !comparable.value) return null
   return schedule.review(current.id).shape
 })
+const keepingCurrent = computed(() => structure.value === 'none' && !addedManualRow())
 const fieldCompare = computed(() => {
   if (!comparable.value) return false
   if (pendingSyncFields.value.some((field) => field.side !== 'MATCH')) return true
@@ -362,16 +375,32 @@ const headerAlert = computed(() => {
   })
 })
 
-const mappingAlert = computed(() => {
-  const current = vessel.value
-  if (!current) return null
-  const review = schedule.review(current.id)
-  if (review.shape) return null
-  return mappingStatusChangeAlert(review.fields.find((item) => item.side === 'MATCH' && item.status === 'pending'))
+const showingComparison = computed(() => (
+  structure.value === 'many' && Boolean(pickedPayloadId.value) && !comparisonDismissed.value
+))
+
+const reviewAlert = computed(() => {
+  if (headerAlert.value) return headerAlert.value
+  if (pendingSyncFields.value.some((field) => field.side !== 'MATCH')) {
+    return {
+      variant: 'warning' as const,
+      title: 'Field differences',
+      text: 'Choose Previous or This sync for each field that differs.',
+    }
+  }
+  return {
+    variant: 'warning' as const,
+    title: 'Review',
+    text: 'Confirm the terminal record for this schedule.',
+  }
 })
 
+const choiceFields = computed(() => pendingSyncFields.value.filter((field) => (
+  field.side !== 'MATCH' && !(showingComparison.value && field.side === 'TERMINAL')
+)))
+
 function offerForColumn(columnId: string) {
-  if (!fieldCompare.value) return undefined
+  if (!fieldCompare.value || showingComparison.value) return undefined
   return pendingSyncFields.value.find((field) => field.side !== 'MATCH' && columnIdForReview(field) === columnId)
 }
 
@@ -410,55 +439,88 @@ function payloadText(payload: { exportVoyage: string; importVoyage: string; vess
   return column?.kind === 'datetime' ? formatDateTime(value) : value
 }
 
-function payloadIsCurrent(payload: { id: string; exportVoyage: string; terminalName: string; etd: string }) {
-  const current = vessel.value
-  const compared = current ? schedule.review(current.id).comparedPayloadId : null
-  if (compared) return payload.id === compared
+function payloadDraftValue(payload: TerminalPayload, key: TerminalDraftKey) {
+  switch (key) {
+    case 'evoyage': return payload.exportVoyage
+    case 'ivoyage': return payload.importVoyage
+    case 'vesselNameCn': return payload.vesselNameCn
+    case 'terminal': return payload.terminalName
+    case 'status': return payload.vesselStatus
+    case 'cyClosing': return payload.cyCutoff
+    case 'eta': return payload.eta
+    case 'ata': return payload.ata
+    case 'etb': return payload.etb
+    case 'atb': return payload.atb
+    case 'etd': return payload.etd
+    case 'atd': return payload.atd
+    case 'cyOpen': return payload.cyOpen
+    case 'updateTime': return payload.updateTime
+    case 'vesselOperator': return payload.vesselOperator
+    default: return null
+  }
+}
+
+function comparedPayload() {
+  if (!showingComparison.value || !pickedPayloadId.value) return null
+  return shapeCandidates.value.find((payload) => payload.id === pickedPayloadId.value) ?? null
+}
+
+function readonlyDiff(columnId: string) {
+  const payload = comparedPayload()
   const row = activeRow.value
-  if (!row) return false
-  return payload.exportVoyage === row.draft.evoyage && (!payload.terminalName || payload.terminalName === row.draft.terminal) && payload.etd === row.draft.etd
+  const key = draftKeyForColumn(columnId)
+  if (!payload || !row || !key) return null
+  const incoming = payloadDraftValue(payload, key)
+  if (incoming == null) return null
+  const previous = row.draft[key]
+  if (previous === incoming) return null
+  const column = terminalFields.find((item) => item.id === columnId)
+  const kind = column?.kind === 'datetime' ? 'datetime' : 'text'
+  return { previous: offerLabel(previous, kind), incoming: offerLabel(incoming, kind) }
 }
 
 function rememberChoice(field: { side: string; field: string }, value: string) {
   syncDrafts.value[syncKey(field.side, field.field)] = value
 }
 
-function useLatest(columnId: string) {
+function fieldChoice(columnId: string): 'previous' | 'sync' | null {
   const field = offerForColumn(columnId)
-  if (!field) return
-  rememberChoice(field, field.incomingValue)
-  if (field.side === 'LARA') {
-    laraValues.value[columnId] = field.incomingValue
-    return
-  }
-  const key = draftKeyForColumn(columnId)
-  if (key && activeRow.value) activeRow.value.draft[key] = field.incomingValue
+  if (!field) return null
+  return fieldChoices.value[syncKey(field.side, field.field)] ?? null
 }
 
-function keepCurrent(columnId: string) {
+function chooseColumn(columnId: string, choice: 'previous' | 'sync') {
   const field = offerForColumn(columnId)
   if (!field) return
-  rememberChoice(field, field.previousValue)
+  fieldChoices.value = { ...fieldChoices.value, [syncKey(field.side, field.field)]: choice }
+  const value = choice === 'sync' ? field.incomingValue : field.previousValue
+  rememberChoice(field, value)
   if (field.side === 'LARA') {
-    laraValues.value[columnId] = field.previousValue
+    laraValues.value[columnId] = value
     return
   }
   const key = draftKeyForColumn(columnId)
-  if (key && activeRow.value) activeRow.value.draft[key] = field.previousValue
+  if (key && activeRow.value) activeRow.value.draft[key] = value
+}
+
+function chooseAll(choice: 'previous' | 'sync') {
+  for (const field of choiceFields.value) {
+    chooseColumn(columnIdForReview(field), choice)
+  }
+}
+
+function unchosenPendingFields() {
+  return choiceFields.value.filter((field) => !fieldChoices.value[syncKey(field.side, field.field)])
 }
 
 function onLaraInput(columnId: string, value: string) {
   laraValues.value[columnId] = value
-  const field = offerForColumn(columnId)
-  if (field) rememberChoice(field, value)
 }
 
 function onTerminalInput(key: TerminalDraftKey, value: string) {
   const row = activeRow.value
   if (!row) return
   row.draft[key] = value
-  const field = offerForDraft(key)
-  if (field) rememberChoice(field, value)
 }
 
 function startLaraEdit() {
@@ -492,6 +554,12 @@ function cancelRowEdit(row: TerminalRow) {
 }
 
 function addRow() {
+  const existing = addedManualRow()
+  if (existing) {
+    selectedId.value = existing.id
+    formRowId.value = existing.id
+    return
+  }
   const draft = emptyTerminalDraft()
   const row: TerminalRow = {
     id: `row-${rowSeq++}`,
@@ -510,7 +578,10 @@ function addRow() {
 function deleteRow(row: TerminalRow) {
   if (row.source !== 'manual') return
   rows.value = rows.value.filter((item) => item.id !== row.id)
-  if (selectedId.value === row.id) selectedId.value = null
+  if (selectedId.value === row.id) {
+    const restored = rows.value.find((item) => item.id === initialSelectedId.value)
+    selectedId.value = restored?.id ?? (rows.value.length === 1 ? rows.value[0]!.id : null)
+  }
   if (formRowId.value === row.id) formRowId.value = null
 }
 
@@ -613,9 +684,45 @@ function openSelect() {
   selectOpen.value = true
 }
 
+function openMatchDialog() {
+  if (rows.value.length > 1) {
+    openSelect()
+    return
+  }
+  dialogPayloadId.value = comparisonDismissed.value ? null : pickedPayloadId.value
+  shapeOpen.value = true
+}
+
+function toggleDialogPayload(id: string) {
+  dialogPayloadId.value = dialogPayloadId.value === id ? null : id
+}
+
+function togglePendingSelect(id: string) {
+  if (pendingSelectId.value !== id) {
+    pendingSelectId.value = id
+    return
+  }
+  pendingSelectId.value = initialSelectedId.value
+}
+
+function applyDialogPayload() {
+  if (!dialogPayloadId.value) {
+    comparisonDismissed.value = true
+    pickedPayloadId.value = null
+  } else {
+    comparisonDismissed.value = false
+    pickedPayloadId.value = dialogPayloadId.value
+  }
+  shapeOpen.value = false
+}
+
 function useSelection() {
-  const next = pendingSelectId.value
-  if (!next || next === selectedId.value) {
+  const next = pendingSelectId.value ?? initialSelectedId.value
+  if (!next) {
+    selectOpen.value = false
+    return
+  }
+  if (next === selectedId.value) {
     selectOpen.value = false
     return
   }
@@ -636,30 +743,6 @@ function replaceSelection() {
   selectedId.value = next
   replaceOpen.value = false
   selectOpen.value = false
-}
-
-function keepShape() {
-  const current = vessel.value
-  if (!current) return
-  schedule.keepShape(current.id)
-}
-
-function adoptNone() {
-  const current = vessel.value
-  if (!current) return
-  schedule.adoptNone(current.id)
-  init(current)
-}
-
-function adoptListed(payloadId: string) {
-  const current = vessel.value
-  if (!current) return
-  schedule.adoptCandidate(current.id, payloadId)
-  init(current)
-}
-
-function statusAfterSave(): 'Manual matched' {
-  return 'Manual matched'
 }
 
 function confirmSync() {
@@ -738,13 +821,17 @@ const confirmCopy = computed(() => {
     lines.push(match.to === 'Unconfirmed' ? 'Match: clear the current match.' : `Match: auto ${match.from} → ${match.to}.`)
   }
   if (pendingSyncFields.value.some((field) => field.side !== 'MATCH')) {
-    lines.push('Watched fields you edited are saved from the value in each field.')
+    lines.push('Pending fields are saved from Previous or This sync.')
   }
   const chosen = manualMatch()
   if (chosen) {
     lines.push(chosen.to === 'Unconfirmed' ? 'Match: cancel the current terminal match.' : `Match: ${chosen.from} → ${chosen.to}.`)
   } else if (hasReviewEdits() && selectedRow.value && !pendingMatches.value.length) {
     lines.push(`Match: keep ${matchLabel(selectedRow.value)}.`)
+  } else if (keepingCurrent.value) {
+    lines.push('Match: keep the current terminal binding.')
+  } else if (showingComparison.value) {
+    lines.push('Match: keep the saved terminal values. Differences are shown and are not chosen here.')
   }
   return {
     title: 'Confirm review',
@@ -765,7 +852,7 @@ function hasReviewEdits() {
 }
 
 function hasChanges() {
-  return hasReviewEdits() || pendingSyncFields.value.length > 0
+  return hasReviewEdits() || pendingSyncFields.value.length > 0 || keepingCurrent.value
 }
 
 function closePage() {
@@ -799,12 +886,16 @@ function cancelEdits() {
 function save() {
   const current = vessel.value
   if (!current) return
-  if (!selectedRow.value) {
-    toast.error('Select one terminal record before confirming')
+  if (!selectedRow.value || (structure.value === 'many' && !activeRow.value && !showingComparison.value)) {
+    toast.error('Select or add a terminal record before confirming')
     return
   }
-  if (!hasChanges() && current.matchingStatus === 'Manual matched') {
+  if (!hasChanges() && current.matchingStatus === 'Manual matched' && !showingComparison.value && !keepingCurrent.value) {
     toast.error('Nothing to confirm')
+    return
+  }
+  if (unchosenPendingFields().length) {
+    toast.error('Choose Previous or This sync for each pending field')
     return
   }
   confirmOpen.value = true
@@ -812,12 +903,15 @@ function save() {
 
 async function confirmSave() {
   const current = vessel.value
+  if (!current) return
   const selected = selectedRow.value
-  if (!current || !selected) {
-    toast.error('Select one terminal record before confirming')
+  if (!selected) {
+    toast.error('Select or add a terminal record before confirming')
     return
   }
-  if (structure.value) schedule.keepShape(current.id)
+  if (structure.value === 'many' && pickedPayloadId.value) schedule.adoptCandidate(current.id, pickedPayloadId.value)
+  if (keepingCurrent.value) schedule.keepShape(current.id)
+  const keptBinding = keepingCurrent.value && !hasReviewEdits()
   const chosen = manualMatch()
   const matches = [...pendingMatches.value, ...(chosen ? [chosen] : [])]
   if (hasReviewEdits()) store.saveReviewMatch(current.id, {
@@ -831,8 +925,8 @@ async function confirmSave() {
     reason: remark.value,
     syncs: pendingSyncs.value.map((sync) => ({ ...sync, changes: [...sync.changes] })),
     matches,
-    matchingStatus: statusAfterSave(),
   })
+  if (keptBinding) store.recordKeptBinding(current.id, remark.value)
   const choices = syncChoices()
   if (choices.length) {
     schedule.confirm(current.id, choices)
@@ -848,7 +942,7 @@ async function confirmSave() {
       )
     }
   }
-  schedule.sealReviewed(current.id, draftToSchedule(selected.draft), selected.draft.vesselOperator, remark.value)
+  schedule.sealReviewed(current.id, draftToSchedule(selected.draft), selected.draft.vesselOperator, remark.value, selected.source === 'manual')
   confirmOpen.value = false
   toast.success('Review confirmed')
   await nextTick()
@@ -864,8 +958,8 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
 </script>
 
 <template>
-  <div v-if="vessel" class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-    <div class="flex shrink-0 flex-wrap items-center justify-between gap-3">
+  <div v-if="vessel" class="flex flex-col gap-4">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <PageBreadcrumb
         :items="[
           { label: 'Vessel schedule search', to: '/search' },
@@ -880,25 +974,21 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
         <Button type="button" variant="outline" @click="requestSync('Terminal')">Sync latest Terminal</Button>
       </div>
     </div>
-    <ScheduleRecordHeading class="shrink-0" :vessel="vessel" />
-    <div class="min-h-0 flex-1 space-y-4 overflow-auto">
-    <Alert v-if="headerAlert" :variant="headerAlert.variant">
-      <AlertTitle>{{ headerAlert.title }}</AlertTitle>
-      <AlertDescription>{{ headerAlert.text }}</AlertDescription>
-      <div v-if="structure === 'many' || vessel.matchingStatus === 'Multiple terminal records'" class="mt-2 flex flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" @click="rows.length > 1 ? openSelect() : (shapeOpen = true)">Select</Button>
+    <ScheduleRecordHeading :vessel="vessel" />
+    <Alert :variant="reviewAlert.variant">
+      <AlertTitle>{{ reviewAlert.title }}</AlertTitle>
+      <AlertDescription>{{ reviewAlert.text }}</AlertDescription>
+      <div class="mt-2 flex flex-wrap gap-2">
+        <template v-if="structure === 'many' || vessel.matchingStatus === 'Multiple terminal records'">
+          <Button type="button" variant="outline" size="sm" @click="openMatchDialog">Select</Button>
+          <Button type="button" variant="outline" size="sm" @click="addRow">Add</Button>
+        </template>
+        <Button v-else-if="structure === 'none' || vessel.matchingStatus === 'No terminal record'" type="button" variant="outline" size="sm" @click="addRow">Add</Button>
+        <template v-if="choiceFields.length">
+          <Button type="button" variant="outline" size="sm" @click="chooseAll('previous')">Use all previous</Button>
+          <Button type="button" variant="outline" size="sm" @click="chooseAll('sync')">Use all this sync</Button>
+        </template>
       </div>
-      <div v-else-if="structure === 'none'" class="mt-2 flex flex-wrap gap-2">
-        <Button type="button" variant="link" size="sm" @click="keepShape">Keep current</Button>
-        <Button type="button" variant="link" size="sm" @click="adoptNone">Adopt no record</Button>
-      </div>
-      <div v-else-if="vessel.matchingStatus === 'No terminal record' && !rows.length" class="mt-2 flex flex-wrap gap-2">
-        <Button type="button" variant="outline" size="sm" @click="addRow">Add</Button>
-      </div>
-    </Alert>
-    <Alert v-if="mappingAlert" :variant="mappingAlert.variant">
-      <AlertTitle>{{ mappingAlert.title }}</AlertTitle>
-      <AlertDescription>{{ mappingAlert.text }}</AlertDescription>
     </Alert>
     <div class="grid items-start gap-4 lg:grid-cols-2">
       <DataSection title="LARA">
@@ -908,14 +998,16 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
             <div class="grid gap-1 border-b py-2 sm:grid-cols-[11rem_1fr] sm:items-center">
               <div class="flex items-center gap-1 text-sm text-muted-foreground">
                 {{ column.label }}
-                <SyncFieldAlert v-if="fieldCompare" :schedule-id="vessel.id" :column-id="column.id" />
+                <SyncFieldAlert v-if="fieldCompare && !offerForColumn(column.id)" :schedule-id="vessel.id" :column-id="column.id" />
               </div>
-              <p class="text-sm">{{ displayLara(column.id, column.kind) }}</p>
-              <p v-if="offerForColumn(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
-                <span>Latest {{ offerLabel(offerForColumn(column.id)!.incomingValue, column.kind) }}</span>
-                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepCurrent(column.id)">Keep current</Button>
-                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useLatest(column.id)">Use latest</Button>
-              </p>
+              <PendingFieldChoice
+                v-if="offerForColumn(column.id)"
+                :previous="offerLabel(offerForColumn(column.id)!.previousValue, column.kind)"
+                :incoming="offerLabel(offerForColumn(column.id)!.incomingValue, column.kind)"
+                :choice="fieldChoice(column.id)"
+                @choose="chooseColumn(column.id, $event)"
+              />
+              <p v-else class="text-sm">{{ displayLara(column.id, column.kind) }}</p>
             </div>
             </template>
           </template>
@@ -923,26 +1015,19 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
       </DataSection>
 
       <DataSection title="Terminal">
-        <template v-if="allowSelectTerminal && activeRow && rows.length > 1 && structure !== 'many'" #actions>
-          <Button type="button" variant="outline" size="sm" @click="openSelect">Select</Button>
-        </template>
         <div
           v-if="!activeRow && !rows.length"
           class="flex flex-col items-center gap-2 rounded-md border border-dashed px-6 py-10 text-center"
         >
           <p class="text-sm font-medium">No terminal record</p>
-          <p class="text-sm text-muted-foreground">
-            Add a record to enter terminal information.
-          </p>
-          <Button v-if="allowAddTerminal" type="button" variant="outline" size="sm" @click="addRow">Add</Button>
+          <p class="text-sm text-muted-foreground">Add a terminal record before confirming.</p>
         </div>
         <div
           v-else-if="!activeRow"
           class="flex flex-col items-center gap-2 rounded-md border border-dashed px-6 py-10 text-center"
         >
           <p class="text-sm font-medium">Multiple terminal records</p>
-          <p class="text-sm text-muted-foreground">Select one record to bind.</p>
-          <Button v-if="allowSelectTerminal" type="button" variant="outline" size="sm" @click="openSelect">Select</Button>
+          <p class="text-sm text-muted-foreground">Select one record, or add a new one.</p>
         </div>
         <div v-else>
           <dl>
@@ -953,10 +1038,24 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
               >
                 <div class="flex items-center gap-1 text-sm text-muted-foreground">
                   {{ column.label }}
-                  <SyncFieldAlert v-if="fieldCompare" :schedule-id="vessel.id" :column-id="column.id" />
+                  <SyncFieldAlert v-if="fieldCompare && !readonlyDiff(column.id) && !offerForColumn(column.id)" :schedule-id="vessel.id" :column-id="column.id" />
                 </div>
+                <PendingFieldChoice
+                  v-if="readonlyDiff(column.id)"
+                  readonly
+                  :previous="readonlyDiff(column.id)!.previous"
+                  :incoming="readonlyDiff(column.id)!.incoming"
+                  :choice="null"
+                />
+                <PendingFieldChoice
+                  v-else-if="offerForColumn(column.id)"
+                  :previous="offerLabel(offerForColumn(column.id)!.previousValue, column.kind)"
+                  :incoming="offerLabel(offerForColumn(column.id)!.incomingValue, column.kind)"
+                  :choice="fieldChoice(column.id)"
+                  @choose="chooseColumn(column.id, $event)"
+                />
                 <DateTimePicker
-                  v-if="draftEditable(draftKeyForColumn(column.id)!) && column.kind === 'datetime'"
+                  v-else-if="draftEditable(draftKeyForColumn(column.id)!) && column.kind === 'datetime'"
                   :model-value="datetimeInputValue(activeRow.draft[draftKeyForColumn(column.id)!])"
                   @update:model-value="onTerminalInput(draftKeyForColumn(column.id)!, datetimeToIso($event))"
                 />
@@ -969,16 +1068,11 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
                 <p v-else class="text-sm">
                   {{ displayDraftValue(activeRow.draft, draftKeyForColumn(column.id)!, column.kind === 'datetime' ? 'datetime' : 'text') }}
                 </p>
-                <p v-if="offerForColumn(column.id)" class="flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:col-start-2">
-                  <span>Latest {{ offerLabel(offerForColumn(column.id)!.incomingValue, column.kind) }}</span>
-                  <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="keepCurrent(column.id)">Keep current</Button>
-                  <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="useLatest(column.id)">Use latest</Button>
-                </p>
               </div>
             </template>
           </dl>
           <Button
-            v-if="activeRow.source === 'manual' && editMode === 'all'"
+            v-if="activeRow.source === 'manual' && (editMode === 'all' || !activeRow.baseline)"
             type="button"
             variant="outline"
             size="sm"
@@ -990,8 +1084,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
         </div>
       </DataSection>
     </div>
-    </div>
-    <div class="shrink-0 space-y-4">
+    <div class="space-y-4">
       <label class="grid w-full gap-1">
         <span class="text-sm text-muted-foreground">Remark</span>
         <Textarea v-model="remark" rows="2" class="w-full" placeholder="Saved as the activity log description" />
@@ -1041,7 +1134,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
     <DialogContent size="2xl" class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[calc(100%-4rem)]">
       <DialogHeader>
         <DialogTitle>Select a terminal record</DialogTitle>
-        <DialogDescription>Choose the record to load into the form.</DialogDescription>
+        <DialogDescription>Click a row to select it. The current record stays until a different record is selected.</DialogDescription>
       </DialogHeader>
       <div class="overflow-x-auto rounded-md border">
         <Table>
@@ -1059,9 +1152,10 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
               :key="row.id"
               class="cursor-pointer"
               :data-state="pendingSelectId === row.id ? 'selected' : undefined"
-              @click="pendingSelectId = row.id"
+              :class="pendingSelectId === row.id ? '!bg-accent' : undefined"
+              @click="togglePendingSelect(row.id)"
             >
-              <TableCell class="whitespace-nowrap">{{ row.id === selectedId ? 'Current' : '' }}</TableCell>
+              <TableCell class="whitespace-nowrap">{{ row.id === initialSelectedId ? 'Current' : '' }}</TableCell>
               <TableCell v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                 {{ displayDraftValue(row.draft, column.id, column.kind) }}
               </TableCell>
@@ -1070,8 +1164,8 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
         </Table>
       </div>
       <DialogFooter>
-        <Button type="button" variant="outline" @click="selectOpen = false">Back</Button>
-        <Button type="button" variant="primary" @click="useSelection">Use this record</Button>
+        <Button type="button" variant="outline" @click="selectOpen = false">Cancel</Button>
+        <Button type="button" variant="primary" @click="useSelection">Confirm</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>
@@ -1080,11 +1174,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
     <DialogContent size="2xl" class="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[calc(100%-4rem)]">
       <DialogHeader>
         <DialogTitle>Select a terminal record</DialogTitle>
-        <DialogDescription>
-          {{ structure === 'many' && vessel?.matchingStatus === 'Manual matched'
-            ? 'The current row is only the default used for comparison. Choose another record to compare instead.'
-            : 'Adopting a record replaces the current terminal record.' }}
-        </DialogDescription>
+        <DialogDescription>Click a row to select it. Click the same row again to clear the selection.</DialogDescription>
       </DialogHeader>
       <div class="overflow-x-auto rounded-md border">
         <Table>
@@ -1094,22 +1184,29 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
               <TableHead v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                 {{ column.label }}
               </TableHead>
-              <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow v-for="payload in shapeCandidates" :key="payload.id" :data-state="payloadIsCurrent(payload) ? 'selected' : undefined">
-              <TableCell class="whitespace-nowrap">{{ payloadIsCurrent(payload) ? 'Current' : '' }}</TableCell>
+            <TableRow
+              v-for="payload in shapeCandidates"
+              :key="payload.id"
+              class="cursor-pointer"
+              :data-state="dialogPayloadId === payload.id ? 'selected' : undefined"
+              :class="dialogPayloadId === payload.id ? '!bg-accent' : undefined"
+              @click="toggleDialogPayload(payload.id)"
+            >
+              <TableCell class="whitespace-nowrap">{{ payload.id === initialPayloadId ? 'Current' : '' }}</TableCell>
               <TableCell v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                 {{ payloadText(payload, column.id) }}
-              </TableCell>
-              <TableCell>
-                <Button type="button" variant="link" size="sm" class="h-auto px-0" @click="adoptListed(payload.id); shapeOpen = false">Adopt</Button>
               </TableCell>
             </TableRow>
           </TableBody>
         </Table>
       </div>
+      <DialogFooter>
+        <Button type="button" variant="outline" @click="shapeOpen = false">Cancel</Button>
+        <Button type="button" variant="primary" @click="applyDialogPayload">Confirm</Button>
+      </DialogFooter>
     </DialogContent>
   </Dialog>
 

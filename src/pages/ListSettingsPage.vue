@@ -518,7 +518,7 @@ function cancel() {
 
           <TabsContent value="watched" class="min-h-0 overflow-auto">
             <p class="mb-3 text-sm text-muted-foreground">
-              A watched field shows an alert when this sync changes it. Mapping status stays watched. For a date, a day threshold of 0 counts any difference. A larger number ignores a smaller gap. Other changes still highlight the row.
+              Watched fields choose which already-written differences this user sees. They do not decide whether a Manual matched row is updated. Mapping status stays watched. For a date, a day threshold of 0 counts any difference. A larger number ignores a smaller gap.
             </p>
             <ul class="overflow-hidden rounded-md border">
               <template v-for="section in watchedGroups" :key="section.group">

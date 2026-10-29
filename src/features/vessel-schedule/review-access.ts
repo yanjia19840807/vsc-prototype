@@ -22,13 +22,13 @@ export function scheduleNeedsReview(vessel: VesselRecord, review: ScheduleReview
 }
 
 export function scheduleHighlight(review: ScheduleReview) {
-  return review.changed
+  return review.fields.some((field) => field.status === 'applied')
 }
 
 export function terminalEditMode(vessel: VesselRecord): TerminalEditMode {
   if (vessel.matchingStatus === 'No terminal record') return 'all'
   if (vessel.matchingStatus === 'No external voyage') return 'voyage'
-  if (vessel.matchingStatus === 'Manual matched' && vessel.terminalSource === 'manual') return 'all'
+  if ((vessel.matchingStatus === 'Manual matched' || vessel.matchingStatus === 'Pending match') && vessel.terminalSource === 'manual') return 'all'
   return 'none'
 }
 

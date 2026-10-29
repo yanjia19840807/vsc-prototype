@@ -1,272 +1,257 @@
 # 船期平台：表与接口
 
+时刻用 ISO-8601，筛选日期用 `YYYY-MM-DD`。空业务值用 `null`。错误使用 `application/problem+json`。创建返回 `201`，读取和替换返回 `200`。响应里是资源 `id`，不返回 URL。`page` 从 1 起，`pageSize` 默认 100、最大 500。
+
+一次 LARA 调用的身份是 `lara_voyage` + `lara_point_code` + `lara_visit_no`。`omit_flag` 不入库：导入只取 `OMIT_FLAG = 'N'`。之后这条从批量里消失，或 LARA 把 `OMIT_FLAG` 改成 `Y`，则 `platform_omit` 为真，页面对应 `platformVoyageStatus` 为 Omit。
+
+查询参数、排序和返回字段都直接用字段名。LARA 字段以 `lara` 开头，码头字段以 `terminal` 开头，平台字段以 `platform` 开头，变量名用驼峰。
+
 ## 表
 
 ### vessel_schedule
 
-主键 `id`。一条船期一行。同步身份是 `voyage_reference` + `point_code` + `visit_no`。`pool_location` 原地更新，不另开一行。列表、明细、审核、活动日志用的是 `id`。
+作用：一条船期。LARA 最新值和当前绑定的码头值都在这一行。匹配状态也在这一行。
+
+主键：`id`
+
+外键：`lara_point_code` → `port.port_code`
 
 | 列 | 说明 |
 |---|---|
-| id | 主键。列表、明细、审核、活动日志都用它 |
-| voyage_reference | VOYAGE_REFERENCE。页面 voyage。同步身份 |
-| point_code | POINT_CODE。页面 pointCode。同步身份 |
-| visit_no | VISIT_NO。同步身份。页面和接口不返回 |
-| pool_location | POOL_LOCATION。页面 poolLocation |
-| service_no | VOYAGES.SERVICE_NO。页面 service |
-| operator_code | SHIPCOMP.OPERATOR_CODE。页面 Vessel operator。也用来算 vesselType |
-| vessel_full_name | VESSELS.FULL_NAME。页面 vesselName |
-| eta | ETA_DATE + ETA_TIME，已加 8 小时。页面 LARA eta |
-| etb | ETB_DATE + ETB_TIME。页面 LARA etb。关注字段 |
-| etd | ETD_DATE + ETD_TIME，已加 8 小时。页面 LARA etd。关注字段 |
-| platform_omit | 后续批量里不再出现时为真，包括 LARA 把 OMIT_FLAG 改成 Y 之后。页面 voyageStatus 据此显示 Omit |
-| match_method | 空：还没有匹配。AUTO：系统绑定，尚未审核；未审核的多条或没有记录也留在 AUTO，同时码头列被清空。USER：审核确认过，绑定保留，之后同步保持 Manual matched，不改回 AUTO。ETA 差超过 3 天仍保存为 USER。最近一次码头查询没有记录且不带码头保存时，改为 AUTO，状态为 No terminal record |
-| terminal_source | 空：当前没有绑定码头。SYNC：码头列来自报文。USER：码头列是手工补录。审核确认一条同步记录时仍是 SYNC |
-| evoyage | 报文 evoyage。页面 exportVoyage。关注字段 |
-| ivoyage | 报文 ivoyage。页面 importVoyage。关注字段 |
-| vessel_name_cn | 报文 vesselNameCn |
-| terminal | 报文 terminal，例如 YS01。页面码头名。9code 按 point_code 和它连接 |
-| status | 报文 status，例如离港、在港、计划 |
-| terminal_eta | 报文 eta |
-| terminal_ata | 报文 ata |
-| terminal_etb | 报文 etb。关注字段 |
-| terminal_atb | 报文 atb。关注字段 |
-| terminal_etd | 报文 etd。关注字段 |
-| terminal_atd | 报文 atd。关注字段 |
-| cy_open | 报文 cyOpen。页面 cyOpen |
-| cy_closing | 报文 cyClosing。页面 cyCutoff |
-| update_time | 报文 updateTime |
+| id | 主键。接口里的船期 id |
+| lara_voyage | LARA 航次。接口 laraVoyage。与 lara_point_code、lara_visit_no 一起识别同一次挂靠 |
+| lara_point_code | 港口。外键，指向 port.port_code。接口 laraPointCode |
+| lara_visit_no | 同一次挂靠的访问序号。只参与身份，不返回 |
+| lara_pool_location | LARA 的 pool location。接口 laraPoolLocation |
+| lara_vessel_name | 英文船名。接口 laraVesselName |
+| lara_vessel_operator | 船公司代码。接口 laraVesselOperator |
+| lara_service | 航线。接口 laraService |
+| lara_eta | LARA ETA。日期和时间合成一个时刻。接口 laraEta |
+| lara_etb | LARA ETB。接口 laraEtb |
+| lara_etd | LARA ETD。接口 laraEtd |
+| platform_omit | true 时接口 platformVoyageStatus 为 Omit |
+| platform_matching_status | 匹配状态。同步和审核由服务端写入，请求不带。接口 platformMatchingStatus |
+| terminal_source | SYNC：当前码头值来自同步。USER：手工补录。没有绑定时空。接口用 terminalManual。USER 时，下一次码头同步没有记录则忽略这次结果 |
+| terminal_export_voyage | 码头出口航次。接口 terminalExportVoyage |
+| terminal_import_voyage | 码头进口航次。接口 terminalImportVoyage |
+| terminal_vessel_name_cn | 中文船名。接口 terminalVesselNameCn |
+| terminal_name | 报文 terminal，例如 YS01。接口 terminalName |
+| terminal_eta | 码头 ETA。接口 terminalEta |
+| terminal_ata | 码头 ATA。接口 terminalAta |
+| terminal_etb | 码头 ETB。接口 terminalEtb |
+| terminal_atb | 码头 ATB。接口 terminalAtb |
+| terminal_etd | 码头 ETD。接口 terminalEtd |
+| terminal_atd | 码头 ATD。接口 terminalAtd |
+| terminal_cy_open | CY open。接口 terminalCyOpen |
+| terminal_cy_cutoff | CY closing。接口 terminalCyCutoff |
+| terminal_vessel_status | 报文 status，例如计划、在港、离港。接口 terminalVesselStatus |
+| terminal_update_time | 报文 updateTime。接口 terminalUpdateTime |
 
-`matching_status`、备注、最后修改人不在这张表上。匹配状态读取时计算。备注和最后修改来自最新一条活动日志。
+`platform_matching_status` 取值：
+
+| 值 | 含义 |
+|---|---|
+| Auto matched | 正好一条码头记录，进出口航次都有，LARA ETA 与码头 ETA 相差不超过 3 天 |
+| Manual matched | 人确认后正好绑着一条码头记录。已保存的码头值与后来的同步相同、绑定也仍是这一条时，保持这个值 |
+| Pending match | 已经是 Manual matched 或 Pending match，这次仍有未确认差异。不覆盖已保存的码头字段。确认前列表和明细的码头格子显示 —。LARA 始终是最新值 |
+| Multiple terminal records | 尚未按人工结果处理，码头同步返回多条。码头列已清空 |
+| No terminal record | 尚未按人工结果处理，码头同步没有记录。码头列已清空。审核确认不能写成这个值，必须选择或新建一条码头记录 |
+| No external voyage | 绑着的记录缺少进口或出口航次 |
+| ETA gap > 3 days | 绑着一条码头记录，LARA ETA 与码头 ETA 的天数差算不出来，或超过 3 天 |
 
 ### lara_sync_run
 
-主键 `id`。一次 LARA 同步一行。
+作用：一次 LARA 同步运行。失败的运行不写 payload，船期上保留上次成功的 LARA 值。
+
+主键：`id`
+
+外键：`schedule_id` → `vessel_schedule.id`。批量运行为空
 
 | 列 | 说明 |
 |---|---|
 | id | 主键 |
-| scope | BATCH：按时间窗拉一批。SINGLE：只同步一条船期，schedule_id 有值 |
-| trigger | SCHEDULE：定时。MANUAL：人在页面上发起 |
-| status | RUNNING：进行中。SUCCEEDED：成功。FAILED：失败，没有写下原文 |
-| eta_from | 批量时间窗。单条同步为空 |
-| eta_to | 批量时间窗。单条同步为空 |
-| etb_from | 批量时间窗。单条同步为空 |
-| etb_to | 批量时间窗。单条同步为空 |
-| schedule_id | 单条同步指向的船期。批量为空 |
-| requested_at | 发起时间 |
-| responded_at | 结束时间 |
-| failure_reason | 失败原因。成功时为空 |
-| triggered_by | 发起人，可以是 System |
+| schedule_id | 单笔同步时指向这条船期。批量时为空 |
+| started_at | 开始时间 |
+| finished_at | 结束时间 |
+| status | SUCCESS 或 FAILED |
+| error | 失败原因。成功时为空 |
 
 ### lara_payload
 
-主键 `id`。一条船期一行，`schedule_id` 唯一。每次 LARA 同步按这条船期更新这一行，保存最近一次原文。当前采用后的值在 `vessel_schedule`。已写入的历史在活动日志。
+作用：一条船期保存的最新一次成功 LARA 报文。每次成功同步覆盖这一行。页面上的 LARA 值在 `vessel_schedule`，这一行是报文副本。
+
+主键：`id`
+
+外键：`run_id` → `lara_sync_run.id`；`schedule_id` → `vessel_schedule.id`，唯一
 
 | 列 | 说明 |
 |---|---|
 | id | 主键 |
-| run_id | 最近一次写入它的 lara_sync_run |
-| schedule_id | 船期。唯一 |
-| captured_at | 收到时间 |
-| voyage_reference | VOYAGE_REFERENCE |
-| point_code | POINT_CODE |
-| visit_no | VISIT_NO |
-| pool_location | POOL_LOCATION |
-| service_no | SERVICE_NO |
-| operator_code | OPERATOR_CODE |
-| vessel_full_name | VESSELS.FULL_NAME |
-| eta | ETA_DATE + ETA_TIME |
-| etb | ETB_DATE + ETB_TIME |
-| etd | ETD_DATE + ETD_TIME |
+| run_id | 写出这一行的成功运行 |
+| schedule_id | 所属船期。一条船期一行 |
+| payload | 这次成功同步的报文 |
 
 ### terminal_sync_run
 
-主键 `id`。批量码头同步一行。审核页上的单条同步不建这行。
+作用：一次码头同步运行。审核页上的单笔码头同步不写这张表。失败时不替换已有候选。
+
+主键：`id`
+
+外键：无
 
 | 列 | 说明 |
 |---|---|
 | id | 主键 |
-| trigger | SCHEDULE：定时批量。MANUAL：人在页面上发起 |
-| status | RUNNING：进行中。SUCCEEDED：查询都有结果。PARTIAL：有的查询失败。FAILED：整批没有发出 |
 | started_at | 开始时间 |
-| finished_at | 全部查询结束的时间 |
-| failure_reason | 整批发起失败的原因 |
-| triggered_by | 发起人 |
-
-船期是否到了该查码头的时间，由同步配置里的提前天数和滞后天数决定。
+| finished_at | 结束时间 |
+| status | SUCCESS 或 FAILED |
+| error | 失败原因。成功时为空 |
 
 ### terminal_query
 
-主键 `id`。一条船期的一次码头查询一行。形态决定写在这行上。查询条件是当时的英文船名和港口代码，对应报文里的 `vesselNameEn` 和 `portCode`。
+作用：一条船期的一次码头查询。FOUND 或 NOT_FOUND 先删掉该船期更早的候选，再写入这次的行。FAILED 保留上一次成功查询的候选。
+
+主键：`id`
+
+外键：`sync_run_id` → `terminal_sync_run.id`，单笔查询为空；`schedule_id` → `vessel_schedule.id`
 
 | 列 | 说明 |
 |---|---|
 | id | 主键 |
-| sync_run_id | 所属批量运行。单条同步为空 |
-| schedule_id | 船期 |
-| trigger | SCHEDULE：批量中的一条。MANUAL：审核页单条同步。REMATCH：重新匹配时发起 |
-| requested_at | 发起时间 |
-| requested_by | 发起人 |
-| vessel_name_en | 这次查询使用的英文船名，取当时的 vessel_full_name |
-| port_code | 这次查询使用的港口代码，取当时的 point_code |
-| status | PENDING：已发出，还没返回。FOUND：找到候选。NOT_FOUND：没有记录。FAILED：这次查询失败 |
-| responded_at | 完成时间 |
-| failure_reason | 失败原因 |
-| terminal_resolution | 空：多条或没有记录还没处理；已审核的多条保持空，选择按钮还在。keep：保留当前码头。clear：解开绑定，码头列已清空 |
-| pinned_payload_id | 用来比对的 terminal_payload。候选被新一次成功查询替换后，按出口航次和进口航次对到新的候选；对不上则为空 |
+| sync_run_id | 批量运行。审核页单笔查询为空 |
+| schedule_id | 所属船期 |
+| port_code | 这次查询使用的港口。码头航次筛选用它，不作为航次列表的列 |
+| status | FOUND、NOT_FOUND 或 FAILED |
 
 ### terminal_payload
 
-主键 `id`。一条船期只保留最近一次成功查询的候选，选择框返回的就是这个 `id`。新查询结果为 FOUND 或 NOT_FOUND 时，删掉该船期更早的候选，再写入这一次的。NOT_FOUND 写零行。FAILED 时保留上一次的候选。
+作用：最近一次成功码头查询的候选。选择框里的 id 就是这一行的 id。手工补录不插入这张表。同一港口、英文船名、出口航次、进口航次在码头航次列表里合成一行，id 取其中一条。
+
+主键：`id`
+
+外键：`query_id` → `terminal_query.id`
 
 | 列 | 说明 |
 |---|---|
-| id | 主键 |
-| query_id | 所属 terminal_query。船期从这条查询取得 |
-| evoyage | 报文 evoyage。和 ivoyage 一起做默认比对 |
-| ivoyage | 报文 ivoyage |
-| vessel_name_en | 报文 vesselNameEn |
-| vessel_name_cn | 报文 vesselNameCn |
-| ship_code | 报文 shipCode |
-| ship_name | 报文 shipName |
-| agent_code | 报文 agentCode |
-| agent_name | 报文 agentName |
-| line_code | 报文 lineCode |
+| id | 主键。候选 id，也是码头航次 id |
+| query_id | 所属查询 |
+| vessel_name_en | 英文船名 |
+| vessel_name_cn | 中文船名 |
+| evoyage | 出口航次 |
+| ivoyage | 进口航次 |
 | terminal | 报文 terminal |
-| ports_en | 报文 portsEn |
-| ports_cn | 报文 portsCn |
 | status | 报文 status |
-| eta | 报文 eta |
-| ata | 报文 ata |
-| etb | 报文 etb |
-| atb | 报文 atb |
-| etd | 报文 etd |
-| atd | 报文 atd |
-| cy_open | 报文 cyOpen |
-| cy_closing | 报文 cyClosing |
-| port_close_date | 报文 portCloseDate |
-| customs_close_date | 报文 customsCloseDate |
-| update_time | 报文 updateTime |
-
-报文里没有 vessel operator。页面上的 Vessel operator 用船期的 `operator_code`。
-
-### field_decision
-
-主键 `schedule_id`、`side`、`field`。记录用户对这个字段的决定。比较对象是船期当前值和最新原文，原文行被更新后决定仍然有效。
-
-| 列 | 说明 |
-|---|---|
-| schedule_id | 船期。主键之一 |
-| side | LARA：针对 LARA 字段。TERMINAL：针对码头字段。PLATFORM：针对匹配状态。主键之一 |
-| field | 字段名。匹配状态用 matchingStatus。主键之一 |
-| action | KEEP：保留当前值，不采用这次入站。EDIT：采用这次入站值 |
-| updated_by | 操作人 |
-| updated_at | 操作时间 |
+| ship_code | 船公司代码 |
+| ship_name | 船公司名称 |
+| agent_code | 代理代码 |
+| agent_name | 代理名称 |
+| line_code | 航线代码 |
+| ports_en | 挂靠英文 |
+| ports_cn | 挂靠中文 |
+| eta、ata、etb、atb、etd、atd | 报文时刻，保留原文 |
+| cy_open | CY open |
+| cy_closing | CY closing |
+| port_close_date | Port close |
+| customs_close_date | Customs close |
+| update_time | Update time |
 
 ### activity_log
 
-主键 `id`。一次已经落库的操作一行。
+作用：一次保存或一次自动落库一条。人工确认的备注是用户写下的文字。系统落库时，remark 由服务端写成这次事件。
+
+主键：`id`
+
+外键：`schedule_id` → `vessel_schedule.id`
 
 | 列 | 说明 |
 |---|---|
 | id | 主键 |
-| schedule_id | 船期 |
+| schedule_id | 所属船期 |
 | triggered_at | 发生时间 |
-| triggered_by | 操作人 |
-| remark | 用户写下的备注。系统写入时为空 |
-| match | 空：没有改变码头绑定。confirm：这次建立起绑定。switch：从已绑定的一条改到另一条。cancel：取消绑定 |
+| triggered_by | 操作人。系统写入时为 System |
+| remark | 人工确认时是用户备注，可以为空。系统写入时由服务端描述这次事件，例如系统同步 LARA、系统同步码头、系统自动建立匹配 |
+| match | 空：绑定未变。confirm：确认后绑着一条。switch：从一条改到另一条。确认必须带上一条码头记录 |
 
 ### activity_log_change
 
-主键 `log_id`、`side`、`field`。只记这次真正写下去的原值和新值。`field` 用页面字段名。待确认差异不写在这里，读取船期时现算。
+作用：一条活动日志里真正写下的一个字段，记录写入前和写入后的值。
+
+主键：`log_id`、`field`
+
+外键：`log_id` → `activity_log.id`
 
 | 列 | 说明 |
 |---|---|
-| log_id | 所属 activity_log。主键之一 |
-| side | LARA：变化在 LARA 列。TERMINAL：变化在码头列。PLATFORM：变化在匹配状态。主键之一 |
-| field | 字段名。主键之一 |
+| log_id | 所属日志。主键之一 |
+| field | 字段名，例如 laraEtb、terminalEtd、platformMatchingStatus。主键之一 |
 | original | 写入前的值 |
 | updated | 写入后的值 |
 
 ### region
 
-主键 `code`。页面上的 Region。
+作用：区域。停用后不能再挂到新建港口上，已经挂上的港口仍保留原代码。
+
+主键：`code`
+
+外键：无
 
 | 列 | 说明 |
 |---|---|
-| code | 主键。例如 NC、CC、SC |
-| name | 区域名称。页面可显示成 code (name) |
-| active | true：新建港口可以选。false：停用。已经挂在港口上的代码仍显示，新建不能再选 |
+| code | 主键。区域代码 |
+| name | 名称 |
+| active | true：新建港口可以选。false：停用。已经挂在港口上的代码仍显示 |
 
 ### port
 
-主键 `port_code`。页面对应 Point code。船期用 `point_code` 连接到这里取得区域。
+作用：港口。船期用 `lara_point_code` 连到这里取得区域。码头查询只发给 active 且 api_covered 都为 true 的港口。
+
+主键：`port_code`
+
+外键：`region_code` → `region.code`
 
 | 列 | 说明 |
 |---|---|
 | port_code | 主键。LARA 的 POINT_CODE，也是码头查询的 portCode |
 | port_name | 港口名称 |
-| region_code | 所属 region.code。区域停用后这列仍保留原代码 |
-| active | true：筛选里可以选。false：停用。历史船期仍显示这个代码，新建筛选不能再选。停用后也不发码头查询 |
-| api_covered | true：这个港口对接码头接口，审核页可以发码头同步。false：不发。页面 pointCovered 用它。港口还须 active 才真正发起查询 |
+| region_code | 所属区域。外键。区域停用后这列仍保留原代码 |
+| active | true：筛选里可以选。false：停用。历史船期仍显示，新建筛选不能再选，也不发码头查询 |
+| api_covered | true：对接码头接口，审核页可以发码头同步。页面 pointCovered 用它 |
 
 ### terminal
 
-主键 `nine_code`。页面 Terminal 9code。由船期的 `point_code` 和报文 `terminal` 连接到这里。
+作用：一个 Terminal 9code。由船期的港口和报文 terminal 经 `terminal_code` 连到这里。
+
+主键：`nine_code`
+
+外键：`port_code` → `port.port_code`
 
 | 列 | 说明 |
 |---|---|
-| nine_code | 主键。CMA 的 Terminal 9code，例如 CNSHADT17 |
-| port_code | 所属港口 |
+| nine_code | 主键。例如 CNSHADT17 |
+| port_code | 所属港口。外键 |
 | name_zh | 码头中文名 |
 
 ### terminal_code
 
-主键 `port_code`、`code`。报文里的码头代码和简称都通过这张表对到 `nine_code`。YS01 与 YAN1 可以指向同一条码头。
+作用：把报文里的码头代码和简称对到同一个 9code。YS01 与 YAN1 可以指向同一条码头。
+
+主键：`port_code`、`code`
+
+外键：`port_code` → `port.port_code`；`nine_code` → `terminal.nine_code`
 
 | 列 | 说明 |
 |---|---|
-| port_code | 港口。主键之一 |
+| port_code | 港口。主键之一，外键 |
 | code | 报文 terminal，或矩阵里的简称。主键之一。例如 YS01、YAN1、WGQ2 |
-| nine_code | 对到 terminal.nine_code |
-
-### terminal_voyage
-
-主键 `id`。一个港口当前码头船期中的一行。该港口同步成功后，用这次返回的行替换该 `port_code` 下的全部行。region 从 `port` 连接。
-
-| 列 | 说明 |
-|---|---|
-| id | 主键。码头航次明细用它读取 |
-| port_code | 这次同步询问的港口。只出现在筛选里，不是列表列 |
-| status | 报文 status。原文，例如计划、在港、离港。不是匹配状态 |
-| vessel_name_en | 报文 vesselNameEn。页面 Vessel name |
-| vessel_name_cn | 报文 vesselNameCn。页面 Vessel name CN |
-| ship_code | 报文 shipCode |
-| ship_name | 报文 shipName |
-| agent_code | 报文 agentCode |
-| agent_name | 报文 agentName |
-| line_code | 报文 lineCode |
-| terminal | 报文 terminal。9code 用 port_code 和它去 terminal_code 连接 |
-| ports_en | 报文 portsEn。页面 Ports |
-| ports_cn | 报文 portsCn。页面 Ports Cn |
-| eta | 报文 eta |
-| ata | 报文 ata |
-| etb | 报文 etb |
-| atb | 报文 atb |
-| etd | 报文 etd |
-| atd | 报文 atd |
-| cy_open | 报文 cyOpen。页面 CY open |
-| cy_closing | 报文 cyClosing。页面 CY closing |
-| port_close_date | 报文 portCloseDate。页面 Port close |
-| customs_close_date | 报文 customsCloseDate。页面 Customs close |
-| update_time | 报文 updateTime。页面 Update time |
-| ivoyage | 报文 ivoyage。页面 Import voyage |
-| evoyage | 报文 evoyage。页面 Export voyage |
+| nine_code | 对到的码头。外键 |
 
 ### list_setting
 
-主键 `id`。一个用户的一份列表方案一行。`owner` 是登录名。
+作用：一个登录用户的一份列表方案。每个用户恰好有一份生效。第一次读取时如果还没有方案，建一份名为 Default 并设为生效。
+
+主键：`id`
+
+外键：无。`owner` 是登录名，不指向别的表
 
 | 列 | 说明 |
 |---|---|
@@ -274,21 +259,23 @@
 | owner | 登录名。只能读写自己的方案 |
 | name | 方案名称。同一 owner 下不重复 |
 | position | 在该用户方案列表中的顺序，从 0 起 |
-| active | true：当前生效的方案。每个 owner 恰好有一行是 true。false：已保存但未生效 |
-| freeze_side | 左冻结截止列的 side。不冻结时为空 |
-| freeze_field | 左冻结截止列的 field，含这一列。不冻结时为空。必须是这份方案里的一列 |
+| active | true：当前生效。每个 owner 恰好一行是 true |
+| freeze_field | 左冻结截止列的字段名，含这一列，例如 laraEtb。不冻结时为空，且必须是这份方案里的一列 |
 
 ### list_setting_filter
 
-主键 `setting_id`、`side`、`field`。一个筛选项一行，含是否显示和默认值。相对日期存在这里，提交船期搜索前再折成绝对日期。
+作用：方案里的一个筛选项，含是否显示和默认值。相对日期存在这里，提交船期搜索前由前端折成绝对日期。隐藏项的默认值仍会提交。
+
+主键：`setting_id`、`field`
+
+外键：`setting_id` → `list_setting.id`
 
 | 列 | 说明 |
 |---|---|
-| setting_id | 所属 list_setting。主键之一 |
-| side | LARA、TERMINAL 或 PLATFORM。主键之一 |
-| field | 页面字段名。主键之一。region 只有筛选项，不是列表列 |
+| setting_id | 所属方案。主键之一，外键 |
+| field | 字段名，例如 laraEtb、platformRegion。主键之一。platformRegion 只有筛选项，不是列表列 |
 | position | 筛选项顺序，从 0 起 |
-| visible | true：搜索页显示这个筛选项。false：不显示，默认值仍会在搜索时提交 |
+| visible | true：搜索页显示。false：不显示，默认值仍提交 |
 | date_mode | 空：不是日期。fixed：用 date_from、date_to。relative：用 from_days、to_days |
 | text_value | 子串默认值。多选和多行不用 |
 | date_from | fixed 的开始日期，可空 |
@@ -298,60 +285,143 @@
 
 ### list_setting_filter_value
 
-主键 `setting_id`、`side`、`field`、`position`。多选和多行的一个默认值一行。
+作用：多选和多行筛选项的一个默认值。
+
+主键：`setting_id`、`field`、`position`
+
+外键：`setting_id`、`field` → `list_setting_filter` 的主键
 
 | 列 | 说明 |
 |---|---|
 | setting_id | 所属方案。主键之一 |
-| side | 与筛选项相同。主键之一 |
 | field | 与筛选项相同。主键之一 |
 | position | 值的顺序，从 0 起。主键之一 |
-| value | 默认值。多行忽略大小写匹配，代码类区分大小写 |
+| value | 默认值。多行忽略大小写，代码类区分大小写 |
 
 ### list_setting_column
 
-主键 `setting_id`、`side`、`field`。列表一列一行。
+作用：方案里的列表一列。
+
+主键：`setting_id`、`field`
+
+外键：`setting_id` → `list_setting.id`
 
 | 列 | 说明 |
 |---|---|
-| setting_id | 所属方案。主键之一 |
-| side | LARA、TERMINAL 或 PLATFORM。主键之一 |
-| field | 页面字段名。主键之一。LARA.voyage 不能隐藏 |
+| setting_id | 所属方案。主键之一，外键 |
+| field | 字段名。主键之一。laraVoyage 不能隐藏 |
 | position | 列顺序，从 0 起 |
-| hidden | true：列表不显示。false：显示。LARA.voyage 必须是 false |
+| hidden | true：列表不显示。laraVoyage 必须是 false |
 
 ### list_setting_sort
 
-主键 `setting_id`、`position`。方案自带的默认排序。用户在搜索页临时改的排序不写回这里，随那一次搜索的 `sort` 参数走。
+作用：方案自带的默认排序。搜索页临时改的排序不写回这里，随那一次搜索的 `sort` 参数走。
+
+主键：`setting_id`、`position`
+
+外键：`setting_id` → `list_setting.id`
 
 | 列 | 说明 |
 |---|---|
-| setting_id | 所属方案。主键之一 |
+| setting_id | 所属方案。主键之一，外键 |
 | position | 排序优先级，从 0 起。主键之一 |
-| side | LARA、TERMINAL 或 PLATFORM |
-| field | 页面字段名 |
+| field | 字段名，例如 laraEtb |
 | descending | true：降序。false：升序 |
 
 ### list_setting_watch
 
-主键 `setting_id`、`side`、`field`。用户勾选的高亮字段，以及日期的天数阈值。同步时保持原值的字段是服务端固定的一组，见下方接口说明。已审核且这次码头同步仍是多条时，日期是否进入 `changes` 使用当前生效方案的 `day_threshold`。
+作用：该用户要看到的已写入差异。只决定高亮和提示，不决定同步是否写入、是否进入审核。`platformMatchingStatus` 必须保留。
+
+主键：`setting_id`、`field`
+
+外键：`setting_id` → `list_setting.id`
 
 | 列 | 说明 |
 |---|---|
-| setting_id | 所属方案。主键之一 |
-| side | LARA、TERMINAL 或 PLATFORM。主键之一 |
-| field | 页面字段名。主键之一。PLATFORM.matchingStatus 必须保留，不能删 |
-| day_threshold | 日期列的天数阈值。空或 0：只要不同就高亮，多条比对时也进入 changes。非日期列为空 |
+| setting_id | 所属方案。主键之一，外键 |
+| field | 字段名。主键之一。platformMatchingStatus 不能删 |
+| day_threshold | 日期列的天数阈值。空或 0：只要不同就提示。非日期列为空 |
 
-### 不建表
+## 系统关键逻辑
 
-同步条数、成功数、失败数、候选数在读取时计算。查询参数不落库。
+下面写 `vessel_schedule`、`lara_sync_run`、`lara_payload`、`terminal_sync_run`、`terminal_query`、`terminal_payload`、`activity_log`、`activity_log_change` 在同步、高亮和 Review 里怎么维护。页面上的选择在确认前不落这几张表。`platformTerminalPending` 和 `changes` 不入库，读取时由这几张表算出来。
+
+### 同步
+
+按 `lara_voyage` + `lara_point_code` + `lara_visit_no` 找到 `vessel_schedule` 就更新原行，找不到就插入。之后从批量里消失，或 LARA 把 `OMIT_FLAG` 改成 `Y`，不删行，只把 `platform_omit` 置为 true。
+
+LARA：
+
+| 步骤 | 表 |
+|---|---|
+| 开始一次运行 | 插入 `lara_sync_run`。单笔填 `schedule_id`，批量为空 |
+| 成功 | 更新 `vessel_schedule` 的 LARA 列。`lara_payload` 一条船期一行，覆盖 `payload` 和 `run_id`。`lara_sync_run.status` 为 SUCCESS |
+| 失败 | 只把 `lara_sync_run.status` 写成 FAILED，并写 `error`。不改 `lara_payload`，不改 `vessel_schedule` |
+| 船期列有变化 | 插入一条 `activity_log`：`triggered_by` 为 System，`remark` 由服务端写成这次事件，`match` 为空。每个变化的字段插入 `activity_log_change`，`original` 是写入前的值，`updated` 是写入后的值 |
+| 船期列没有变化 | 不写 `activity_log` 和 `activity_log_change` |
+
+码头：
+
+| 步骤 | 表 |
+|---|---|
+| 批量运行 | 插入 `terminal_sync_run`。每条船期插入 `terminal_query`，`sync_run_id` 指向这次运行 |
+| Review 页单笔查询 | 不插入 `terminal_sync_run`。`terminal_query.sync_run_id` 为空 |
+| FOUND 或 NOT_FOUND | `terminal_query.status` 写成对应值。删掉该船期更早的 `terminal_payload`，再写入这次的行。NOT_FOUND 写零行 |
+| FAILED | `terminal_query.status` 为 FAILED。不删、不插 `terminal_payload`。`vessel_schedule` 的码头列保持上次成功的值 |
+| 要把码头结果写上船期 | 更新 `vessel_schedule` 的码头列、`terminal_source`、`platform_matching_status`。`terminal_source` 为 SYNC |
+| 船期列有变化 | 与 LARA 相同，写 `activity_log` 和 `activity_log_change` |
+| 手工补录 | 不插入 `terminal_payload`。码头值只在 `vessel_schedule`，`terminal_source` 为 USER |
+
+`platform_matching_status` 和码头列是否覆盖，按下表。LARA 列在成功时始终覆盖，不受这张表限制。没写上 `vessel_schedule` 的码头候选只留在 `terminal_payload`。
+
+| 当前状态 | 这次结果 | vessel_schedule |
+|---|---|---|
+| 不是 Manual matched，也不是 Pending match | 一条且可自动匹配 | 写入最新码头列，platform_matching_status = Auto matched |
+| 不是 Manual matched，也不是 Pending match | 一条，但缺航次或 ETA 差超过 3 天 | 写入这条码头记录，platform_matching_status 为 No external voyage 或 ETA gap > 3 days |
+| 不是 Manual matched，也不是 Pending match | 多条或没有记录 | 清空码头列，platform_matching_status 为 Multiple terminal records 或 No terminal record |
+| Manual matched 或 Pending match，且 terminal_source 不是 USER | 已保存的码头字段与这次同步有差异，或这次会变成缺航次、ETA gap、多条、没有记录 | 不改码头列。platform_matching_status 写成 Pending match |
+| terminal_source 为 USER | 没有记录 | 不改码头列，不改 platform_matching_status。不进入 Review |
+| Manual matched 或 Pending match | 已保存的每个码头字段都和这次同步相同，绑定仍是这一条 | 不改码头列。platform_matching_status 保持 Manual matched |
+
+已是 Manual matched 或 Pending match、下一次仍是多条时，不改码头列。出口航次和进口航次都有值、并且只有一条 `terminal_payload` 两个都相同，这一条是比对对象。读取时 `platformTerminalPending` 为 `many`。下一次查询是 NOT_FOUND、且 `terminal_source` 不是 USER 时，码头列保留，读取时 `platformTerminalPending` 为 `none`。
+
+`changes` 用 `vessel_schedule` 的当前值、`activity_log_change` 里该字段上一笔，以及最新的 `lara_payload`、`terminal_payload` 算出。没有差异时为 `null`。`pending` 为 false 表示已经写上 `vessel_schedule`；`pending` 为 true 表示还在 `terminal_payload` 里、船期码头列没被覆盖。LARA 的差异 `pending` 为 false。
+
+`Multiple terminal records`、`ETA gap > 3 days`、没有绑定、以及港口未覆盖且不是手工补录时，列表和明细的码头字段返回 `null`，库里的码头列仍是清空后的空值。Pending match 返回 `vessel_schedule` 上已保存的码头列。
+
+### 高亮
+
+不写这八张表。对比 `vessel_schedule` 上已经写入的值，和 `activity_log_change` 里该字段上一笔 `updated`。只取该用户 `list_setting_watch` 中的字段，日期再按 `day_threshold` 过滤。关注项不决定这八张表写不写，也不决定是否进入 Review。LARA 只要和上一笔不同就参与，不要求已经绑上码头。人工确认后留在 `vessel_schedule` 上的码头值，和上一笔不同且被关注时，同样参与。列表行在任一这样的差异上高亮。提示图标只出现在关注的列上。Review 页上这个字段已经展开上一版和这次同步时，不再另放提示图标。`platformMatchingStatus` 本身没有这个提示。
+
+### Review
+
+确认前不改 `vessel_schedule`，也不写 `activity_log`。候选仍是已有的 `terminal_payload`。页面上的选择、新建，确认前都不插入 `terminal_payload`。
+
+`platform_matching_status` 为 Pending match、Multiple terminal records、ETA gap > 3 days、No external voyage、No terminal record，或读取出的 `platformTerminalPending` 非空，或 `changes` 里有 `pending` 为 true 的字段时，可以进入 Review。
+
+| 条件 | 确认前 | 确认时写 vessel_schedule |
+|---|---|---|
+| platformTerminalPending 为 many，且已有保存的码头记录 | 显示已保存的码头列。有唯一航次相同的 `terminal_payload` 时，只读对照上一版和这次同步。点选另一条只换正在看的 id | 确认当前记录则码头列不变。确认另一条则写入该 `terminal_payload`，terminal_source 仍为 SYNC |
+| platformTerminalPending 为 many，且还没有绑定 | 码头区为空，直到选中一条 `terminal_payload` 或在页面上新建 | 写入选中的候选或新建的记录 |
+| platformTerminalPending 为 none | 打开时就是已保存的码头列。也可以在页面上新建 | 确认当前记录则码头列不变。新建则写入新记录，terminal_source 为 USER |
+| No terminal record | 必须在页面上新建一条 | 写入这条手工记录，terminal_source 为 USER |
+| Multiple terminal records，且还没有绑定 | 必须选中一条 `terminal_payload`，或在页面上新建 | 写入选中的候选或新建的记录 |
+| 存在 pending 为 true、且不是多条比对里只读展示的码头字段 | 在 previousValue 和 incomingValue 之间选。全部选完才能确认 | 把选定的值写入对应码头列 |
+
+其余码头字段只读。LARA 不能手输，始终是 `vessel_schedule` 上的最新值。Pending match 时，列表和明细把码头格子画成 —，Review 显示 `vessel_schedule` 上的码头列。确认之后列表和明细才画出这些值。
+
+确认必须带上一条码头记录。没有这条时返回 409，八张表都不改。有这条时：
+
+| 表 | 写入 |
+|---|---|
+| vessel_schedule | 码头列按上表更新。`platform_matching_status` 写成 Manual matched。确认同步来的记录时 `terminal_source` 仍是 SYNC，只有页面新建的记录才是 USER。请求里的 `platformMatchingStatus` 忽略 |
+| lara_sync_run、lara_payload、terminal_sync_run、terminal_query、terminal_payload | 不写。新建的手工记录也不插入 `terminal_payload` |
+| activity_log | 插入一条。`remark` 是用户备注，可以为空。保留当前绑定时 `match` 为 confirm。从一条改到另一条时 `match` 为 switch |
+| activity_log_change | 每个实际变化的字段一行，包括 `platformMatchingStatus`。`original` 为确认前的值，`updated` 为确认后的值。没有变化的字段不插 |
+
+缺航次或 ETA 相差超过 3 天不阻止确认。Cancel 恢复页面，不写这八张表。Review 页上的单笔同步走上面的同步规则。
 
 ## 接口
-
-时刻用 ISO-8601，筛选日期用 `YYYY-MM-DD`。空业务值用 `null`。错误使用 `application/problem+json`。创建返回 `201`，读取和替换返回 `200`。响应里是资源 `id`。`page` 从 1 起，`pageSize` 默认 100、最大 500。
-
-`lara_sync_run`、`lara_payload`、`terminal_sync_run`、`terminal_query`、`terminal_payload`、`field_decision` 供同步和审核使用，不单独提供查询。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -361,7 +431,6 @@
 | GET | /v1/vessel-schedules/{scheduleId}/review | 读取审核 |
 | PUT | /v1/vessel-schedules/{scheduleId}/review | 保存审核 |
 | GET | /v1/vessel-schedules/{scheduleId}/terminal-candidates | 码头候选 |
-| POST | /v1/vessel-schedules/{scheduleId}/terminal-resolution | 决定码头形态 |
 | POST | /v1/vessel-schedules/{scheduleId}/lara-sync | 单笔同步 LARA |
 | POST | /v1/vessel-schedules/{scheduleId}/terminal-sync | 单笔同步码头 |
 | GET | /v1/vessel-schedules/{scheduleId}/activity-logs | 活动日志 |
@@ -384,190 +453,9 @@
 | PATCH | /v1/ports/{portCode} | 停用或启用港口 |
 | DELETE | /v1/ports/{portCode} | 删除港口 |
 
-### 公共字段
+`lara_sync_run`、`lara_payload`、`terminal_sync_run`、`terminal_query` 供同步和审核使用，不单独提供查询。`terminal_payload` 同时给出码头航次列表。
 
-`side` 为 `LARA`、`TERMINAL` 或 `PLATFORM`。`field` 用下面对象里的属性名。排序写成 `side.field`，减号表示降序，例如 `-LARA.etb,TERMINAL.etd`。
-
-#### lara
-
-页面 LARA 区。`vesselOperator` 来自 LARA 的 `OPERATOR_CODE`。`brand`、`vesselType`、`terminal`（Terminal 9code）由服务端算出，提交了也忽略。
-
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| voyage | 航次，库列 voyage_reference | 0MEG1W |
-| pointCode | 港口，库列 point_code | FRFOS |
-| poolLocation | 库列 pool_location | EUROPE |
-| vesselName | 英文船名，库列 vessel_full_name | CMA CGM MARCO POLO |
-| vesselOperator | 船公司代码，库列 operator_code。页面 Vessel operator 用它，码头报文里没有这一项 | CMA |
-| brand | 由航次末两位算出。MA/NC/PL/NL 对应 CMA/CNC/APL/ANL | CMA |
-| service | 航线，库列 service_no | FAL |
-| eta | LARA ETA。日期和时间已合成一个时刻 | 2026-10-26T08:00:00+08:00 |
-| etb | LARA ETB。关注字段 | 2026-10-27T00:00:00+08:00 |
-| etd | LARA ETD。关注字段 | 2026-10-28T18:00:00+08:00 |
-| vesselType | 由航次数字、brand、vesselOperator 算出。3 为 3PF，9 再分 Group vsl 与 Partner vsl | Group vsl |
-| terminal | Terminal 9code。按 pointCode 和码头代码从港口覆盖连接。格子不展示时为 null | FRFOSFOS |
-
-```json
-{
-  "voyage": "0MEG1W",
-  "pointCode": "FRFOS",
-  "poolLocation": "EUROPE",
-  "vesselName": "CMA CGM MARCO POLO",
-  "vesselOperator": "CMA",
-  "brand": "CMA",
-  "service": "FAL",
-  "eta": "2026-10-26T08:00:00+08:00",
-  "etb": "2026-10-27T00:00:00+08:00",
-  "etd": "2026-10-28T18:00:00+08:00",
-  "vesselType": "Group vsl",
-  "terminal": "FRFOSFOS"
-}
-```
-
-#### terminal
-
-当前绑定的码头记录。列表和明细在下面三种情况返回 `null`：没有绑定；`matchingStatus` 为 `Multiple terminal records` 或 `ETA gap > 3 days`；港口没有码头接口覆盖，并且不是手工补录。审核在已绑定时始终返回这条记录。
-
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| enteredManually | true 表示手工补录，对应 terminal_source = USER。确认一条同步记录时仍是 false | false |
-| exportVoyage | 出口航次，库列 evoyage。关注字段 | E001 |
-| importVoyage | 进口航次，库列 ivoyage。关注字段 | I001 |
-| vesselNameCn | 中文船名 |  |
-| name | 报文 terminal，例如 YS01。9code 不写在这个字段里 | YS01 |
-| eta | 码头 ETA，库列 terminal_eta | null |
-| ata | 码头 ATA，库列 terminal_ata | null |
-| etb | 码头 ETB，库列 terminal_etb。关注字段 | 2026-10-27T02:00:00+08:00 |
-| atb | 码头 ATB，库列 terminal_atb。关注字段 | null |
-| etd | 码头 ETD，库列 terminal_etd。关注字段 | 2026-10-28T16:00:00+08:00 |
-| atd | 码头 ATD，库列 terminal_atd。关注字段 | null |
-| cyOpen | 库列 cy_open | null |
-| cyCutoff | 库列 cy_closing | null |
-| vesselStatus | 报文 status，例如计划、在港、离港。不是匹配状态 | 计划 |
-| updateTime | 报文 updateTime | 2026-10-27T01:00:00+08:00 |
-
-```json
-{
-  "enteredManually": false,
-  "exportVoyage": "E001",
-  "importVoyage": "I001",
-  "vesselNameCn": "",
-  "name": "YS01",
-  "eta": null,
-  "ata": null,
-  "etb": "2026-10-27T02:00:00+08:00",
-  "atb": null,
-  "etd": "2026-10-28T16:00:00+08:00",
-  "atd": null,
-  "cyOpen": null,
-  "cyCutoff": null,
-  "vesselStatus": "计划",
-  "updateTime": "2026-10-27T01:00:00+08:00"
-}
-```
-
-#### 船期行上的其他字段
-
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| id | 船期 id，库列 vessel_schedule.id。visit_no 不返回 | sch-1 |
-| voyageStatus | Active 或 Omit。platform_omit 为真时是 Omit，含后续批量里消失、以及 LARA 把 OMIT_FLAG 改成 Y | Active |
-| pointCovered | 这个 Point code 是否对接码头接口，即 port.api_covered | true |
-| matchingStatus | 服务端计算，请求里不带。取值见下表 | Auto matched |
-| candidateCount | 当前待选码头记录条数，没有则为 0 | 2 |
-| sharedLaraCount | 共用同一港口、码头和出口航次的船期条数，只有一条时为 1 | 1 |
-| terminalPending | 只在 Manual matched 且最近一次码头同步不再是一条时有值。many 仍有多条候选。none 没有记录。其余为 null | many |
-| lastModifiedBy | 最新活动日志的操作人，可以是 System。审核读取不返回 | Ann |
-| lastModifiedAt | 最新活动日志的时间 | 2026-10-27T02:00:00Z |
-| remark | 已保存的用户备注。明细和审核返回。没有时为空字符串 | Confirmed with agent |
-| changes | 当前值与最新值的差异。没有差异时为 null，不返回空数组 | 见下 |
-| sources | 手工改过的字段在改之前的来源值。只在明细返回。没有时为 null | 见下 |
-
-`matchingStatus` 的取值：
-
-| 值 | 含义 |
-|---|---|
-| Auto matched | 未审核。正好一条码头记录，进出口航次都有，LARA ETA 与码头 ETA 相差不超过 3 天 |
-| Manual matched | 审核确认过，绑定还在。ETA 差超过 3 天时，首次保存和再次保存都改成这个状态。之后的同步不改回 Auto matched |
-| Multiple terminal records | 未审核，码头同步返回多条。码头列已清空 |
-| No terminal record | 未审核，码头同步没有记录。码头列已清空 |
-| No external voyage | 绑着的记录缺少进口或出口航次 |
-| ETA gap > 3 days | 尚未审核。绑着一条码头记录，LARA ETA 与码头 ETA 的天数差算不出来，或超过 3 天。审核保存后改为 Manual matched |
-
-同步写入：
-
-| 当前状态 | 这次结果 | 船期行 | changes |
-|---|---|---|---|
-| 不是 Manual matched | 一条且可自动匹配 | 写入最新码头列，match_method = AUTO | pending 为 false |
-| 不是 Manual matched | 一条，但缺航次或 ETA 差超过 3 天 | 写入这条码头记录，状态改为对应值 | pending 为 false |
-| 不是 Manual matched | 多条或没有记录 | 清空码头列，match_method 留在 AUTO | pending 为 false |
-| Manual matched | 关注字段有差异 | 关注字段保持原值 | 这些字段 pending 为 true，当前值是 previousValue |
-| Manual matched | 非关注字段有差异 | 写入最新值 | pending 为 false |
-| Manual matched | 下一次一条，且会算出缺航次或 ETA 差超过 3 天 | 确认前状态仍是 Manual matched。保存后状态为 Manual matched，与首次处理相同 | 增加 matchingStatus，确认前 pending 为 true。保存后这项不再待确认 |
-| Manual matched | 下一次仍会是 Auto matched | 状态仍是 Manual matched | 不写 matchingStatus 这一项 |
-| Manual matched | 下一次仍是多条 | terminalPending 为 many，不整行覆盖 | matchingStatus 从 Manual matched 到 Multiple terminal records，pending 为 true |
-
-同步时压住不覆盖的字段是服务端固定的一组：LARA 的 `etb`、`etd`，码头的 `etb`、`etd`、`atb`、`atd`、`exportVoyage`、`importVoyage`。一般比较里值不相同才算变化。已审核且下一次仍是多条时，这些日期再使用当前用户生效列表方案里的 `dayThreshold`：相差天数不超过阈值的不放进 `changes`。出口航次、进口航次没有天数阈值。用户在方案里另外勾选的字段只用于页面高亮。
-
-已审核且仍是多条时，出口航次和进口航次都有值，并且只有一条候选两个都相同，这一条只是默认比对对象。`terminalPending` 仍为 `many`，选择按钮保留。改选后按新的一条重新比关注字段。
-
-#### changes
-
-一项一个字段。列表、明细、审核只比较当前值和最新值。
-
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| side | LARA、TERMINAL 或 PLATFORM | LARA |
-| field | 该侧对象里的属性名。匹配状态用 matchingStatus | etb |
-| previousValue | 写入前的值。pending 为 true 时，页面显示这个值 | 2026-10-27T00:00:00+08:00 |
-| incomingValue | 这次入站的值。pending 为 false 时，页面显示这个值 | 2026-10-27T04:00:00+08:00 |
-| pending | true：还要人确认。false：已经写入，只作提示，不因此打开审核 | true |
-
-```json
-[
-  {
-    "side": "LARA",
-    "field": "etb",
-    "previousValue": "2026-10-27T00:00:00+08:00",
-    "incomingValue": "2026-10-27T04:00:00+08:00",
-    "pending": true
-  },
-  {
-    "side": "PLATFORM",
-    "field": "matchingStatus",
-    "previousValue": "Auto matched",
-    "incomingValue": "ETA gap > 3 days",
-    "pending": false
-  }
-]
-```
-
-#### sources
-
-只在明细返回。一项一个字段。
-
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| side | LARA 或 TERMINAL | TERMINAL |
-| field | 属性名 | etd |
-| value | 手工修改之前的来源值 | 2026-10-28T16:00:00+08:00 |
-
-#### 分页 page
-
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| number | 当前页，从 1 起 | 1 |
-| size | 本页条数 | 100 |
-| totalElements | 命中总条数 | 342 |
-| totalPages | 总页数 | 4 |
-
-#### 错误
-
-| HTTP | 何时 |
-|---|---|
-| 400 | 字段未知、日期非法、Point code 不在所选 Region、排序或分页非法、审核无变化、取值不在允许范围、候选 id 不属于这次结果、列表方案重名、隐藏了 LARA.voyage、去掉了 PLATFORM.matchingStatus |
-| 404 | 船期不存在，或列表方案不属于当前用户 |
-| 409 | 没有待决定的码头形态、港口未覆盖仍要求同步码头、审核确认时没有选中一条码头记录、删除仍被引用的港口或区域、码头代码冲突、删除当前生效的或仅剩的列表方案 |
+GET 没有正文。下面的请求 JSON 是路径参数和查询参数的完整结构，实际放在 URL 上。多选和多行用数组，URL 上重复同一个参数名。POST、PUT、PATCH 的请求 JSON 是正文。错误使用 `application/problem+json`。
 
 ```json
 {
@@ -578,221 +466,324 @@
 }
 ```
 
+`400` 是参数或取值不合法、审核没有变化、列表方案重名、隐藏了 `laraVoyage`、或去掉了 `platformMatchingStatus`。`404` 是船期不存在，或方案不属于当前用户。`409` 是港口未覆盖仍要求同步码头、审核没有选择或新建一条码头记录、删除仍被引用的港口或区域、码头代码冲突、删除当前生效或仅剩的方案。
+
 ### 查询船期
 
-| 项 | 内容 |
-|---|---|
-| 方法 | GET |
-| 路径 | /v1/vessel-schedules |
-| 说明 | 读取船期列表。筛选、排序和分页都是查询参数。隐藏筛选项的默认值也由前端放进参数。不带筛选参数时不附加筛选。返回当前页。有 pending 为 true 的字段，或 terminalPending 非空，或 matchingStatus 为 Multiple terminal records、ETA gap > 3 days、No external voyage、No terminal record 时，前端可以进入审核 |
+GET `/v1/vessel-schedules`
+
+读取船期列表。筛选、排序和分页都是查询参数。隐藏筛选项的默认值也由前端放进参数。不带筛选参数时不附加筛选。返回当前页。船期是一层字段。`laraVesselOperator` 来自 LARA 的 `OPERATOR_CODE`。`laraBrand` 由航次末两位算出，MA/NC/PL/NL 对应 CMA/CNC/APL/ANL。`laraVesselType` 由航次数字、`laraBrand`、`laraVesselOperator` 算出，3 为 3PF，9 再分 Group vsl 与 Partner vsl。`laraTerminal` 是 Terminal 9code。这三项由服务端计算，提交了也忽略。`platformCandidateCount` 是当前待选码头记录条数。`platformSharedLaraCount` 是共用同一港口、码头和出口航次的船期条数。何时进入 Review 见系统关键逻辑。
 
 | 参数 | 必填 | 含义 |
 |---|---|---|
-| sort | 否 | 默认 `-LARA.etb` |
+| sort | 否 | 默认 `-laraEtb` |
 | page | 否 | 默认 1 |
 | pageSize | 否 | 默认 100，最大 500 |
 
-筛选参数用 `side.field`。多选和多行重复同一个参数。子串只出现一次。日期用 `side.fieldFrom` 和 `side.fieldTo`，包含这一天，可只给一端。
+筛选参数用字段名。多选和多行重复同一个参数。子串只出现一次。日期用字段名加 `From` 或 `To`，包含这一天，可只给一端。
 
 | 参数 | 形态 | 含义 |
 |---|---|---|
-| PLATFORM.region | 可重复 | 区域代码，精确匹配，区分大小写 |
-| PLATFORM.matchingStatus | 可重复 | 上面六个匹配状态 |
-| PLATFORM.lastModifiedBy | 单个 | 操作人子串，忽略大小写 |
-| LARA.vesselName | 可重复 | 英文船名，精确匹配，忽略大小写 |
-| LARA.voyage | 可重复 | 航次，精确匹配，忽略大小写 |
-| LARA.pointCode | 可重复 | 港口代码。必须落在所选 Region 内 |
-| LARA.poolLocation | 单个 | 子串，忽略大小写 |
-| LARA.service | 单个 | 子串，忽略大小写 |
-| LARA.vesselOperator | 单个 | 子串，忽略大小写 |
-| LARA.brand | 可重复 | 精确匹配 |
-| LARA.vesselType | 可重复 | 精确匹配 |
-| LARA.terminal | 可重复 | Terminal 9code |
-| LARA.etaFrom、LARA.etaTo、LARA.etbFrom、LARA.etbTo、LARA.etdFrom、LARA.etdTo | 单个 | 比较该时刻 |
-| TERMINAL.vesselNameCn | 可重复 | 精确匹配，忽略大小写 |
-| TERMINAL.exportVoyage | 可重复 | 精确匹配，忽略大小写 |
-| TERMINAL.importVoyage | 可重复 | 精确匹配，忽略大小写 |
-| TERMINAL.name | 可重复 | 报文 terminal |
-| TERMINAL.vesselStatus | 可重复 | 计划、在港、离港 |
-| TERMINAL 的 eta、ata、etb、atb、etd、atd、cyOpen、cyCutoff、updateTime，各加 From 或 To | 单个 | 比较该时刻 |
+| platformRegion | 可重复 | 区域代码，精确匹配，区分大小写 |
+| platformMatchingStatus | 可重复 | 七个匹配状态 |
+| platformLastModifiedBy | 单个 | 操作人子串，忽略大小写 |
+| laraVesselName | 可重复 | 英文船名，精确匹配，忽略大小写 |
+| laraVoyage | 可重复 | 航次，精确匹配，忽略大小写 |
+| laraPointCode | 可重复 | 港口代码。必须落在所选 Region 内 |
+| laraPoolLocation | 单个 | 子串，忽略大小写 |
+| laraService | 单个 | 子串，忽略大小写 |
+| laraVesselOperator | 单个 | 子串，忽略大小写 |
+| laraBrand | 可重复 | 精确匹配 |
+| laraVesselType | 可重复 | 精确匹配 |
+| laraTerminal | 可重复 | Terminal 9code |
+| laraEtaFrom、laraEtaTo、laraEtbFrom、laraEtbTo、laraEtdFrom、laraEtdTo | 单个 | 比较该时刻 |
+| terminalVesselNameCn | 可重复 | 精确匹配，忽略大小写 |
+| terminalExportVoyage | 可重复 | 精确匹配，忽略大小写 |
+| terminalImportVoyage | 可重复 | 精确匹配，忽略大小写 |
+| terminalName | 可重复 | 报文 terminal |
+| terminalVesselStatus | 可重复 | 计划、在港、离港 |
+| terminalEta、terminalAta、terminalEtb、terminalAtb、terminalEtd、terminalAtd、terminalCyOpen、terminalCyCutoff、terminalUpdateTime，各加 From 或 To | 单个 | 比较该时刻 |
 
-```
-GET /v1/vessel-schedules?PLATFORM.region=NEU&LARA.vesselName=CMA%20CGM%20MARCO%20POLO&LARA.service=FAL&LARA.etbFrom=2026-10-20&LARA.etbTo=2026-11-03&sort=-LARA.etb&page=1&pageSize=100
+请求：
+
+```json
+{
+  "platformRegion": [
+    "NEU"
+  ],
+  "laraVesselName": [
+    "CMA CGM MARCO POLO"
+  ],
+  "laraService": "FAL",
+  "laraEtbFrom": "2026-10-20",
+  "laraEtbTo": "2026-11-03",
+  "sort": "-laraEtb",
+  "page": 1,
+  "pageSize": 100
+}
 ```
 
-`200` 的 `data` 是船期行，字段见公共对象。`page.totalElements` 是本次条件命中的总条数。
+正常返回 `200`。这一行是 Pending match：响应里带已保存的码头记录，页面把码头格子画成 —。LARA ETB 相对上一版已写入，所以有一项 `pending` 为 false。
 
 ```json
 {
   "data": [
     {
       "id": "sch-1",
-      "voyageStatus": "Active",
-      "pointCovered": true,
-      "matchingStatus": "Multiple terminal records",
-      "candidateCount": 2,
-      "sharedLaraCount": 1,
-      "terminalPending": null,
-      "lara": {
-        "voyage": "0MEG1W",
-        "pointCode": "FRFOS",
-        "poolLocation": "EUROPE",
-        "vesselName": "CMA CGM MARCO POLO",
-        "vesselOperator": "CMA",
-        "brand": "CMA",
-        "service": "FAL",
-        "eta": "2026-10-26T08:00:00+08:00",
-        "etb": "2026-10-27T00:00:00+08:00",
-        "etd": "2026-10-28T18:00:00+08:00",
-        "vesselType": "Group vsl",
-        "terminal": null
-      },
-      "terminal": null,
-      "lastModifiedBy": "System",
-      "lastModifiedAt": "2026-10-27T02:00:00Z",
+      "platformVoyageStatus": "Active",
+      "platformPointCovered": true,
+      "platformMatchingStatus": "Pending match",
+      "platformCandidateCount": 1,
+      "platformSharedLaraCount": 1,
+      "platformTerminalPending": null,
+      "laraVoyage": "0MEG1W",
+      "laraPointCode": "FRFOS",
+      "laraPoolLocation": "EUROPE",
+      "laraVesselName": "CMA CGM MARCO POLO",
+      "laraVesselOperator": "CMA",
+      "laraBrand": "CMA",
+      "laraService": "FAL",
+      "laraEta": "2026-10-26T08:00:00+08:00",
+      "laraEtb": "2026-10-27T04:00:00+08:00",
+      "laraEtd": "2026-10-28T18:00:00+08:00",
+      "laraVesselType": "Group vsl",
+      "laraTerminal": "FRFOSFOS",
+      "terminalManual": false,
+      "terminalExportVoyage": "E001",
+      "terminalImportVoyage": "I001",
+      "terminalVesselNameCn": "",
+      "terminalName": "YS01",
+      "terminalEta": null,
+      "terminalAta": null,
+      "terminalEtb": "2026-10-27T02:00:00+08:00",
+      "terminalAtb": null,
+      "terminalEtd": "2026-10-28T16:00:00+08:00",
+      "terminalAtd": null,
+      "terminalCyOpen": null,
+      "terminalCyCutoff": null,
+      "terminalVesselStatus": "计划",
+      "terminalUpdateTime": "2026-10-27T01:00:00+08:00",
+      "platformLastModifiedBy": "Ann",
+      "platformLastModifiedAt": "2026-10-27T02:00:00Z",
       "changes": [
         {
-          "side": "PLATFORM",
-          "field": "matchingStatus",
-          "previousValue": "Auto matched",
-          "incomingValue": "Multiple terminal records",
+          "field": "laraEtb",
+          "previousValue": "2026-10-27T00:00:00+08:00",
+          "incomingValue": "2026-10-27T04:00:00+08:00",
           "pending": false
+        },
+        {
+          "field": "terminalEtd",
+          "previousValue": "2026-10-28T16:00:00+08:00",
+          "incomingValue": "2026-10-30T16:00:00+08:00",
+          "pending": true
         }
       ]
     }
   ],
-  "page": { "number": 1, "size": 100, "totalElements": 342, "totalPages": 4 }
+  "page": {
+    "number": 1,
+    "size": 100,
+    "totalElements": 342,
+    "totalPages": 4
+  }
 }
 ```
 
-这一行原来是 Auto matched，并绑着 Terminal 9code。最近一次码头同步变成两条，当时不是 Manual matched，所以状态已写成 Multiple terminal records，码头记录和 9code 都是 null。`pending` 为 false。要进审核是因为匹配还没结束。
+`platformMatchingStatus` 为 Multiple terminal records 或 ETA gap > 3 days、没有绑定、或港口未覆盖且不是手工补录时，该行的 terminal 字段为 `null`，`laraTerminal` 在没有 9code 时也为 `null`。没有差异时 `changes` 为 `null`。
 
 ### 导出船期
 
-| 项 | 内容 |
+GET `/v1/vessel-schedules/export`
+
+服务端生成 Excel。筛选参数和 sort 与查询船期相同，不带 page、pageSize。数据范围是本次条件命中的全部船期。Pending match 的码头格子在页面上是 —，导出为空字符串。
+
+请求：
+
+```json
+{
+  "laraEtbFrom": "2026-10-20",
+  "laraEtbTo": "2026-11-03",
+  "sort": "-laraEtb"
+}
+```
+
+正常返回 `200`。正文是 Excel，不是 JSON。`Content-Type` 为 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`。`Content-Disposition` 为 `attachment; filename="vessel-schedules.xlsx"`。
+
+工作表一行一条船期。列表上没有值的格子留空。时刻写成 `YYYY-MM-DD HH:mm`。不包含 visit_no。
+
+| 列 | 取值 |
 |---|---|
-| 方法 | GET |
-| 路径 | /v1/vessel-schedules/export |
-| 说明 | 服务端生成 Excel。筛选参数和 sort 与查询船期相同，不带 page、pageSize。数据范围是本次条件命中的全部船期 |
-
-```
-GET /v1/vessel-schedules/export?LARA.etbFrom=2026-10-20&LARA.etbTo=2026-11-03&sort=-LARA.etb
-```
-
-`200` 的 `Content-Type` 为 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`。`Content-Disposition` 为附件，例如 `attachment; filename="vessel-schedules.xlsx"`。
-
-工作表一行一条船期。列表上 `terminal` 为 null 的格子留空。时刻写成 `YYYY-MM-DD HH:mm`。不包含 visit_no。
-
-| 列 | 取值 | 含义 |
-|---|---|---|
-| Mapping status | matchingStatus | 匹配状态 |
-| Last modified by | lastModifiedBy | 最后修改人 |
-| Last modified at | lastModifiedAt | 最后修改时间 |
-| Voyage | lara.voyage | 航次 |
-| Voyage status | voyageStatus | Active 或 Omit |
-| Point code | lara.pointCode | 港口 |
-| Pool location | lara.poolLocation | |
-| Vessel name | lara.vesselName | 英文船名 |
-| Vessel operator | lara.vesselOperator | 船公司代码 |
-| Brand | lara.brand | |
-| Service | lara.service | |
-| LARA ETA | lara.eta | |
-| LARA ETB | lara.etb | |
-| LARA ETD | lara.etd | |
-| Vessel type | lara.vesselType | |
-| Terminal 9code | lara.terminal | |
-| Export voyage | terminal.exportVoyage | 码头出口航次 |
-| Import voyage | terminal.importVoyage | 码头进口航次 |
-| Vessel name CN | terminal.vesselNameCn | |
-| Terminal name | terminal.name | 报文 terminal |
-| Terminal ETA | terminal.eta | |
-| Terminal ATA | terminal.ata | |
-| Terminal ETB | terminal.etb | |
-| Terminal ATB | terminal.atb | |
-| Terminal ETD | terminal.etd | |
-| Terminal ATD | terminal.atd | |
-| CY open | terminal.cyOpen | |
-| CY closing | terminal.cyCutoff | |
-| Terminal status | terminal.vesselStatus | 计划、在港、离港 |
-| Update time | terminal.updateTime | |
-
-示例中的一行：
-
-| Voyage | Voyage status | Point code | Vessel name | Mapping status | LARA ETB | Export voyage | Terminal ETB |
-|---|---|---|---|---|---|---|---|
-| 0MEG1W | Active | FRFOS | CMA CGM MARCO POLO | Multiple terminal records | 2026-10-27 00:00 |  |  |
+| Mapping status | platformMatchingStatus |
+| Last modified by | platformLastModifiedBy |
+| Last modified at | platformLastModifiedAt |
+| Voyage | laraVoyage |
+| Voyage status | platformVoyageStatus |
+| Point code | laraPointCode |
+| Pool location | laraPoolLocation |
+| Vessel name | laraVesselName |
+| Vessel operator | laraVesselOperator |
+| Brand | laraBrand |
+| Service | laraService |
+| LARA ETA | laraEta |
+| LARA ETB | laraEtb |
+| LARA ETD | laraEtd |
+| Vessel type | laraVesselType |
+| Terminal 9code | laraTerminal |
+| Export voyage | terminalExportVoyage |
+| Import voyage | terminalImportVoyage |
+| Vessel name CN | terminalVesselNameCn |
+| Terminal name | terminalName |
+| Terminal ETA | terminalEta |
+| Terminal ATA | terminalAta |
+| Terminal ETB | terminalEtb |
+| Terminal ATB | terminalAtb |
+| Terminal ETD | terminalEtd |
+| Terminal ATD | terminalAtd |
+| CY open | terminalCyOpen |
+| CY closing | terminalCyCutoff |
+| Terminal status | terminalVesselStatus |
+| Update time | terminalUpdateTime |
 
 排序或筛选字段非法返回 `400`。
 
 ### 船期明细
 
-| 项 | 内容 |
-|---|---|
-| 方法 | GET |
-| 路径 | /v1/vessel-schedules/{scheduleId} |
-| 说明 | 在船期行之外增加 remark 和 sources。未知 id 返回 404。明细不改数据 |
+GET `/v1/vessel-schedules/{scheduleId}`
+
+在船期行之外增加 sources。未知 id 返回 404。明细不改数据。用户备注在活动日志里，不在船期行上。Pending match 时响应仍带已保存的码头字段，页面码头区全部显示 —，并隐藏字段下的来源行。
+
+请求：
+
+```json
+{
+  "scheduleId": "sch-1"
+}
+```
+
+正常返回 `200`：
 
 ```json
 {
   "id": "sch-1",
-  "voyageStatus": "Active",
-  "pointCovered": true,
-  "matchingStatus": "Manual matched",
-  "candidateCount": 0,
-  "sharedLaraCount": 2,
-  "terminalPending": null,
-  "remark": "Confirmed with agent",
-  "lara": {},
-  "terminal": {},
-  "lastModifiedBy": "Ann",
-  "lastModifiedAt": "2026-10-27T02:00:00Z",
-  "changes": null,
+  "platformVoyageStatus": "Active",
+  "platformPointCovered": true,
+  "platformMatchingStatus": "Pending match",
+  "platformCandidateCount": 1,
+  "platformSharedLaraCount": 1,
+  "platformTerminalPending": null,
+  "laraVoyage": "0MEG1W",
+  "laraPointCode": "FRFOS",
+  "laraPoolLocation": "EUROPE",
+  "laraVesselName": "CMA CGM MARCO POLO",
+  "laraVesselOperator": "CMA",
+  "laraBrand": "CMA",
+  "laraService": "FAL",
+  "laraEta": "2026-10-26T08:00:00+08:00",
+  "laraEtb": "2026-10-27T04:00:00+08:00",
+  "laraEtd": "2026-10-28T18:00:00+08:00",
+  "laraVesselType": "Group vsl",
+  "laraTerminal": "FRFOSFOS",
+  "terminalManual": false,
+  "terminalExportVoyage": "E001",
+  "terminalImportVoyage": "I001",
+  "terminalVesselNameCn": "",
+  "terminalName": "YS01",
+  "terminalEta": null,
+  "terminalAta": null,
+  "terminalEtb": "2026-10-27T02:00:00+08:00",
+  "terminalAtb": null,
+  "terminalEtd": "2026-10-28T16:00:00+08:00",
+  "terminalAtd": null,
+  "terminalCyOpen": null,
+  "terminalCyCutoff": null,
+  "terminalVesselStatus": "计划",
+  "terminalUpdateTime": "2026-10-27T01:00:00+08:00",
+  "platformLastModifiedBy": "Ann",
+  "platformLastModifiedAt": "2026-10-27T02:00:00Z",
+  "changes": [
+    {
+      "field": "laraEtb",
+      "previousValue": "2026-10-27T00:00:00+08:00",
+      "incomingValue": "2026-10-27T04:00:00+08:00",
+      "pending": false
+    },
+    {
+      "field": "terminalEtd",
+      "previousValue": "2026-10-28T16:00:00+08:00",
+      "incomingValue": "2026-10-30T16:00:00+08:00",
+      "pending": true
+    }
+  ],
   "sources": [
-    { "side": "TERMINAL", "field": "etd", "value": "2026-10-28T16:00:00+08:00" }
+    {
+      "field": "terminalEtd",
+      "value": "2026-10-28T16:00:00+08:00"
+    }
   ]
 }
 ```
 
-示例里的 `lara`、`terminal` 与公共字段相同，这里用空对象省略。`terminal.enteredManually` 为 true 时，前端在码头区标题标明手工录入。
+没有手工来源时 `sources` 为 `null`。`terminalManual` 为 true 时，前端在码头区标题标明手工录入。
 
 ### 读取审核
 
-| 项 | 内容 |
-|---|---|
-| 方法 | GET |
-| 路径 | /v1/vessel-schedules/{scheduleId}/review |
-| 说明 | 返回当前 LARA、已绑定的码头记录和 changes。不返回候选表，也不返回 lastModifiedBy。remark 是已保存备注，页面上新的备注框从空开始 |
+GET `/v1/vessel-schedules/{scheduleId}/review`
 
-页面根据这些值决定表单：
+返回当前 LARA、已绑定的码头记录和 changes。不返回候选表，也不返回 lastModifiedBy。用户备注不在这个响应里。处理见系统关键逻辑里的 Review。
 
-| 条件 | 表单 |
-|---|---|
-| No terminal record | 可以新增码头记录，码头字段都可改 |
-| No external voyage | 只能改 exportVoyage 和 importVoyage |
-| Manual matched 且 enteredManually | 码头字段都可改，可以删掉这条手工记录 |
-| terminalPending 为 many | 展示状态变化和选择按钮。有默认比对对象或用户改选之后，再给出超出天数阈值的字段按钮 |
-| terminalPending 为 none | 可以保留当前绑定，也可以不带码头记录保存。保存后码头列为空，匹配状态为 No terminal record |
-| 其余 | 码头字段只读。pending 为 true 的字段只在 previousValue 和 incomingValue 之间选。LARA 字段不能手输 |
+请求：
+
+```json
+{
+  "scheduleId": "sch-1"
+}
+```
+
+正常返回 `200`。下面是多条、已有保存记录的审核。码头 ETD 相对上一版已写入，匹配状态仍待确认。
 
 ```json
 {
   "id": "sch-1",
-  "voyageStatus": "Active",
-  "pointCovered": true,
-  "matchingStatus": "Manual matched",
-  "candidateCount": 2,
-  "sharedLaraCount": 1,
-  "terminalPending": "many",
-  "remark": "",
-  "lara": {},
-  "terminal": {},
+  "platformVoyageStatus": "Active",
+  "platformPointCovered": true,
+  "platformMatchingStatus": "Pending match",
+  "platformCandidateCount": 2,
+  "platformSharedLaraCount": 1,
+  "platformTerminalPending": "many",
+  "laraVoyage": "0MEG1W",
+  "laraPointCode": "FRFOS",
+  "laraPoolLocation": "EUROPE",
+  "laraVesselName": "CMA CGM MARCO POLO",
+  "laraVesselOperator": "CMA",
+  "laraBrand": "CMA",
+  "laraService": "FAL",
+  "laraEta": "2026-10-26T08:00:00+08:00",
+  "laraEtb": "2026-10-27T04:00:00+08:00",
+  "laraEtd": "2026-10-28T18:00:00+08:00",
+  "laraVesselType": "Group vsl",
+  "laraTerminal": "FRFOSFOS",
+  "terminalManual": false,
+  "terminalExportVoyage": "E001",
+  "terminalImportVoyage": "I001",
+  "terminalVesselNameCn": "",
+  "terminalName": "YS01",
+  "terminalEta": null,
+  "terminalAta": null,
+  "terminalEtb": "2026-10-27T02:00:00+08:00",
+  "terminalAtb": null,
+  "terminalEtd": "2026-10-28T16:00:00+08:00",
+  "terminalAtd": null,
+  "terminalCyOpen": null,
+  "terminalCyCutoff": null,
+  "terminalVesselStatus": "计划",
+  "terminalUpdateTime": "2026-10-27T01:00:00+08:00",
   "changes": [
     {
-      "side": "PLATFORM",
-      "field": "matchingStatus",
-      "previousValue": "Manual matched",
-      "incomingValue": "Multiple terminal records",
-      "pending": true
+      "field": "terminalEtd",
+      "previousValue": "2026-10-28T12:00:00+08:00",
+      "incomingValue": "2026-10-28T16:00:00+08:00",
+      "pending": false
     }
   ]
 }
@@ -800,156 +791,189 @@ GET /v1/vessel-schedules/export?LARA.etbFrom=2026-10-20&LARA.etbTo=2026-11-03&so
 
 ### 保存审核
 
-| 项 | 内容 |
-|---|---|
-| 方法 | PUT |
-| 路径 | /v1/vessel-schedules/{scheduleId}/review |
-| 说明 | 没有变化返回 400。需要选中码头记录却没有选中时返回 409，不写入。terminalPending 为 none 时可以不带 terminal、不带 candidateId 保存：清空码头列，terminal_source 为空，match_method 改为 AUTO，matchingStatus 为 No terminal record，活动日志 match 为 cancel。其余成功时绑定保留，match_method 为 USER，matchingStatus 为 Manual matched。首次出现 ETA gap > 3 days 时也是这个结果，保存后不再显示 ETA gap > 3 days。每种成功都写一条活动日志。响应同读取审核 |
+PUT `/v1/vessel-schedules/{scheduleId}/review`
+
+没有变化返回 400。没有选择或新建一条码头记录时返回 409，不写入。缺航次或 ETA 相差超过 3 天不阻止提交。`platformMatchingStatus` 由服务端写入：同步按匹配规则计算，审核确认绑上一条码头记录时写成 Manual matched。请求不带这个字段，带了也忽略。已有保存的码头记录、请求不带 terminal 字段时，码头列保持不变。新建或改选时带上码头字段。码头字段不能全部为 null。每种成功都写一条活动日志。`terminal_source` 在确认同步记录时仍是 SYNC，只有新建手工记录才是 USER。
 
 | 字段 | 必填 | 含义 |
 |---|---|---|
-| remark | 是 | 这次的备注，写入活动日志。可以是空字符串 |
-| fields | 是 | 这次确认的待确认字段。没出现的待确认字段保持待确认 |
-| fields[].side | 是 | 与 changes 相同 |
-| fields[].field | 是 | 属性名 |
-| fields[].value | 是 | 确认后的值。LARA 必须是 previousValue 或 incomingValue。vesselType 和 Terminal 9code 提交了也忽略 |
-| candidateId | 否 | 尚未绑定、用户从候选里选了一条时才带。必须来自这次候选 |
-| terminal | 否 | 保存后的码头记录，字段同公共 terminal，但不带 enteredManually。和 candidateId 一起出现时，覆盖该候选上被改过的字段。单独出现时，表示修改当前绑定或新建手工记录。删掉手工记录时为 null。码头没有改动时不要带 terminal 和 candidateId |
+| remark | 是 | 这次的备注，只写入活动日志。可以是空字符串。为空时前端按 changes 生成说明 |
+| fields | 是 | 这次要写入的码头字段最终值。页面上的选择在确认前不落库。没出现的字段保持船期上已保存的值。可以是空数组 |
+| fields[].field | 是 | 船期字段名。不包括 platformMatchingStatus |
+| fields[].value | 是 | 确认后的值。必须是 previousValue 或 incomingValue。laraVesselType、laraTerminal、platformMatchingStatus 提交了也忽略。LARA 字段不在这里选择 |
+| candidateId | 否 | 从候选里改选另一条时才带。必须来自这次候选。确认当前记录时不带 |
+| terminal 字段 | 否 | 码头字段，不带 terminalManual。和 candidateId 一起出现时，写入这条候选。单独出现时，表示修改当前绑定或新建手工记录。已有码头记录且没有改动时不要带。不能全部为 null |
 
-缺航次或 ETA 相差超过 3 天不阻止这次提交。terminalPending 为 none 时，不带码头记录也可以提交，状态改为 No terminal record。仍有多条却没有选中时返回 409。
+确认当前绑定，请求：
 
 ```json
 {
   "remark": "Confirmed with agent",
   "fields": [
-    { "side": "LARA", "field": "etb", "value": "2026-10-27T00:00:00+08:00" },
-    { "side": "TERMINAL", "field": "etd", "value": "2026-10-30T16:00:00+08:00" }
-  ],
-  "candidateId": "cand-2",
-  "terminal": {
-    "exportVoyage": "E009",
-    "importVoyage": "I009",
-    "vesselNameCn": "",
-    "name": "YS01",
-    "eta": null,
-    "ata": null,
-    "etb": null,
-    "atb": null,
-    "etd": "2026-10-30T16:00:00+08:00",
-    "atd": null,
-    "cyOpen": null,
-    "cyCutoff": null,
-    "vesselStatus": "",
-    "updateTime": null
-  }
-}
-```
-
-`terminalPending` 为 `none` 时，不带 `terminal` 和 `candidateId`：
-
-```json
-{
-  "remark": "No terminal record this call",
-  "fields": [
-    { "side": "PLATFORM", "field": "matchingStatus", "value": "No terminal record" }
-  ]
-}
-```
-
-### 码头候选
-
-| 项 | 内容 |
-|---|---|
-| 方法 | GET |
-| 路径 | /v1/vessel-schedules/{scheduleId}/terminal-candidates |
-| 说明 | 打开选择框时读取。没有候选时 data 为空数组。id 是 terminal_payload.id |
-
-尚未绑定且状态是 Multiple terminal records 时，选中的 id 留在页面上，跟确认一起提交。`terminalPending` 为 many 时，选中一条后只更换比对对象。
-
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| id | 候选 id | cand-1 |
-| current | true 表示这条就是现在用于比对或绑定的记录 | true |
-| 其余 | 与 terminal 相同，没有 enteredManually | E001 |
-
-```json
-{
-  "data": [
     {
-      "id": "cand-1",
-      "current": true,
-      "exportVoyage": "E001",
-      "importVoyage": "I001",
-      "vesselNameCn": "",
-      "name": "YS01",
-      "eta": null,
-      "ata": null,
-      "etb": "2026-10-27T02:00:00+08:00",
-      "atb": null,
-      "etd": "2026-10-28T16:00:00+08:00",
-      "atd": null,
-      "cyOpen": null,
-      "cyCutoff": null,
-      "vesselStatus": "计划",
-      "updateTime": null
+      "field": "terminalEtd",
+      "value": "2026-10-28T16:00:00+08:00"
     }
   ]
 }
 ```
 
-### 决定码头形态
-
-| 项 | 内容 |
-|---|---|
-| 方法 | POST |
-| 路径 | /v1/vessel-schedules/{scheduleId}/terminal-resolution |
-| 说明 | 只在 terminalPending 非空时有效，否则 409。不带备注。成功后返回审核 |
-
-| action | 何时 | 其他字段 | 结果 |
-|---|---|---|---|
-| keep | terminalPending 为 none | 无 | 保留当前绑定。terminal_resolution = keep |
-| clear | terminalPending 为 none | 无 | 解除绑定，清空码头列，terminal_source 为空，match_method 改为 AUTO，匹配状态为 No terminal record。terminal_resolution = clear |
-| adopt | terminalPending 为 many | candidateId | 已是 Manual matched 时只换比对对象。尚未审核时把这条写入码头列，状态要等保存审核才变成 Manual matched |
+正常返回 `200`，结构同读取审核：
 
 ```json
-{ "action": "keep" }
+{
+  "id": "sch-1",
+  "platformVoyageStatus": "Active",
+  "platformPointCovered": true,
+  "platformMatchingStatus": "Manual matched",
+  "platformCandidateCount": 1,
+  "platformSharedLaraCount": 1,
+  "platformTerminalPending": null,
+  "laraVoyage": "0MEG1W",
+  "laraPointCode": "FRFOS",
+  "laraPoolLocation": "EUROPE",
+  "laraVesselName": "CMA CGM MARCO POLO",
+  "laraVesselOperator": "CMA",
+  "laraBrand": "CMA",
+  "laraService": "FAL",
+  "laraEta": "2026-10-26T08:00:00+08:00",
+  "laraEtb": "2026-10-27T04:00:00+08:00",
+  "laraEtd": "2026-10-28T18:00:00+08:00",
+  "laraVesselType": "Group vsl",
+  "laraTerminal": "FRFOSFOS",
+  "terminalManual": false,
+  "terminalExportVoyage": "E001",
+  "terminalImportVoyage": "I001",
+  "terminalVesselNameCn": "",
+  "terminalName": "YS01",
+  "terminalEta": null,
+  "terminalAta": null,
+  "terminalEtb": "2026-10-27T02:00:00+08:00",
+  "terminalAtb": null,
+  "terminalEtd": "2026-10-28T16:00:00+08:00",
+  "terminalAtd": null,
+  "terminalCyOpen": null,
+  "terminalCyCutoff": null,
+  "terminalVesselStatus": "计划",
+  "terminalUpdateTime": "2026-10-27T01:00:00+08:00",
+  "changes": null
+}
 ```
+
+改选另一条候选时，请求另带 `candidateId` 和覆盖后的码头字段：
 
 ```json
-{ "action": "clear" }
+{
+  "remark": "Use the other call",
+  "fields": [],
+  "candidateId": "tp-2",
+  "terminalExportVoyage": "E009",
+  "terminalImportVoyage": "I009",
+  "terminalVesselNameCn": "",
+  "terminalName": "YS01",
+  "terminalEta": null,
+  "terminalAta": null,
+  "terminalEtb": "2026-10-27T06:00:00+08:00",
+  "terminalAtb": null,
+  "terminalEtd": "2026-10-28T20:00:00+08:00",
+  "terminalAtd": null,
+  "terminalCyOpen": null,
+  "terminalCyCutoff": null,
+  "terminalVesselStatus": "计划",
+  "terminalUpdateTime": "2026-10-27T01:00:00+08:00"
+}
 ```
+
+### 码头候选
+
+GET `/v1/vessel-schedules/{scheduleId}/terminal-candidates`
+
+打开选择框时读取。没有候选时 data 为空数组。id 是 `terminal_payload.id`。点一行选中并高亮。已有当前记录时，再点这一行仍是当前记录，不会把表单清空。首次尚未绑定、没有当前记录时，选择框可以先不选。确认前必须选中一条或新建一条。
+
+请求：
 
 ```json
-{ "action": "adopt", "candidateId": "cand-1" }
+{
+  "scheduleId": "sch-1"
+}
 ```
 
-### 单笔同步
+正常返回 `200`：
 
-审核页的 Sync latest。页面先丢掉未保存编辑再发起。两个操作都没有请求正文。成功后返回审核，不返回运行记录。
+```json
+{
+  "data": [
+    {
+      "id": "tp-1",
+      "current": true,
+      "terminalExportVoyage": "E001",
+      "terminalImportVoyage": "I001",
+      "terminalVesselNameCn": "",
+      "terminalName": "YS01",
+      "terminalEta": null,
+      "terminalAta": null,
+      "terminalEtb": "2026-10-27T02:00:00+08:00",
+      "terminalAtb": null,
+      "terminalEtd": "2026-10-28T16:00:00+08:00",
+      "terminalAtd": null,
+      "terminalCyOpen": null,
+      "terminalCyCutoff": null,
+      "terminalVesselStatus": "计划",
+      "terminalUpdateTime": null
+    },
+    {
+      "id": "tp-2",
+      "current": false,
+      "terminalExportVoyage": "E009",
+      "terminalImportVoyage": "I009",
+      "terminalVesselNameCn": "",
+      "terminalName": "YS01",
+      "terminalEta": null,
+      "terminalAta": null,
+      "terminalEtb": "2026-10-27T06:00:00+08:00",
+      "terminalAtb": null,
+      "terminalEtd": "2026-10-28T20:00:00+08:00",
+      "terminalAtd": null,
+      "terminalCyOpen": null,
+      "terminalCyCutoff": null,
+      "terminalVesselStatus": "计划",
+      "terminalUpdateTime": null
+    }
+  ]
+}
+```
 
-| 项 | 内容 |
-|---|---|
-| 方法 | POST |
-| 路径 | /v1/vessel-schedules/{scheduleId}/lara-sync |
-| 说明 | 同步这一条的 LARA |
+`current` 为 true 表示这条就是现在用于比对或绑定的记录。其余字段与船期上的码头字段相同，没有 `terminalManual`。选中后留在页面上，跟保存审核一起提交。
 
-| 项 | 内容 |
-|---|---|
-| 方法 | POST |
-| 路径 | /v1/vessel-schedules/{scheduleId}/terminal-sync |
-| 说明 | 用船期上当时的英文船名和 Point code 查询，对应报文 vesselNameEn 和 portCode。港口未覆盖返回 409 |
+### 单笔同步 LARA
+
+POST `/v1/vessel-schedules/{scheduleId}/lara-sync`
+
+审核页的 Sync latest。页面先丢掉未保存编辑再发起。没有请求正文。成功后返回审核，不返回运行记录。失败不写 payload。
+
+请求：无正文。
+
+正常返回 `200`，结构同读取审核。LARA 字段是这次成功同步的最新值。
+
+### 单笔同步码头
+
+POST `/v1/vessel-schedules/{scheduleId}/terminal-sync`
+
+用船期上当时的英文船名和 Point code 查询，对应报文 vesselNameEn 和 portCode。港口未覆盖返回 409。不写 `terminal_sync_run`。没有请求正文。成功后返回审核。
+
+请求：无正文。
+
+正常返回 `200`，结构同读取审核。
 
 ### 活动日志
 
-| 项 | 内容 |
-|---|---|
-| 方法 | GET |
-| 路径 | /v1/vessel-schedules/{scheduleId}/activity-logs |
-| 说明 | 一次保存或一次自动落库一条。changes 是这一次真正写下的原值和新值。未知船期返回 404 |
+GET `/v1/vessel-schedules/{scheduleId}/activity-logs`
+
+一次保存或一次自动落库一条。changes 是这一次真正写下的原值和新值。未知船期返回 404。
 
 | 参数 | 必填 | 含义 |
 |---|---|---|
-| field | 否 | 字段名子串，忽略大小写。从某一列进入时传属性名，不传列标题 |
+| field | 否 | 字段名子串，忽略大小写。从某一列进入时传属性名 |
 | triggeredBy | 否 | 操作人子串，忽略大小写 |
 | from | 否 | 日期，包含这一天 |
 | to | 否 | 日期，包含这一天 |
@@ -957,31 +981,30 @@ GET /v1/vessel-schedules/export?LARA.etbFrom=2026-10-20&LARA.etbTo=2026-11-03&so
 | page | 否 | 默认 1 |
 | pageSize | 否 | 默认 100，最大 500 |
 
-`schedule` 只给标题用。
+请求：
 
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| schedule.id | 船期 id | sch-1 |
-| schedule.vesselName | 英文船名 | CMA CGM MARCO POLO |
-| schedule.pointCode | 港口 | FRFOS |
-| schedule.voyage | 航次 | 0MEG1W |
-| id | 日志 id | log-1 |
-| triggeredAt | 发生时间 | 2026-10-27T02:10:00Z |
-| triggeredBy | 操作人 | Ann |
-| remark | 用户写下的备注。系统写入时为空。为空时前端按 changes 的 side 和 match 生成说明 | Confirmed with agent |
-| match | 空：绑定未变。confirm：建立起绑定。switch：从一条改到另一条。cancel：取消绑定 | confirm |
-| changes[].side | LARA、TERMINAL 或 PLATFORM | LARA |
-| changes[].field | 页面字段名 | etb |
-| changes[].original | 写入前的值 | 2026-10-27T00:00:00+08:00 |
-| changes[].updated | 写入后的值 | 2026-10-27T04:00:00+08:00 |
+```json
+{
+  "scheduleId": "sch-1",
+  "field": "etd",
+  "triggeredBy": "Ann",
+  "from": "2026-10-01",
+  "to": "2026-10-31",
+  "sort": "-triggeredAt",
+  "page": 1,
+  "pageSize": 100
+}
+```
+
+正常返回 `200`。`schedule` 只给标题用。
 
 ```json
 {
   "schedule": {
     "id": "sch-1",
-    "vesselName": "CMA CGM MARCO POLO",
-    "pointCode": "FRFOS",
-    "voyage": "0MEG1W"
+    "laraVesselName": "CMA CGM MARCO POLO",
+    "laraPointCode": "FRFOS",
+    "laraVoyage": "0MEG1W"
   },
   "data": [
     {
@@ -992,29 +1015,38 @@ GET /v1/vessel-schedules/export?LARA.etbFrom=2026-10-20&LARA.etbTo=2026-11-03&so
       "match": "confirm",
       "changes": [
         {
-          "side": "LARA",
-          "field": "etb",
-          "original": "2026-10-27T00:00:00+08:00",
-          "updated": "2026-10-27T04:00:00+08:00"
+          "field": "terminalEtd",
+          "original": "2026-10-28T16:00:00+08:00",
+          "updated": "2026-10-30T16:00:00+08:00"
+        },
+        {
+          "field": "platformMatchingStatus",
+          "original": "Pending match",
+          "updated": "Manual matched"
         }
       ]
     }
   ],
-  "page": { "number": 1, "size": 100, "totalElements": 1, "totalPages": 1 }
+  "page": {
+    "number": 1,
+    "size": 100,
+    "totalElements": 1,
+    "totalPages": 1
+  }
 }
 ```
+
+系统写入的 `remark` 已是事件说明，前端直接显示。用户 `remark` 为空时，前端按 changes 的 field 和 match 生成说明。`match` 为空表示绑定未变。
 
 ### 列表方案
 
 每个登录用户一套方案。只能读写自己的。用户还没有任何方案时，第一次查询会建一份名为 Default 的方案并设为生效。船期搜索不读这些表。页面用生效方案生成筛选默认值和列，相对日期先折成绝对日期，再放进当次查询参数。
 
-`side` 与 `field` 和船期接口相同。页面把 Vessel operator 画在码头区，保存时仍是 `LARA.vesselOperator`。`LARA.voyage` 不能隐藏。`PLATFORM.matchingStatus` 必须留在 `watched` 里。
+`field` 用船期字段名。页面把 Vessel operator 画在码头区，保存时仍是 `laraVesselOperator`。`laraVoyage` 不能隐藏。`platformMatchingStatus` 必须留在 `watched` 里。
 
-默认方案：可见筛选项为 `PLATFORM.region`、`LARA.pointCode`、`LARA.vesselName`、`LARA.voyage`、`LARA.service`、`PLATFORM.matchingStatus`、`LARA.etb`。`LARA.etb` 的默认是 relative，`fromDays` 7、`toDays` 7，即今天往前 7 天到往后 7 天。排序是 `LARA.etb` 降序。`watched` 含同步那一组，外加 `PLATFORM.matchingStatus`，日期的 `dayThreshold` 为 0。
+默认方案：可见筛选项为 `platformRegion`、`laraPointCode`、`laraVesselName`、`laraVoyage`、`laraService`、`platformMatchingStatus`、`laraEtb`。`laraEtb` 的默认是 relative，`fromDays` 7、`toDays` 7。排序是 `laraEtb` 降序。`watched` 为 `laraEtb`、`laraEtd`、`terminalEtb`、`terminalEtd`、`terminalAtb`、`terminalAtd`、`terminalExportVoyage`、`terminalImportVoyage`，以及 `platformMatchingStatus`。日期的 `dayThreshold` 为 0。
 
-#### 字段
-
-方案：
+方案字段：
 
 | 字段 | 含义 | 示例 |
 |---|---|---|
@@ -1022,60 +1054,27 @@ GET /v1/vessel-schedules/export?LARA.etbFrom=2026-10-20&LARA.etbTo=2026-11-03&so
 | name | 名称 | Default |
 | active | 是否为当前生效方案 | true |
 | position | 列表中的顺序，从 0 起 | 0 |
-| freeze | 左冻结截止列。不冻结时为 null | null |
-| freeze.side | LARA、TERMINAL 或 PLATFORM | LARA |
-| freeze.field | 截止列，含这一列 | etb |
+| freeze | 左冻结截止列。不冻结时为 null。值为字段名 | laraEtb |
 | filters | 筛选项，顺序即 position | 见下 |
 | columns | 列表列，顺序即 position | 见下 |
 | sort | 方案自带的默认排序 | 见下 |
-| watched | 高亮字段和天数阈值 | 见下 |
+| watched | 该用户要看到的已写入差异 | 见下 |
 
-筛选项 `filters[]`：
+筛选项 `filters[]`：`field`、`visible`。不是日期时不带 `dateMode`。子串用 `value`。多选或多行用 `values`。fixed 用 `from`、`to`。relative 用 `fromDays`、`toDays`，不限制的一端省略。
 
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| side | LARA、TERMINAL 或 PLATFORM | LARA |
-| field | 页面字段名 | etb |
-| visible | 搜索页是否显示 | true |
-| dateMode | 空、fixed 或 relative。不是日期时省略 | relative |
-| value | 子串默认值。多选和日期不带 | FAL |
-| values | 多选或多行默认值。没有时省略 | ["NEU"] |
-| from | fixed 的开始日期 | 2026-10-20 |
-| to | fixed 的结束日期 | 2026-11-03 |
-| fromDays | relative：从今天往前的天数。这一端不限制时省略 | 7 |
-| toDays | relative：从今天往后的天数。这一端不限制时省略 | 7 |
+列 `columns[]`：`field`、`hidden`。
 
-列 `columns[]`：
+排序 `sort[]`：`field`、`descending`。
 
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| side | LARA、TERMINAL 或 PLATFORM | LARA |
-| field | 页面字段名 | voyage |
-| hidden | true 表示列表不显示 | false |
+高亮 `watched[]`：`field`。日期列带 `dayThreshold`，0 表示只要不同就算。非日期不带。
 
-排序 `sort[]`：
+#### 查询列表方案
 
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| side | LARA、TERMINAL 或 PLATFORM | LARA |
-| field | 页面字段名 | etb |
-| descending | true 为降序 | true |
+GET `/v1/list-settings`
 
-高亮 `watched[]`：
+请求：无查询参数，无正文。
 
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| side | LARA、TERMINAL 或 PLATFORM | LARA |
-| field | 页面字段名 | etb |
-| dayThreshold | 日期列的天数。0 表示只要不同就算。非日期不带 | 0 |
-
-#### 查询
-
-| 项 | 内容 |
-|---|---|
-| 方法 | GET |
-| 路径 | /v1/list-settings |
-| 说明 | 返回当前用户的全部方案。activeId 是生效的那一份 |
+正常返回 `200`。`filters`、`columns`、`watched` 在真实响应里是该方案的全部项。下面按默认方案列出可见筛选项、默认排序和默认关注项，并列出自这几列。
 
 ```json
 {
@@ -1088,135 +1087,346 @@ GET /v1/vessel-schedules/export?LARA.etbFrom=2026-10-20&LARA.etbTo=2026-11-03&so
       "position": 0,
       "freeze": null,
       "filters": [
-        { "side": "PLATFORM", "field": "region", "visible": true, "values": ["NEU"] },
-        { "side": "LARA", "field": "service", "visible": true, "value": "FAL" },
-        { "side": "LARA", "field": "etb", "visible": true, "dateMode": "relative", "fromDays": 7, "toDays": 7 }
+        {
+          "field": "platformRegion",
+          "visible": true
+        },
+        {
+          "field": "laraPointCode",
+          "visible": true
+        },
+        {
+          "field": "laraVesselName",
+          "visible": true
+        },
+        {
+          "field": "laraVoyage",
+          "visible": true
+        },
+        {
+          "field": "laraService",
+          "visible": true
+        },
+        {
+          "field": "platformMatchingStatus",
+          "visible": true
+        },
+        {
+          "field": "laraEtb",
+          "visible": true,
+          "dateMode": "relative",
+          "fromDays": 7,
+          "toDays": 7
+        }
       ],
       "columns": [
-        { "side": "LARA", "field": "voyage", "hidden": false },
-        { "side": "LARA", "field": "etb", "hidden": false },
-        { "side": "TERMINAL", "field": "exportVoyage", "hidden": true }
+        {
+          "field": "laraVoyage",
+          "hidden": false
+        },
+        {
+          "field": "laraEtb",
+          "hidden": false
+        },
+        {
+          "field": "terminalExportVoyage",
+          "hidden": false
+        },
+        {
+          "field": "platformMatchingStatus",
+          "hidden": false
+        }
       ],
       "sort": [
-        { "side": "LARA", "field": "etb", "descending": true }
+        {
+          "field": "laraEtb",
+          "descending": true
+        }
       ],
       "watched": [
-        { "side": "LARA", "field": "etb", "dayThreshold": 0 },
-        { "side": "TERMINAL", "field": "exportVoyage" },
-        { "side": "PLATFORM", "field": "matchingStatus" }
+        {
+          "field": "laraEtb",
+          "dayThreshold": 0
+        },
+        {
+          "field": "laraEtd",
+          "dayThreshold": 0
+        },
+        {
+          "field": "terminalEtb",
+          "dayThreshold": 0
+        },
+        {
+          "field": "terminalEtd",
+          "dayThreshold": 0
+        },
+        {
+          "field": "terminalAtb",
+          "dayThreshold": 0
+        },
+        {
+          "field": "terminalAtd",
+          "dayThreshold": 0
+        },
+        {
+          "field": "terminalExportVoyage"
+        },
+        {
+          "field": "terminalImportVoyage"
+        },
+        {
+          "field": "platformMatchingStatus"
+        }
       ]
     }
   ]
 }
 ```
 
-示例里的 `filters`、`columns`、`watched` 只列出几项。保存和读取时带上该方案的全部筛选项和列。
+#### 读取一份方案
 
-`GET /v1/list-settings/{settingId}` 返回 `data` 里的同一条对象。不是自己的方案返回 404。
+GET `/v1/list-settings/{settingId}`
 
-#### 新建、复制、改名、生效、删除
+请求：
 
-| 方法 | 路径 | 请求 | 结果 |
-|---|---|---|---|
-| POST | /v1/list-settings | `{ "name": "Asia" }` | 201，按默认方案生成，active 为 false |
-| POST | /v1/list-settings/{settingId}/duplicate | `{ "name": "Asia copy" }` | 201，复制筛选项、列、排序和高亮，active 为 false |
-| PATCH | /v1/list-settings/{settingId} | `{ "name": "Asia peak" }` | 200。名称为空，或和自己的另一份重名，返回 400 |
-| POST | /v1/list-settings/{settingId}/activate | 无正文 | 200，返回生效后的方案。原先生效的那份改为 false |
-| DELETE | /v1/list-settings/{settingId} | 无 | 204。删的是当前生效方案，或只剩这一份时，返回 409 |
+```json
+{
+  "settingId": "ls-1"
+}
+```
 
-#### 保存
+正常返回 `200`，对象与查询结果 `data` 里的同一条相同。不是自己的方案返回 404。
 
-| 项 | 内容 |
-|---|---|
-| 方法 | PUT |
-| 路径 | /v1/list-settings/{settingId} |
-| 说明 | 替换这份方案的名称、冻结、筛选项、列、排序和高亮。不改变 active。未知字段返回 400。LARA.voyage 被标成隐藏，或 watched 里没有 PLATFORM.matchingStatus，返回 400 |
+#### 新建方案
 
-请求体与查询返回的单条方案相同，不带 `id` 和 `active`。成功返回保存后的方案。
+POST `/v1/list-settings`
+
+按默认方案生成，`active` 为 false。
+
+请求：
+
+```json
+{
+  "name": "Asia"
+}
+```
+
+正常返回 `201`，结构同读取一份方案，`name` 为 `Asia`，`active` 为 false。
+
+#### 复制方案
+
+POST `/v1/list-settings/{settingId}/duplicate`
+
+复制筛选项、列、排序和关注项，`active` 为 false。
+
+请求：
+
+```json
+{
+  "name": "Asia copy"
+}
+```
+
+正常返回 `201`，结构同读取一份方案。
+
+#### 改名
+
+PATCH `/v1/list-settings/{settingId}`
+
+名称为空，或和自己的另一份重名，返回 400。
+
+请求：
+
+```json
+{
+  "name": "Asia peak"
+}
+```
+
+正常返回 `200`，结构同读取一份方案，`name` 为 `Asia peak`。
+
+#### 设为当前生效
+
+POST `/v1/list-settings/{settingId}/activate`
+
+请求：无正文。
+
+正常返回 `200`，结构同读取一份方案，`active` 为 true。原先生效的那份改为 false。
+
+#### 删除方案
+
+DELETE `/v1/list-settings/{settingId}`
+
+请求：无正文。
+
+正常返回 `204`，无正文。删的是当前生效方案，或只剩这一份时，返回 409。
+
+#### 保存方案
+
+PUT `/v1/list-settings/{settingId}`
+
+替换这份方案的名称、冻结、筛选项、列、排序和关注项。不改变 active。未知字段返回 400。`laraVoyage` 被标成隐藏，或 `watched` 里没有 `platformMatchingStatus`，返回 400。请求体不带 `id` 和 `active`。真实请求带上该方案的全部筛选项和列。
+
+请求：
 
 ```json
 {
   "name": "Default",
   "position": 0,
-  "freeze": { "side": "LARA", "field": "etb" },
+  "freeze": "laraEtb",
   "filters": [
-    { "side": "LARA", "field": "etb", "visible": true, "dateMode": "relative", "fromDays": 7, "toDays": 7 }
+    {
+      "field": "platformRegion",
+      "visible": true
+    },
+    {
+      "field": "laraPointCode",
+      "visible": true
+    },
+    {
+      "field": "laraVesselName",
+      "visible": true
+    },
+    {
+      "field": "laraVoyage",
+      "visible": true
+    },
+    {
+      "field": "laraService",
+      "visible": true
+    },
+    {
+      "field": "platformMatchingStatus",
+      "visible": true
+    },
+    {
+      "field": "laraEtb",
+      "visible": true,
+      "dateMode": "relative",
+      "fromDays": 7,
+      "toDays": 7
+    }
   ],
   "columns": [
-    { "side": "LARA", "field": "voyage", "hidden": false },
-    { "side": "LARA", "field": "etb", "hidden": false }
+    {
+      "field": "laraVoyage",
+      "hidden": false
+    },
+    {
+      "field": "laraEtb",
+      "hidden": false
+    },
+    {
+      "field": "terminalExportVoyage",
+      "hidden": false
+    },
+    {
+      "field": "platformMatchingStatus",
+      "hidden": false
+    }
   ],
   "sort": [
-    { "side": "LARA", "field": "etb", "descending": true }
+    {
+      "field": "laraEtb",
+      "descending": true
+    }
   ],
   "watched": [
-    { "side": "LARA", "field": "etb", "dayThreshold": 1 },
-    { "side": "PLATFORM", "field": "matchingStatus" }
+    {
+      "field": "laraEtb",
+      "dayThreshold": 0
+    },
+    {
+      "field": "laraEtd",
+      "dayThreshold": 0
+    },
+    {
+      "field": "terminalEtb",
+      "dayThreshold": 0
+    },
+    {
+      "field": "terminalEtd",
+      "dayThreshold": 0
+    },
+    {
+      "field": "terminalAtb",
+      "dayThreshold": 0
+    },
+    {
+      "field": "terminalAtd",
+      "dayThreshold": 0
+    },
+    {
+      "field": "terminalExportVoyage"
+    },
+    {
+      "field": "terminalImportVoyage"
+    },
+    {
+      "field": "platformMatchingStatus"
+    }
   ]
 }
 ```
 
+正常返回 `200`，在请求体上增加 `id` 和 `active`，结构同读取一份方案。`freeze` 为请求中的 `"laraEtb"`。
+
 ### 码头航次
 
-只读已经入库的记录，不现场调用码头接口。一次成功同步替换该港口的旧行。`portCode` 只出现在筛选里，不在行上。region 从港口连接。时刻保留报文原文，例如 `2025-06-13 17:00:00`。值为 null 的字段仍然返回。
+读 `terminal_payload`，不现场调用码头接口。一条船期最近一次成功查询为 FOUND 时，这次的候选进入列表。NOT_FOUND 时该船期没有候选。FAILED 时列表里仍是上一次成功查询的候选。`portCode` 取 `terminal_query.port_code`，只出现在筛选里，不在行上。region 从 `port` 连接。同一 `port_code`、`vessel_name_en`、`evoyage`、`ivoyage` 只返回一行，`id` 是其中一条 `terminal_payload.id`。时刻保留报文原文，例如 `2025-06-13 17:00:00`。值为 null 的字段仍然返回。
 
-#### 查询
+#### 查询码头航次
 
-| 项 | 内容 |
-|---|---|
-| 方法 | GET |
-| 路径 | /v1/terminal-voyages |
-| 说明 | 读取码头航次列表。筛选、排序和分页都是查询参数。不带筛选参数时不附加筛选。已选 region 时，portCode 只能落在这些区域下。sort 默认 `-eta`，可叠多个字段，例如 `-eta,atd` |
+GET `/v1/terminal-voyages`
+
+筛选、排序和分页都是查询参数。不带筛选参数时不附加筛选。已选 region 时，portCode 只能落在这些区域下。sort 默认 `-eta`，可叠多个字段，例如 `-eta,atd`。
 
 | 参数 | 必填 | 含义 |
 |---|---|---|
 | sort | 否 | 默认 `-eta` |
 | page | 否 | 默认 1 |
 | pageSize | 否 | 默认 100，最大 500 |
-
-| 参数 | 形态 | 含义 |
-|---|---|---|
 | vesselName | 可重复 | 精确匹配，忽略大小写，匹配 vesselNameEn 或 vesselNameCn |
 | voyage | 可重复 | 精确匹配，忽略大小写，匹配 evoyage 或 ivoyage |
 | region | 可重复 | 区域代码 |
 | portCode | 可重复 | 同步时使用的港口代码 |
-| status | 可重复 | 报文 status，例如计划、在港、离港 |
+| status | 可重复 | 报文 status |
 | etaFrom、etaTo、ataFrom、ataTo、etbFrom、etbTo、atbFrom、atbTo、etdFrom、etdTo、atdFrom、atdTo | 单个 | 日期，包含这一天，可只给一端 |
 
-```
-GET /v1/terminal-voyages?vesselName=EVER%20LADEN&voyage=1173069E&region=CC&portCode=CNNGB&status=%E8%AE%A1%E5%88%92&etaFrom=2025-06-01&etaTo=2025-06-30&sort=-eta&page=1&pageSize=100
+请求：
+
+```json
+{
+  "vesselName": [
+    "EVER LADEN"
+  ],
+  "voyage": [
+    "1173069E"
+  ],
+  "region": [
+    "CC"
+  ],
+  "portCode": [
+    "CNNGB"
+  ],
+  "status": [
+    "计划"
+  ],
+  "etaFrom": "2025-06-01",
+  "etaTo": "2025-06-30",
+  "sort": "-eta",
+  "page": 1,
+  "pageSize": 100
+}
 ```
 
-`200` 返回当前页。`GET /v1/terminal-voyages/{voyageId}` 返回 `data` 里的同一条对象。未知 id 返回 404。
-
-| 字段 | 含义 | 示例 |
-|---|---|---|
-| id | terminal_voyage.id | tv-1 |
-| status | 报文 status | 离港 |
-| vesselNameEn | 英文船名 | EVER LADEN |
-| vesselNameCn | 中文船名 | 长满 |
-| shipCode | 船公司代码 | 0EMC |
-| shipName | 船公司名称 | 长荣 |
-| agentCode | 代理代码 | 0CSISA |
-| agentName | 代理名称 | 航华国际 |
-| lineCode | 航线代码 | null |
-| terminal | 报文 terminal。9code 用港口和它去 terminal_code 连接 | YS01 |
-| portsEn | 挂靠英文 | USLAX+CNNGB |
-| portsCn | 挂靠中文 | 洛杉矶+宁波 |
-| eta、ata、etb、atb、etd、atd | 报文时刻 | 2025-06-13 17:00:00 |
-| cyOpen | CY open | 2025-06-13 11:00:00 |
-| cyClosing | CY closing | 2025-06-16 10:00:00 |
-| portCloseDate | Port close | null |
-| customsCloseDate | Customs close | null |
-| updateTime | Update time | 2025-06-17 11:48:06 |
-| ivoyage | 进口航次 | E068 |
-| evoyage | 出口航次 | 1173069E |
+正常返回 `200`：
 
 ```json
 {
   "data": [
     {
-      "id": "tv-1",
+      "id": "tp-1",
       "status": "离港",
       "vesselNameEn": "EVER LADEN",
       "vesselNameCn": "长满",
@@ -1243,9 +1453,28 @@ GET /v1/terminal-voyages?vesselName=EVER%20LADEN&voyage=1173069E&region=CC&portC
       "evoyage": "1173069E"
     }
   ],
-  "page": { "number": 1, "size": 100, "totalElements": 1, "totalPages": 1 }
+  "page": {
+    "number": 1,
+    "size": 100,
+    "totalElements": 1,
+    "totalPages": 1
+  }
 }
 ```
+
+#### 一条码头航次
+
+GET `/v1/terminal-voyages/{voyageId}`
+
+请求：
+
+```json
+{
+  "voyageId": "tp-1"
+}
+```
+
+正常返回 `200`，对象与列表 `data` 里的同一条相同。未知 id 返回 404。
 
 ### 区域
 
@@ -1257,16 +1486,73 @@ GET /v1/terminal-voyages?vesselName=EVER%20LADEN&voyage=1173069E&region=CC&portC
 | name | 名称。页面可显示成 code (name) | China domestic |
 | active | true 可选。false 停用 | true |
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | /v1/regions | 返回 `{ "data": [ Region ] }` |
-| PUT | /v1/regions/{code} | 已存在则 200，否则 201。路径与正文的 code 必须一致 |
-| PATCH | /v1/regions/{code} | 正文 `{ "active": false }`，返回更新后的区域 |
-| DELETE | /v1/regions/{code} | 成功 204。仍被港口使用返回 409 |
+#### 查询区域
+
+GET `/v1/regions`
+
+请求：无查询参数，无正文。
+
+正常返回 `200`：
 
 ```json
-{ "code": "CC", "name": "China domestic", "active": true }
+{
+  "data": [
+    {
+      "code": "CC",
+      "name": "China domestic",
+      "active": true
+    }
+  ]
+}
 ```
+
+#### 保存区域
+
+PUT `/v1/regions/{code}`
+
+已存在则 200，否则 201。路径与正文的 code 必须一致。
+
+请求：
+
+```json
+{
+  "code": "CC",
+  "name": "China domestic",
+  "active": true
+}
+```
+
+正常返回：与请求相同的对象。新建为 `201`，更新为 `200`。
+
+#### 停用或启用区域
+
+PATCH `/v1/regions/{code}`
+
+请求：
+
+```json
+{
+  "active": false
+}
+```
+
+正常返回 `200`：
+
+```json
+{
+  "code": "CC",
+  "name": "China domestic",
+  "active": false
+}
+```
+
+#### 删除区域
+
+DELETE `/v1/regions/{code}`
+
+请求：无正文。
+
+正常返回 `204`，无正文。仍被港口使用返回 409。
 
 ### 港口
 
@@ -1285,12 +1571,81 @@ GET /v1/terminal-voyages?vesselName=EVER%20LADEN&voyage=1173069E&region=CC&portC
 | terminals[].code | 报文 terminal，或矩阵简称 | YS01 |
 | terminals[].nameZh | 码头中文名 | 大榭招商 |
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | /v1/ports | 返回 `{ "data": [ Port ] }` |
-| PUT | /v1/ports/{portCode} | 已存在则 200，否则 201。terminals 整组替换。正文不带 active，已有港口保持原来的 active。代码或 9 位码和其他港口冲突返回 409。region 已停用返回 400 |
-| PATCH | /v1/ports/{portCode} | 正文 `{ "active": false }` |
-| DELETE | /v1/ports/{portCode} | 成功 204。已被船期引用返回 409 |
+#### 查询港口
+
+GET `/v1/ports`
+
+请求：
+
+```json
+{
+  "portCode": "CNNGB",
+  "portName": "NING",
+  "region": [
+    "CC"
+  ],
+  "coverage": "covered"
+}
+```
+
+正常返回 `200`：
+
+```json
+{
+  "data": [
+    {
+      "portCode": "CNNGB",
+      "portName": "NINGBO",
+      "regionCode": "CC",
+      "active": true,
+      "apiCovered": true,
+      "terminals": [
+        {
+          "nineCode": "CNNGBYAN",
+          "code": "YS01",
+          "nameZh": "大榭招商"
+        },
+        {
+          "nineCode": "CNNGBYAN",
+          "code": "YAN1",
+          "nameZh": "大榭招商"
+        }
+      ]
+    }
+  ]
+}
+```
+
+#### 保存港口
+
+PUT `/v1/ports/{portCode}`
+
+已存在则 200，否则 201。`terminals` 整组替换。正文不带 `active`，已有港口保持原来的 active。代码或 9 位码和其他港口冲突返回 409。region 已停用返回 400。
+
+请求：
+
+```json
+{
+  "portCode": "CNNGB",
+  "portName": "NINGBO",
+  "regionCode": "CC",
+  "apiCovered": true,
+  "terminals": [
+    {
+      "nineCode": "CNNGBYAN",
+      "code": "YS01",
+      "nameZh": "大榭招商"
+    },
+    {
+      "nineCode": "CNNGBYAN",
+      "code": "YAN1",
+      "nameZh": "大榭招商"
+    }
+  ]
+}
+```
+
+正常返回：在请求上增加 `active`。新建为 `201`，更新为 `200`。
 
 ```json
 {
@@ -1300,8 +1655,38 @@ GET /v1/terminal-voyages?vesselName=EVER%20LADEN&voyage=1173069E&region=CC&portC
   "active": true,
   "apiCovered": true,
   "terminals": [
-    { "nineCode": "CNNGBYAN", "code": "YS01", "nameZh": "大榭招商" },
-    { "nineCode": "CNNGBYAN", "code": "YAN1", "nameZh": "大榭招商" }
+    {
+      "nineCode": "CNNGBYAN",
+      "code": "YS01",
+      "nameZh": "大榭招商"
+    },
+    {
+      "nineCode": "CNNGBYAN",
+      "code": "YAN1",
+      "nameZh": "大榭招商"
+    }
   ]
 }
 ```
+
+#### 停用或启用港口
+
+PATCH `/v1/ports/{portCode}`
+
+请求：
+
+```json
+{
+  "active": false
+}
+```
+
+正常返回 `200`，结构同查询结果里的一条，`active` 为 false。
+
+#### 删除港口
+
+DELETE `/v1/ports/{portCode}`
+
+请求：无正文。
+
+正常返回 `204`，无正文。已被船期引用返回 409。

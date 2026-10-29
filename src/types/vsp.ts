@@ -10,6 +10,7 @@ export type Region = 'NC' | 'CC' | 'SC' | 'HK'
 export type MatchingStatus =
   | 'Auto matched'
   | 'Manual matched'
+  | 'Pending match'
   | 'Multiple terminal records'
   | 'ETA gap > 3 days'
   | 'No external voyage'

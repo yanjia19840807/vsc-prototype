@@ -30,13 +30,6 @@ export const COLUMN_GROUP_LABEL: Record<ColumnGroup, string> = {
   platform: 'Platform',
 }
 
-/** Solid source mark from the theme palette. Shared by the legend and the header rule. */
-export const COLUMN_GROUP_MARK: Record<ColumnGroup, string> = {
-  lara: 'bg-source-lara',
-  terminal: 'bg-source-terminal',
-  platform: 'bg-source-platform',
-}
-
 /** Neutral header with a solid source rule. The row surface stays free for hover and highlights. */
 export const COLUMN_GROUP_CLASS: Record<ColumnGroup, string> = {
   lara: 'bg-card border-t-3 border-source-lara',

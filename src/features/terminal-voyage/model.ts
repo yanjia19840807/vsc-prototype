@@ -1,3 +1,4 @@
+import type { ScheduleState, TerminalPayload } from '@/domain/schedule-model'
 import type { FilterFieldDef, FilterState } from '@/features/vessel-search/list-setting-model'
 import { emptyFilterState } from '@/features/vessel-search/list-setting-model'
 import type { TerminalSchedule, VesselRecord } from '@/types/vsp'
@@ -121,31 +122,84 @@ export function isTerminalVoyageDate(id: string) {
   return DATE_FIELDS.has(id as TerminalVoyageField)
 }
 
-/** One row per distinct terminal payload synced for a port. */
-export function terminalVoyageRows(vessels: VesselRecord[]): TerminalVoyageRow[] {
+/** Latest terminal_payload rows. Same port, English name, and both voyages collapse to one payload id. */
+export function terminalVoyageRows(state: ScheduleState, vessels: VesselRecord[]): TerminalVoyageRow[] {
+  const vesselsById = new Map(vessels.map((vessel) => [vessel.id, vessel]))
   const seen = new Set<string>()
   const rows: TerminalVoyageRow[] = []
-  for (const vessel of vessels) {
-    const schedules = [vessel.terminalSchedule, ...vessel.terminalCandidates].filter(
-      (schedule): schedule is TerminalSchedule => Boolean(schedule) && hasTerminalContent(schedule!),
-    )
-    for (const schedule of schedules) {
-      const key = [vessel.pointCode, ...TERMINAL_VOYAGE_FIELDS.map((field) => schedule[field] ?? '')].join('\0')
+  for (const schedule of state.schedules) {
+    const vessel = vesselsById.get(schedule.id)
+    if (!vessel) continue
+    for (const payload of latestFoundPayloads(state, schedule.id)) {
+      const message = messageFor(vessel, payload)
+      if (!hasTerminalContent(message)) continue
+      const key = voyageIdentity(vessel.pointCode, message)
       if (seen.has(key)) continue
       seen.add(key)
       rows.push({
-        id: terminalVoyageId(key),
+        id: payload.id,
         portCode: vessel.pointCode,
         regionCode: vessel.region,
-        ...schedule,
+        ...message,
       })
     }
   }
   return rows
 }
 
-export function findTerminalVoyage(vessels: VesselRecord[], id: string) {
-  return terminalVoyageRows(vessels).find((row) => row.id === id)
+export function findTerminalVoyage(state: ScheduleState, vessels: VesselRecord[], id: string) {
+  return terminalVoyageRows(state, vessels).find((row) => row.id === id)
+}
+
+function latestFoundPayloads(state: ScheduleState, scheduleId: string) {
+  const query = [...state.terminalQueries].reverse().find(
+    (item) => item.scheduleId === scheduleId && (item.status === 'FOUND' || item.status === 'NOT_FOUND'),
+  )
+  if (!query || query.status !== 'FOUND') return []
+  return state.terminalPayloads.filter((payload) => payload.queryId === query.id)
+}
+
+function messageFor(vessel: VesselRecord, payload: TerminalPayload): TerminalSchedule {
+  const matched = [vessel.terminalSchedule, ...vessel.terminalCandidates].find((row) =>
+    row
+    && (row.evoyage ?? '') === payload.exportVoyage
+    && (row.ivoyage ?? '') === payload.importVoyage,
+  )
+  return {
+    status: payload.vesselStatus || matched?.status || null,
+    vesselNameEn: matched?.vesselNameEn || vessel.vesselName || null,
+    vesselNameCn: payload.vesselNameCn || matched?.vesselNameCn || null,
+    shipCode: matched?.shipCode ?? null,
+    shipName: matched?.shipName ?? null,
+    agentCode: matched?.agentCode ?? null,
+    agentName: matched?.agentName ?? null,
+    lineCode: matched?.lineCode ?? null,
+    terminal: matched?.terminal || payload.terminalName || null,
+    portsEn: matched?.portsEn ?? null,
+    portsCn: matched?.portsCn ?? null,
+    eta: payload.eta || null,
+    ata: payload.ata || null,
+    etb: payload.etb || null,
+    atb: payload.atb || null,
+    etd: payload.etd || null,
+    atd: payload.atd || null,
+    cyOpen: payload.cyOpen || null,
+    cyClosing: payload.cyCutoff || null,
+    portCloseDate: matched?.portCloseDate ?? null,
+    customsCloseDate: matched?.customsCloseDate ?? null,
+    updateTime: payload.updateTime || null,
+    ivoyage: payload.importVoyage || null,
+    evoyage: payload.exportVoyage || null,
+  }
+}
+
+function voyageIdentity(portCode: string, message: TerminalSchedule) {
+  return [
+    portCode.trim().toUpperCase(),
+    (message.vesselNameEn ?? '').trim().toLowerCase(),
+    (message.evoyage ?? '').trim().toLowerCase(),
+    (message.ivoyage ?? '').trim().toLowerCase(),
+  ].join('\0')
 }
 
 export function terminalVoyageMatches(row: TerminalVoyageRow, session: Record<string, FilterState>) {
@@ -184,15 +238,6 @@ function matchesAny(wanted: string[], values: Array<string | null | undefined>) 
 
 function hasTerminalContent(schedule: TerminalSchedule) {
   return TERMINAL_VOYAGE_FIELDS.some((field) => String(schedule[field] ?? '').trim())
-}
-
-function terminalVoyageId(key: string) {
-  let hash = 2166136261
-  for (let index = 0; index < key.length; index += 1) {
-    hash ^= key.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  return `tv-${(hash >>> 0).toString(16)}`
 }
 
 function localDay(date: string, endOfDay: boolean) {

@@ -100,7 +100,7 @@ export const DEFAULT_VISIBLE_FILTERS = [
   'laraEtb',
 ] as const
 
-const CATALOG_REV = 8
+const CATALOG_REV = 9
 
 /** Within one source, choice lists, then free text, then dates, then the checkbox. */
 const FILTER_KIND_ORDER: FilterControlKind[] = ['multi', 'lines', 'text', 'datetime', 'check']
@@ -152,6 +152,7 @@ const MULTI_FIELDS: Record<string, FilterOptionSource> = {
 const MAPPING_STATUSES: MatchingStatus[] = [
   'Auto matched',
   'Manual matched',
+  'Pending match',
   'Multiple terminal records',
   'ETA gap > 3 days',
   'No external voyage',
@@ -637,6 +638,18 @@ function clearSavedLineLists(filters: FilterPref[]): FilterPref[] {
   })
 }
 
+function restoreDefaultDateFilters(filters: FilterPref[]): FilterPref[] {
+  return filters.map((pref) => {
+    const field = CATALOG_BY_ID.get(pref.id)
+    if (!field || field.kind !== 'datetime') return pref
+    return {
+      ...pref,
+      visible: field.id === 'laraEtb' ? true : pref.visible,
+      default: defaultFilterState(field),
+    }
+  })
+}
+
 function promoteLaraTimeFilters(filters: FilterPref[]): FilterPref[] {
   const ids = ['laraEta', 'laraEtb']
   const picked = ids.flatMap((id) => {
@@ -708,6 +721,7 @@ export function loadUserSettings(username: string): UserListSettings {
           filters = seatSourceFilters(filters, 'platform')
           columns.order = seatSourceColumns(columns.order, 'platform')
         }
+        if (catalogRev < 9) filters = restoreDefaultDateFilters(filters)
         return { ...item, filters, columns }
       })
     }

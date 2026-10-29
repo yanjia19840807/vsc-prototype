@@ -60,7 +60,17 @@ export function mappingHeaderAlert(
 ): MappingHeaderAlert | null {
   const previous = review?.previousStatus
   if (review?.shape === 'many') return multipleTerminalAlert(review.candidateCount || vessel.terminalCandidates.length, previous)
-  if (review?.shape === 'none') return noTerminalAlert(vessel, previous)
+  if (review?.shape === 'none') {
+    return {
+      variant: 'warning',
+      title: 'No terminal record',
+      text: withPreviousStatus(
+        'The latest sync has no terminal record. Confirm the current terminal record, or add a new one.',
+        previous,
+        'No terminal record',
+      ),
+    }
+  }
   switch (vessel.matchingStatus) {
     case 'Multiple terminal records':
       return multipleTerminalAlert(vessel.terminalCandidates.length, previous)
