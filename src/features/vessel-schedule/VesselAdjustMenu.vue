@@ -8,7 +8,7 @@ import {
   type ScheduleQuickAction,
 } from '@/features/vessel-schedule/mismatch-actions'
 import { useScheduleStore } from '@/stores/schedule'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 const props = withDefaults(
   defineProps<{

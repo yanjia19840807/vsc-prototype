@@ -17,7 +17,7 @@ import type { ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-ac
 import { DIALOG_CONFIRM_DESCRIPTION } from '@/lib/dialog-copy'
 import { buildSlcSdcFileName } from '@/lib/vessel-utils'
 import { useSettingsStore } from '@/stores/settings'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 export type { ScheduleQuickAction }
 

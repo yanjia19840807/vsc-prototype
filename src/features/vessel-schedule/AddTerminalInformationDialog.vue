@@ -32,7 +32,7 @@ import LaraReadonlyPanel from '@/features/vessel-schedule/LaraReadonlyPanel.vue'
 import MismatchRemarkField from '@/features/vessel-schedule/MismatchRemarkField.vue'
 import TerminalFieldsPanel from '@/features/vessel-schedule/TerminalFieldsPanel.vue'
 import { useVesselStore } from '@/stores/vessels'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 const props = defineProps<{
   open: boolean

@@ -5,7 +5,7 @@ import {
 } from '@/features/vessel-search/search-columns'
 import { formatDateTime } from '@/lib/vessel-utils'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
-import type { TerminalSchedule, VesselRecord } from '@/types/vsp'
+import type { TerminalSchedule, VesselRecord } from '@/types/vsc'
 
 /** Map search column ids to TerminalSchedule keys (and vesselOperator). */
 export type TerminalDraftKey =

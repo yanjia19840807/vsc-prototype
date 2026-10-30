@@ -6,7 +6,7 @@ import { brandFromVoyage } from '@/domain/lara-brand'
 import { mainVoyageText } from '@/domain/main-voyage'
 import { formatDateTime } from '@/lib/vessel-utils'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 /**
  * Vessel Search columns.

@@ -1,9 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+import { readStored } from '@/lib/browser-storage'
 import { PORTS } from '@/mock/ports'
 import { QUICK_LINKS, RFI_TEMPLATES, SCOPE_RULES, TASK_TEMPLATES, USERS } from '@/mock/settings'
-import type { PortDef, QuickLink, RfiTemplate, ScopeRule, TaskTemplate, UserAccount } from '@/types/vsp'
+import type { PortDef, QuickLink, RfiTemplate, ScopeRule, TaskTemplate, UserAccount } from '@/types/vsc'
 
 export const useSettingsStore = defineStore('settings', () => {
   const users = ref<UserAccount[]>([...USERS])
@@ -12,12 +13,12 @@ export const useSettingsStore = defineStore('settings', () => {
   const quickLinks = ref<QuickLink[]>([...QUICK_LINKS])
   const taskTemplates = ref<TaskTemplate[]>([...TASK_TEMPLATES])
   const scopeRules = ref<ScopeRule[]>([...SCOPE_RULES])
-  const defaultPort = ref(localStorage.getItem('vsp-default-port') || '')
+  const defaultPort = ref(readStored('vsc-default-port') || '')
 
   function setDefaultPort(code: string) {
     defaultPort.value = code
-    if (code) localStorage.setItem('vsp-default-port', code)
-    else localStorage.removeItem('vsp-default-port')
+    if (code) localStorage.setItem('vsc-default-port', code)
+    else localStorage.removeItem('vsc-default-port')
   }
 
   function upsertUser(user: UserAccount) {

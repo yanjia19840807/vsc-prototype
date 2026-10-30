@@ -3,7 +3,7 @@ import DataSection from '@/components/DataSection.vue'
 import ReadonlyField from '@/components/ReadonlyField.vue'
 import { searchCellText } from '@/features/vessel-search/search-columns'
 import { LARA_COLUMNS } from '@/features/vessel-schedule/mismatch-fields'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 defineProps<{
   vessel: VesselRecord

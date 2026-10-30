@@ -16,7 +16,7 @@ import type {
   VesselRecord,
   VolumeData,
   WorkflowStatus,
-} from '@/types/vsp'
+} from '@/types/vsc'
 import { appendScheduleLogs, changesFromDetails, createRefresh, traceFromHistory } from '@/domain/schedule-trace'
 import { formatApiDateTime, formatDateTime } from '@/lib/vessel-utils'
 

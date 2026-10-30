@@ -1,5 +1,5 @@
 import type { ColumnDef, ColumnVisibilityState } from '@tanstack/vue-table'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 /**
  * Vessel Schedule List columns aligned to business Template (vsdv) + platform workflow fields.

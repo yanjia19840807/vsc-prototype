@@ -12,7 +12,7 @@ import type {
   VesselRecord,
   VolumeData,
   WorkflowStatus,
-} from '@/types/vsp'
+} from '@/types/vsc'
 import { CURRENT_USER, portByCode } from './ports'
 import { tmlRowsForPort } from './tml-matrix'
 

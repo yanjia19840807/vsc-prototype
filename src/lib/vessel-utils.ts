@@ -1,4 +1,4 @@
-import type { DeadlineAlert, HighlightKind, VesselRecord } from '@/types/vsp'
+import type { DeadlineAlert, HighlightKind, VesselRecord } from '@/types/vsc'
 
 export function getHighlightKind(v: VesselRecord, selected = false): HighlightKind {
   if (selected) return 'selected'

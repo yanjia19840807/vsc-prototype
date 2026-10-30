@@ -1,12 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
+import { readStored } from '@/lib/browser-storage'
+
 export const useSessionStore = defineStore('session', () => {
-  const username = ref(localStorage.getItem('vsp-user') || 'Wendy Zhang')
+  const username = ref(readStored('vsc-user') || 'Wendy Zhang')
 
   function setUsername(name: string) {
     username.value = name
-    localStorage.setItem('vsp-user', name)
+    localStorage.setItem('vsc-user', name)
   }
 
   return { username, setUsername }

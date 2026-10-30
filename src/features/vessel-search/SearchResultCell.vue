@@ -6,7 +6,7 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import SyncFieldAlert from '@/features/vessel-schedule/SyncFieldAlert.vue'
 import { showsUnsettledDash } from '@/features/vessel-schedule/sync-review'
 import { isPortApiCovered, isWarningCellText, searchCellText, sharedLaraRemark } from '@/features/vessel-search/search-columns'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 const props = defineProps<{
   vessel: VesselRecord

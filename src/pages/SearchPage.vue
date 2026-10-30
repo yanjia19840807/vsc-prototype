@@ -63,7 +63,7 @@ import { useListSettingsStore } from '@/stores/list-settings'
 import { useScheduleStore } from '@/stores/schedule'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
 import { useVesselStore } from '@/stores/vessels'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 const store = useVesselStore()
 const listSettings = useListSettingsStore()

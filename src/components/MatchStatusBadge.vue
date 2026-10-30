@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Badge } from '@/components/ui/badge'
-import type { MatchingStatus } from '@/types/vsp'
+import type { MatchingStatus } from '@/types/vsc'
 
 const props = defineProps<{
   status: MatchingStatus

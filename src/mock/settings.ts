@@ -1,4 +1,4 @@
-import type { QuickLink, RfiTemplate, ScopeRule, TaskTemplate, UserAccount } from '@/types/vsp'
+import type { QuickLink, RfiTemplate, ScopeRule, TaskTemplate, UserAccount } from '@/types/vsc'
 
 export const USERS: UserAccount[] = [
   {

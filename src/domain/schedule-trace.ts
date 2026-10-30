@@ -4,7 +4,7 @@ import type {
   ScheduleActivityLog,
   ScheduleRefresh,
   VesselRecord,
-} from '@/types/vsp'
+} from '@/types/vsc'
 
 export type FieldChange = {
   field: string

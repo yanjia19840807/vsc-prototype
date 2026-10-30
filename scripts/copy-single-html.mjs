@@ -11,7 +11,7 @@ if (!existsSync(src)) {
 }
 
 mkdirSync(outDir, { recursive: true })
-const dest = join(outDir, 'VSP-Vessel-Schedule-Platform.html')
+const dest = join(outDir, 'VSC-Vessel-Schedule-Center.html')
 copyFileSync(src, dest)
 
 const size = statSync(dest).size

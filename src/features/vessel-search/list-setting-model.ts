@@ -1,5 +1,6 @@
-import type { MatchingStatus, VesselRecord } from '@/types/vsp'
+import type { MatchingStatus, VesselRecord } from '@/types/vsc'
 
+import { readStored } from '@/lib/browser-storage'
 import { LAST_SYNC_STATUSES } from '@/domain/schedule-model'
 import { isMainVoyage } from '@/domain/main-voyage'
 
@@ -588,14 +589,14 @@ export function staticFilterOptions(source: FilterOptionSource | undefined): str
   }
 }
 
-const SETTINGS_KEY = 'vsp-list-settings-v1'
-const FILTER_KEY = 'vsp-schedule-filters'
-const TIME_KEY = 'vsp-schedule-time'
-const COLUMN_KEY = 'vsp-schedule-columns-v12'
-const SORT_KEY = 'vsp-schedule-sort'
+const SETTINGS_KEY = 'vsc-list-settings-v1'
+const FILTER_KEY = 'vsc-schedule-filters'
+const TIME_KEY = 'vsc-schedule-time'
+const COLUMN_KEY = 'vsc-schedule-columns-v12'
+const SORT_KEY = 'vsc-schedule-sort'
 
 function readJson<T>(key: string): T | null {
-  const raw = localStorage.getItem(key)
+  const raw = readStored(key)
   if (!raw) return null
   try {
     return JSON.parse(raw) as T
@@ -606,10 +607,10 @@ function readJson<T>(key: string): T | null {
 
 function hasLegacyPrefs() {
   return Boolean(
-    localStorage.getItem(FILTER_KEY)
-    || localStorage.getItem(TIME_KEY)
-    || localStorage.getItem(COLUMN_KEY)
-    || localStorage.getItem(SORT_KEY),
+    readStored(FILTER_KEY)
+    || readStored(TIME_KEY)
+    || readStored(COLUMN_KEY)
+    || readStored(SORT_KEY),
   )
 }
 

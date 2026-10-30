@@ -2,7 +2,7 @@ import type { AlertVariants } from '@/components/ui/alert'
 import type { TerminalShape } from '@/domain/schedule-model/sync-diff'
 import { addTerminalAlert, MISMATCH_ALERT } from '@/features/vessel-schedule/mismatch-actions'
 import { candidateCountLabel, sharedLaraRemark } from '@/features/vessel-search/search-columns'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 export type MappingAlertVariant = NonNullable<AlertVariants['variant']>
 

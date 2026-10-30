@@ -1,7 +1,7 @@
 # 字段含义和示例见 vessel-schedules-api.md。
 openapi: 3.0.3
 info:
-  title: 船期平台
+  title: 船期中心
   version: 0.1.0
   description: |
     页面对外的读写。JSON 用页面字段名，不返回库列名。响应里只有 id，不返回 URL。

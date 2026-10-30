@@ -21,7 +21,7 @@ import type {
   VesselSchedule,
 } from '@/domain/schedule-model/types'
 import { brandFromVoyage } from '@/domain/lara-brand'
-import type { TerminalSchedule, VesselRecord } from '@/types/vsp'
+import type { TerminalSchedule, VesselRecord } from '@/types/vsc'
 
 const T0 = '2026-10-20T08:00:00.000Z'
 const T1 = '2026-10-21T08:00:00.000Z'

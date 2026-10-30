@@ -218,9 +218,9 @@ const copyrightYear = new Date().getFullYear()
 <template>
   <div class="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
     <header class="flex h-16 shrink-0 items-center justify-between gap-2 bg-brand-navy px-4 text-white">
-      <RouterLink to="/search" class="flex min-w-0 items-center gap-2.5" aria-label="Vessel schedule platform">
+      <RouterLink to="/search" class="flex min-w-0 items-center gap-2.5" aria-label="Vessel Schedule Center">
         <span class="inline-flex flex-col">
-          <span class="text-base font-bold leading-none tracking-wide">VSP</span>
+          <span class="text-base font-bold leading-none tracking-wide">VSC</span>
           <span class="mt-1 h-0.5 w-full bg-brand-red" aria-hidden="true" />
         </span>
         <span class="hidden truncate text-sm font-medium text-white/80 sm:inline">Vessel schedule</span>

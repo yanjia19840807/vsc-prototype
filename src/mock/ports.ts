@@ -1,4 +1,4 @@
-import type { PortDef } from '@/types/vsp'
+import type { PortDef } from '@/types/vsc'
 
 function port(
   code: string,

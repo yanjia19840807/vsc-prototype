@@ -1,5 +1,5 @@
 import type { ScheduleReview } from '@/domain/schedule-model'
-import type { MatchingStatus, VesselRecord } from '@/types/vsp'
+import type { MatchingStatus, VesselRecord } from '@/types/vsc'
 import type { TerminalDraftKey } from '@/features/vessel-schedule/mismatch-fields'
 
 /** Matching still needs a person to add, select, fill voyage, or confirm a gap. */

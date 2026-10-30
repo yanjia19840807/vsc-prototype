@@ -1,11 +1,11 @@
-# Vessel Schedule Platform Prototype
+# Vessel Schedule Center Prototype
 
 Interactive front-end prototype aligned with the CMA CGM GBS `rst-web` look (navy/red tokens + AppShell). Components are generated from **shadcn-vue (reka-nova)**.
 
 ## Run
 
 ```bash
-cd vsp-prototype
+cd vsc-prototype
 npm install
 npm run dev
 ```
@@ -18,7 +18,7 @@ Default URL: http://127.0.0.1:5174
 npm run build:single
 ```
 
-This writes `release/VSP-Vessel-Schedule-Platform.html`. Open it directly in a browser (no server). Routes use the hash (`#/schedule`).
+This writes `release/VSC-Vessel-Schedule-Center.html`. Open it directly in a browser (no server). Routes use the hash (`#/schedule`).
 
 ## Scope
 

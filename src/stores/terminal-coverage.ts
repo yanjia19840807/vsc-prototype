@@ -16,8 +16,8 @@ import {
 } from '@/features/terminal-coverage/model'
 import { PORTS } from '@/mock/ports'
 
-const STORAGE_KEY = 'vsp-terminal-coverage-v3'
-const LEGACY_KEYS = ['vsp-terminal-coverage-v2', 'vsp-terminal-coverage-v1']
+const STORAGE_KEY = 'vsc-terminal-coverage-v3'
+const LEGACY_KEYS = ['vsp-terminal-coverage-v3', 'vsp-terminal-coverage-v2', 'vsp-terminal-coverage-v1']
 
 type CoverageSnapshot = {
   regions: RegionRecord[]

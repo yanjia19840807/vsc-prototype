@@ -10,7 +10,7 @@ import {
   isWarningCellText,
   searchCellText,
 } from '@/features/vessel-search/search-columns'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 const STATUS_COLUMNS = new Set(['mappingStatus', 'lastSyncStatus'])
 

@@ -3,7 +3,7 @@ import { computed } from 'vue'
 
 import { Button } from '@/components/ui/button'
 import { useScheduleStore } from '@/stores/schedule'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 const props = defineProps<{
   vessel: VesselRecord

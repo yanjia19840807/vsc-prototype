@@ -1,5 +1,5 @@
 import { findTerminal, type PortCoverage } from '@/features/terminal-coverage/model'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 import { vesselTypeText, type VesselTypeLabel } from '@/domain/vessel-type'
 
 type VesselTypeTarget = Pick<

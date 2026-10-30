@@ -62,7 +62,7 @@ import { useTabsStore } from '@/stores/tabs'
 import { useTerminalCoverageStore } from '@/stores/terminal-coverage'
 import { useVesselStore } from '@/stores/vessels'
 import type { TerminalPayload } from '@/domain/schedule-model/types'
-import type { HistoryDetail, TerminalSchedule, VesselRecord } from '@/types/vsp'
+import type { HistoryDetail, TerminalSchedule, VesselRecord } from '@/types/vsc'
 
 const route = useRoute()
 const router = useRouter()

@@ -1,4 +1,5 @@
 import { LOCKED_COLUMN_ID, SEARCH_COLUMNS, type ColumnSource } from '@/features/vessel-search/search-columns'
+import { readStored } from '@/lib/browser-storage'
 
 export type OmitMode = 'show' | 'hide'
 
@@ -25,11 +26,11 @@ export type ColumnPrefs = {
   freezeThrough: string | null
 }
 
-const FILTER_KEY = 'vsp-schedule-filters'
-const TIME_KEY = 'vsp-schedule-time'
+const FILTER_KEY = 'vsc-schedule-filters'
+const TIME_KEY = 'vsc-schedule-time'
 /** Bump when default column order / groups change so saved prefs pick up the new layout. */
-const COLUMN_KEY = 'vsp-schedule-columns-v13'
-const SORT_KEY = 'vsp-schedule-sort'
+const COLUMN_KEY = 'vsc-schedule-columns-v13'
+const SORT_KEY = 'vsc-schedule-sort'
 
 export const DEFAULT_SORT: SortRule[] = [{ id: 'laraEtb', desc: true }]
 
@@ -148,7 +149,7 @@ export function defaultTimeWindow(): TimeWindow {
 }
 
 function readJson<T>(key: string): T | null {
-  const raw = localStorage.getItem(key)
+  const raw = readStored(key)
   if (!raw) return null
   try {
     return JSON.parse(raw) as T

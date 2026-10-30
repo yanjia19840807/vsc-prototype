@@ -1,4 +1,4 @@
-import type { ScheduleActivityLog, ScheduleRefresh, VesselRecord } from '@/types/vsp'
+import type { ScheduleActivityLog, ScheduleRefresh, VesselRecord } from '@/types/vsc'
 import { terminalPanelColumns } from '@/features/vessel-schedule/mismatch-fields'
 import { historyFieldLabel, historyFieldMatches, SEARCH_COLUMNS } from '@/features/vessel-search/search-columns'
 

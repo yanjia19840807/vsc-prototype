@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 import StatusBadge from '@/components/StatusBadge.vue'
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 const props = defineProps<{
   vessel: VesselRecord

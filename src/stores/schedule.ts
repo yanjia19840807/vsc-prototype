@@ -31,7 +31,7 @@ import {
   type TerminalField,
 } from '@/domain/schedule-model'
 import { scheduleNeedsReview } from '@/features/vessel-schedule/review-access'
-import type { TerminalSchedule } from '@/types/vsp'
+import type { TerminalSchedule } from '@/types/vsc'
 import { pickTerminal } from '@/domain/schedule-model/snapshot'
 import type { TerminalSnapshot } from '@/domain/schedule-model/types'
 import { bindingFor } from '@/features/vessel-schedule/sync-columns'

@@ -1,4 +1,4 @@
-import type { VesselRecord } from '@/types/vsp'
+import type { VesselRecord } from '@/types/vsc'
 
 /** Match / terminal remediation actions opened from list or detail. */
 export type MismatchQuickAction = 'selectMatch' | 'reviewMatch' | 'addTerminal'

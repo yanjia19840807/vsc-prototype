@@ -1,7 +1,7 @@
 import type { ScheduleState, TerminalPayload } from '@/domain/schedule-model'
 import type { FilterFieldDef, FilterState } from '@/features/vessel-search/list-setting-model'
 import { emptyFilterState } from '@/features/vessel-search/list-setting-model'
-import type { TerminalSchedule, VesselRecord } from '@/types/vsp'
+import type { TerminalSchedule, VesselRecord } from '@/types/vsc'
 
 /** Fields returned by the port terminal API, in response order. */
 export const TERMINAL_VOYAGE_FIELDS = [
