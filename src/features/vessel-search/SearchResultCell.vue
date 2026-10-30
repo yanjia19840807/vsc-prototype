@@ -13,7 +13,7 @@ const props = defineProps<{
   columnId: string
 }>()
 
-const STATUS_COLUMNS = new Set(['mappingStatus'])
+const STATUS_COLUMNS = new Set(['mappingStatus', 'lastSyncStatus'])
 const unsettled = computed(() => showsUnsettledDash(props.vessel.matchingStatus, props.columnId))
 const text = computed(() => unsettled.value ? '—' : searchCellText(props.vessel, props.columnId))
 const voyageStatus = computed(() =>
@@ -51,6 +51,6 @@ const covered = computed(() => isPortApiCovered(props.vessel))
   </span>
   <StatusBadge v-else-if="STATUS_COLUMNS.has(columnId)" :status="text" />
   <span v-else :class="isWarningCellText(text, columnId) ? 'text-amber-800' : undefined">{{ text }}</span>
-  <SyncFieldAlert :schedule-id="vessel.id" :column-id="columnId" />
+  <SyncFieldAlert v-if="!unsettled" :schedule-id="vessel.id" :column-id="columnId" />
   </span>
 </template>

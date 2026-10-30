@@ -1,5 +1,6 @@
 import type { MatchingStatus, VesselRecord } from '@/types/vsp'
 
+import { LAST_SYNC_STATUSES } from '@/domain/schedule-model'
 import { isMainVoyage } from '@/domain/main-voyage'
 
 const LARA_VESSEL_TYPES = ['Group vsl', 'Partner vsl', '3PF'] as const
@@ -40,6 +41,7 @@ export type FilterOptionSource =
   | 'region'
   | 'pointCode'
   | 'mappingStatus'
+  | 'lastSyncStatus'
   | 'voyageStatus'
   | 'vesselType'
   | 'brand'
@@ -141,6 +143,7 @@ const MULTI_FIELDS: Record<string, FilterOptionSource> = {
   region: 'region',
   pointCode: 'pointCode',
   mappingStatus: 'mappingStatus',
+  lastSyncStatus: 'lastSyncStatus',
   voyageStatus: 'voyageStatus',
   vesselType: 'vesselType',
   brand: 'brand',
@@ -570,6 +573,8 @@ export function staticFilterOptions(source: FilterOptionSource | undefined): str
     case 'mappingStatus':
       return [...MAPPING_STATUSES.map((status) => matchingStatusLabel(status))]
         .filter((status, index, list) => list.indexOf(status) === index)
+    case 'lastSyncStatus':
+      return [...LAST_SYNC_STATUSES]
     case 'voyageStatus':
       return [...LARA_VOYAGE_STATUSES]
     case 'vesselType':

@@ -31,7 +31,7 @@ import { useListSettingsStore } from '@/stores/list-settings'
 import { useScheduleStore } from '@/stores/schedule'
 import { useVesselStore } from '@/stores/vessels'
 
-const STATUS_COLUMNS = new Set(['mappingStatus'])
+const STATUS_COLUMNS = new Set(['mappingStatus', 'lastSyncStatus'])
 
 const route = useRoute()
 const router = useRouter()
@@ -173,7 +173,7 @@ function sourceText(columnId: string) {
                 {{ cellText(column.id) }}
               </span>
               <CoverageIcon v-if="column.id === 'pointCode'" :covered="isPortApiCovered(vessel)" />
-              <SyncFieldAlert :schedule-id="vessel.id" :column-id="column.id" />
+              <SyncFieldAlert v-if="!showsUnsettledDash(vessel.matchingStatus, column.id)" :schedule-id="vessel.id" :column-id="column.id" />
             </span>
             <p v-if="sourceText(column.id) && !showsUnsettledDash(vessel.matchingStatus, column.id)" class="text-xs text-muted-foreground">Source {{ sourceText(column.id) }}</p>
           </ReadonlyField>

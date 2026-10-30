@@ -305,7 +305,11 @@ function headerFreezeClass(id: string) {
 }
 
 function rowChanged(vessel: VesselRecord) {
-  return schedule.review(vessel.id).fields.some((field) => field.status === 'applied')
+  return schedule.review(vessel.id).fields.some((field) => {
+    if (field.status !== 'applied') return false
+    if (vessel.matchingStatus === 'Pending match' && field.side === 'TERMINAL') return false
+    return true
+  })
 }
 
 function rowClass(vessel: VesselRecord) {

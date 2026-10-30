@@ -13,7 +13,9 @@ export {
   acceptTerminalPayload,
   adoptNoTerminal,
   confirmReviewedMatch,
+  LAST_SYNC_STATUSES,
   defaultSyncPolicy,
+  displayedLastSyncStatus,
   displayedMatchingStatus,
   editLaraFields,
   editTerminalFields,
@@ -30,7 +32,7 @@ export {
   terminalFieldHistory,
   watchKey,
 } from '@/domain/schedule-model/sync-diff'
-export type { ScheduleReview, FieldHistoryRow, FieldReview, SyncPolicy, TerminalShape } from '@/domain/schedule-model/sync-diff'
+export type { LastSyncStatus, ScheduleReview, FieldHistoryRow, FieldReview, SyncPolicy, TerminalShape } from '@/domain/schedule-model/sync-diff'
 export { completeTerminalQuery, openSingleTerminalQuery, openTerminalSync } from '@/domain/schedule-model/terminal-sync'
 export type {
   ScheduleOrigin,

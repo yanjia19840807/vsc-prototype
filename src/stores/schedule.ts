@@ -19,6 +19,7 @@ import {
   matchHistory,
   pinTerminalCandidate,
   defaultSyncPolicy,
+  displayedLastSyncStatus,
   displayedMatchingStatus,
   reviewSchedule,
   terminalFieldHistory,
@@ -31,6 +32,7 @@ import {
 } from '@/domain/schedule-model'
 import { scheduleNeedsReview } from '@/features/vessel-schedule/review-access'
 import type { TerminalSchedule } from '@/types/vsp'
+import { pickTerminal } from '@/domain/schedule-model/snapshot'
 import type { TerminalSnapshot } from '@/domain/schedule-model/types'
 import { bindingFor } from '@/features/vessel-schedule/sync-columns'
 import { CURRENT_USER } from '@/mock/ports'
@@ -118,32 +120,43 @@ export const useScheduleStore = defineStore('schedule', () => {
     project(scheduleId)
   }
 
-  function sealReviewed(scheduleId: string, row: TerminalSchedule, vesselOperator: string, reason: string, enteredManually = false) {
+  function sealReviewed(
+    scheduleId: string,
+    row: TerminalSchedule,
+    vesselOperator: string,
+    reason: string,
+    enteredManually = false,
+    adopted?: { source: 'SYNC'; payloadId: string; snapshot: TerminalSnapshot },
+  ) {
     const at = new Date().toISOString()
-    const snapshot: TerminalSnapshot = {
-      vesselOperator,
-      exportVoyage: row.evoyage ?? '',
-      importVoyage: row.ivoyage ?? '',
-      vesselNameCn: row.vesselNameCn ?? '',
-      terminalName: row.terminal ?? '',
-      eta: row.eta ?? '',
-      ata: row.ata ?? '',
-      etb: row.etb ?? '',
-      atb: row.atb ?? '',
-      etd: row.etd ?? '',
-      atd: row.atd ?? '',
-      cyOpen: row.cyOpen ?? '',
-      cyCutoff: row.cyClosing ?? '',
-      vesselStatus: row.status ?? '',
-      updateTime: row.updateTime ?? '',
-    }
+    const snapshot: TerminalSnapshot = adopted
+      ? pickTerminal(adopted.snapshot)
+      : {
+          vesselOperator,
+          exportVoyage: row.evoyage ?? '',
+          importVoyage: row.ivoyage ?? '',
+          vesselNameCn: row.vesselNameCn ?? '',
+          terminalName: row.terminal ?? '',
+          eta: row.eta ?? '',
+          ata: row.ata ?? '',
+          etb: row.etb ?? '',
+          atb: row.atb ?? '',
+          etd: row.etd ?? '',
+          atd: row.atd ?? '',
+          cyOpen: row.cyOpen ?? '',
+          cyCutoff: row.cyClosing ?? '',
+          vesselStatus: row.status ?? '',
+          updateTime: row.updateTime ?? '',
+        }
     state.value = confirmReviewedMatch(state.value, {
       scheduleId,
       snapshot,
-      enteredManually,
+      enteredManually: adopted ? false : enteredManually,
       reason,
       updatedBy: CURRENT_USER,
       updatedAt: at,
+      source: adopted?.source,
+      payloadId: adopted?.payloadId,
     })
     project(scheduleId)
   }
@@ -193,6 +206,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     const lara = displayedLara(state.value, schedule)
     const terminal = displayedTerminal(state.value, schedule)
     const fields: Parameters<typeof vessels.patchDisplay>[1] = {
+      lastSyncStatus: displayedLastSyncStatus(state.value, scheduleId) ?? '',
       laraVoyage: lara.laraVoyage,
       pointCode: lara.pointCode,
       laraPoolLocation: lara.laraPoolLocation,

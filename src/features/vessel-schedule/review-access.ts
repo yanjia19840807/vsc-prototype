@@ -39,8 +39,10 @@ export function canEditTerminalDraft(vessel: VesselRecord, key: TerminalDraftKey
   return false
 }
 
-export function canAddTerminalRecord(vessel: VesselRecord) {
-  return vessel.matchingStatus === 'No terminal record'
+export function canAddTerminalRecord(vessel: VesselRecord, review: ScheduleReview) {
+  if (review.shape === 'many' && vessel.terminalSchedule) return false
+  if (review.shape === 'none') return true
+  return vessel.matchingStatus === 'No terminal record' || vessel.matchingStatus === 'Multiple terminal records'
 }
 
 export function canSelectTerminalRecord(vessel: VesselRecord, review: ScheduleReview) {

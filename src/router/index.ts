@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 
 import { isMenuItemActive, menuItems } from '@/navigation/menu'
+import { useScheduleStore } from '@/stores/schedule'
 
 const router = createRouter({
   /** Hash history so the single-file HTML build can open via file:// (double-click). */
@@ -59,6 +60,10 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
+  if (to.name === 'vessel-review') {
+    const id = String(to.params.id)
+    if (!useScheduleStore().needsReview(id)) return `/vessels/${id}/view`
+  }
   if (to.path.startsWith('/vessels')) return true
   if (menuItems.some((item) => isMenuItemActive(item, to.path))) return true
   return '/search'

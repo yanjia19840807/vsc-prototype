@@ -206,6 +206,15 @@ function writtenTerminalDiffs(state: ScheduleState, schedule: VesselSchedule, po
   return fields
 }
 
+/** A pending choice is not a written difference. Drop the earlier version gap for that field until it is resolved. */
+function withoutUnresolvedDiffs(fields: FieldReview[]): FieldReview[] {
+  const pending = new Set(
+    fields.filter((field) => field.status === 'pending').map((field) => `${field.side}:${field.field}`),
+  )
+  if (!pending.size) return fields
+  return fields.filter((field) => field.status !== 'applied' || !pending.has(`${field.side}:${field.field}`))
+}
+
 function terminalVersionsOf(state: ScheduleState, scheduleId: string) {
   return state.terminalVersions.filter((version) => version.scheduleId === scheduleId).sort((a, b) => a.seq - b.seq)
 }
@@ -574,7 +583,16 @@ function shapeDecided(state: ScheduleState, scheduleId: string, queryId: string)
 /** A review confirm keeps one terminal record and is always a manual match. */
 export function confirmReviewedMatch(
   state: ScheduleState,
-  input: { scheduleId: string; snapshot: TerminalSnapshot; enteredManually?: boolean; reason: string; updatedBy: string; updatedAt: string },
+  input: {
+    scheduleId: string
+    snapshot: TerminalSnapshot
+    enteredManually?: boolean
+    reason: string
+    updatedBy: string
+    updatedAt: string
+    source?: 'SYNC' | 'USER'
+    payloadId?: string | null
+  },
 ) {
   const schedule = requireSchedule(state, input.scheduleId)
   const current = currentTerminal(state, schedule)
@@ -584,8 +602,8 @@ export function confirmReviewedMatch(
   if (!current || !versionId || !sameTerminal(current, input.snapshot)) {
     const saved = appendTerminalVersion(next, freshSchedule(next, schedule.id), {
       snapshot: input.snapshot,
-      source: 'USER',
-      payloadId: null,
+      source: input.source ?? 'USER',
+      payloadId: input.payloadId ?? null,
       enteredManually: input.enteredManually ?? current?.enteredManually ?? false,
       reason: input.reason,
       updatedBy: input.updatedBy,
@@ -949,6 +967,39 @@ function latestSettledQuery(state: ScheduleState, scheduleId: string) {
   )
 }
 
+export const LAST_SYNC_STATUSES = [
+  'Auto matched',
+  'Multiple terminal records',
+  'ETA gap > 3 days',
+  'No external voyage',
+  'No terminal record',
+  'Failed',
+] as const
+
+export type LastSyncStatus = (typeof LAST_SYNC_STATUSES)[number]
+
+/**
+ * What the latest terminal sync itself produced.
+ * Manual matched and Pending match are later human states, so they are not used here.
+ */
+export function displayedLastSyncStatus(state: ScheduleState, scheduleId: string): LastSyncStatus | null {
+  const query = [...state.terminalQueries].reverse().find(
+    (item) => item.scheduleId === scheduleId && item.status !== 'PENDING',
+  )
+  if (!query) return null
+  if (query.status === 'FAILED') return 'Failed'
+  if (query.status === 'NOT_FOUND') return 'No terminal record'
+  const payloads = payloadsForQuery(state, query.id)
+  if (payloads.length > 1) return 'Multiple terminal records'
+  const sole = payloads[0]
+  if (!sole) return 'No terminal record'
+  const schedule = state.schedules.find((item) => item.id === scheduleId)
+  const laraEta = laraVersion(state, schedule?.laraVersionId)?.laraEta
+    ?? latestLaraPayload(state, scheduleId)?.laraEta
+    ?? ''
+  return oneRecordStatus(laraEta, sole)
+}
+
 function payloadsForQuery(state: ScheduleState, queryId: string) {
   return state.terminalPayloads.filter((payload) => payload.queryId === queryId)
 }
@@ -984,7 +1035,7 @@ export function reviewSchedule(state: ScheduleState, scheduleId: string, policy:
   const pinned = query && terminal ? pinnedCandidate(state, scheduleId, query.id, terminalPayloads) : undefined
   const twin = bound && terminal && isManualMatch(state, schedule) && !pinned ? voyageTwin(terminal, terminalPayloads) : undefined
   if (bound && terminal && query && !shapeDecided(state, scheduleId, query.id) && isManualMatch(state, schedule)) {
-    const ignoredEmptySync = query.status === 'NOT_FOUND' && terminal.enteredManually
+    const ignoredEmptySync = query.status === 'NOT_FOUND'
     const needsChoice = !ignoredEmptySync && (query.status === 'NOT_FOUND' || (terminalPayloads.length > 1 && !twin))
     if (needsChoice) {
       const shape: TerminalShape = query.status === 'NOT_FOUND' ? 'none' : 'many'
@@ -1007,11 +1058,12 @@ export function reviewSchedule(state: ScheduleState, scheduleId: string, policy:
           })
         }
       }
+      const openFields = withoutUnresolvedDiffs(shapeFields)
       return {
         scheduleId,
         pending: true,
-        changed: shapeFields.length > 0,
-        fields: shapeFields,
+        changed: openFields.length > 0,
+        fields: openFields,
         shape,
         comparedPayloadId: null,
         candidateCount: terminalPayloads.length,
@@ -1094,12 +1146,14 @@ export function reviewSchedule(state: ScheduleState, scheduleId: string, policy:
       }
     }
   }
+  const identicalTwin = Boolean(twin && terminal && sameTerminal(terminal, twin))
   const manyOpen = Boolean(
     bound
     && terminal
     && query?.status === 'FOUND'
     && isManualMatch(state, schedule)
     && terminalPayloads.length > 1
+    && !identicalTwin
     && query
     && !matchReviewed(state, scheduleId, query.id)
     && !state.fieldDecisions.some((item) => (
@@ -1123,13 +1177,14 @@ export function reviewSchedule(state: ScheduleState, scheduleId: string, policy:
       })
     }
   }
+  const openFields = withoutUnresolvedDiffs(fields)
   return {
     scheduleId,
-    pending: fields.some((field) => field.status === 'pending') || manyOpen,
-    changed: fields.length > 0,
-    fields,
+    pending: openFields.some((field) => field.status === 'pending') || manyOpen,
+    changed: openFields.length > 0,
+    fields: openFields,
     shape: manyOpen ? 'many' : null,
-    comparedPayloadId: resolvedMany?.id ?? null,
+    comparedPayloadId: identicalTwin ? null : (resolvedMany?.id ?? null),
     candidateCount: terminalPayloads.length,
     queryId: query?.id ?? null,
   }

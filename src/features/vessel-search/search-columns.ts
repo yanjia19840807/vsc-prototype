@@ -45,6 +45,7 @@ export const LOCKED_COLUMN_ID = 'laraVoyage'
 
 export const SEARCH_COLUMNS: SearchColumn[] = [
   { id: 'mappingStatus', label: 'Mapping status', kind: 'text', source: 'platform' },
+  { id: 'lastSyncStatus', label: 'Last sync status', kind: 'text', source: 'platform' },
   { id: 'lastUpdateBy', label: 'Last modified by', kind: 'text', source: 'platform' },
   { id: 'lastUpdateAt', label: 'Last modified at', kind: 'datetime', source: 'platform' },
   // LARA fields from the schedule template. Calculated columns stay last.
@@ -342,6 +343,8 @@ export function searchSortValue(v: VesselRecord, id: string): string | number {
       return unconfirmedOrTerminal(v, v.terminalSchedule?.ata)
     case 'mappingStatus':
       return matchingStatusLabel(v.matchingStatus)
+    case 'lastSyncStatus':
+      return v.lastSyncStatus || ''
     case 'lastUpdateBy':
       return lastScheduleUpdate(v).by
     case 'lastUpdateAt':

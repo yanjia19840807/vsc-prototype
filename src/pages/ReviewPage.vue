@@ -28,7 +28,9 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  canAddTerminalRecord,
   canEditTerminalDraft,
+  canSelectTerminalRecord,
   terminalEditMode,
 } from '@/features/vessel-schedule/review-access'
 import { mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
@@ -340,6 +342,17 @@ const comparable = computed(() => {
   return status === 'Auto matched' || status === 'Manual matched' || status === 'Pending match'
 })
 const editMode = computed(() => (vessel.value ? terminalEditMode(vessel.value) : 'none'))
+const currentReview = computed(() => (vessel.value ? schedule.review(vessel.value.id) : null))
+const showSelect = computed(() => {
+  const current = vessel.value
+  const review = currentReview.value
+  return Boolean(current && review && canSelectTerminalRecord(current, review))
+})
+const showAdd = computed(() => {
+  const current = vessel.value
+  const review = currentReview.value
+  return Boolean(current && review && canAddTerminalRecord(current, review))
+})
 
 function addedManualRow() {
   return rows.value.find((row) => row.source === 'manual' && !row.baseline) ?? null
@@ -465,6 +478,23 @@ function comparedPayload() {
   return shapeCandidates.value.find((payload) => payload.id === pickedPayloadId.value) ?? null
 }
 
+/** A payload chosen in this review, different from the one already open for comparison. */
+function switchedPayload() {
+  const payload = comparedPayload()
+  if (!payload || payload.id === initialPayloadId.value) return null
+  return payload
+}
+
+function selectedRecordSentence(payload: TerminalPayload) {
+  const parts = [
+    payload.exportVoyage ? `Export ${payload.exportVoyage}` : '',
+    payload.importVoyage ? `Import ${payload.importVoyage}` : '',
+    payload.terminalName,
+  ].filter(Boolean)
+  const who = parts.length ? ` (${parts.join(' · ')})` : ''
+  return `The selected record${who} will be adopted as the latest values.`
+}
+
 function readonlyDiff(columnId: string) {
   const payload = comparedPayload()
   const row = activeRow.value
@@ -554,6 +584,7 @@ function cancelRowEdit(row: TerminalRow) {
 }
 
 function addRow() {
+  if (!showAdd.value) return
   const existing = addedManualRow()
   if (existing) {
     selectedId.value = existing.id
@@ -805,6 +836,24 @@ function fieldLabel(field: string) {
     ?? (field === 'vesselOperator' ? 'Vessel operator' : field)
 }
 
+function choiceFor(field: { side: string; field: string }) {
+  return fieldChoices.value[syncKey(field.side, field.field)] ?? null
+}
+
+/** Confirm keeps the values on screen. Nothing was edited, and no field takes this sync. */
+function adoptsCurrentValues() {
+  if (
+    switchedPayload()
+    || pendingSyncs.value.length
+    || pendingMatches.value.length
+    || laraManualChanges().length
+    || createdDetails().length
+    || updatedDetails().length
+    || manualMatch()
+  ) return false
+  return choiceFields.value.every((field) => choiceFor(field) !== 'sync')
+}
+
 const confirmCopy = computed(() => {
   const lines: string[] = []
   if (pendingSyncs.value.some((sync) => sync.source === 'LARA')) lines.push('LARA will be saved from the latest sync.')
@@ -820,18 +869,26 @@ const confirmCopy = computed(() => {
   for (const match of pendingMatches.value) {
     lines.push(match.to === 'Unconfirmed' ? 'Match: clear the current match.' : `Match: auto ${match.from} → ${match.to}.`)
   }
-  if (pendingSyncFields.value.some((field) => field.side !== 'MATCH')) {
-    lines.push('Pending fields are saved from Previous or This sync.')
-  }
   const chosen = manualMatch()
   if (chosen) {
     lines.push(chosen.to === 'Unconfirmed' ? 'Match: cancel the current terminal match.' : `Match: ${chosen.from} → ${chosen.to}.`)
   } else if (hasReviewEdits() && selectedRow.value && !pendingMatches.value.length) {
     lines.push(`Match: keep ${matchLabel(selectedRow.value)}.`)
-  } else if (keepingCurrent.value) {
-    lines.push('Match: keep the current terminal binding.')
-  } else if (showingComparison.value) {
-    lines.push('Match: keep the saved terminal values. Differences are shown and are not chosen here.')
+  }
+  const keptFields = choiceFields.value.filter((field) => choiceFor(field) === 'previous')
+  const syncFields = choiceFields.value.filter((field) => choiceFor(field) === 'sync')
+  const adopted = switchedPayload()
+  if (adopted) {
+    lines.push(selectedRecordSentence(adopted))
+  } else if (adoptsCurrentValues()) {
+    lines.push('The current values will be adopted as the latest values.')
+  } else if (keptFields.length && syncFields.length) {
+    lines.push(`Current values will be adopted as the latest values for ${keptFields.map((field) => fieldLabel(field.field)).join(', ')}.`)
+    lines.push(`This sync will be adopted for ${syncFields.map((field) => fieldLabel(field.field)).join(', ')}.`)
+  } else if (syncFields.length) {
+    lines.push('This sync will be adopted as the latest values.')
+  } else if (keptFields.length) {
+    lines.push('The current values will be adopted as the latest values.')
   }
   return {
     title: 'Confirm review',
@@ -909,7 +966,8 @@ async function confirmSave() {
     toast.error('Select or add a terminal record before confirming')
     return
   }
-  if (structure.value === 'many' && pickedPayloadId.value) schedule.adoptCandidate(current.id, pickedPayloadId.value)
+  const adopted = switchedPayload()
+  if (structure.value === 'many' && pickedPayloadId.value && !adopted) schedule.adoptCandidate(current.id, pickedPayloadId.value)
   if (keepingCurrent.value) schedule.keepShape(current.id)
   const keptBinding = keepingCurrent.value && !hasReviewEdits()
   const chosen = manualMatch()
@@ -942,7 +1000,14 @@ async function confirmSave() {
       )
     }
   }
-  schedule.sealReviewed(current.id, draftToSchedule(selected.draft), selected.draft.vesselOperator, remark.value, selected.source === 'manual')
+  schedule.sealReviewed(
+    current.id,
+    draftToSchedule(selected.draft),
+    adopted?.vesselOperator || selected.draft.vesselOperator,
+    remark.value,
+    adopted ? false : selected.source === 'manual',
+    adopted ? { source: 'SYNC', payloadId: adopted.id, snapshot: adopted } : undefined,
+  )
   confirmOpen.value = false
   toast.success('Review confirmed')
   await nextTick()
@@ -979,11 +1044,8 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
       <AlertTitle>{{ reviewAlert.title }}</AlertTitle>
       <AlertDescription>{{ reviewAlert.text }}</AlertDescription>
       <div class="mt-2 flex flex-wrap gap-2">
-        <template v-if="structure === 'many' || vessel.matchingStatus === 'Multiple terminal records'">
-          <Button type="button" variant="outline" size="sm" @click="openMatchDialog">Select</Button>
-          <Button type="button" variant="outline" size="sm" @click="addRow">Add</Button>
-        </template>
-        <Button v-else-if="structure === 'none' || vessel.matchingStatus === 'No terminal record'" type="button" variant="outline" size="sm" @click="addRow">Add</Button>
+        <Button v-if="showSelect" type="button" variant="outline" size="sm" @click="openMatchDialog">Select</Button>
+        <Button v-if="showAdd" type="button" variant="outline" size="sm" @click="addRow">Add</Button>
         <template v-if="choiceFields.length">
           <Button type="button" variant="outline" size="sm" @click="chooseAll('previous')">Use all previous</Button>
           <Button type="button" variant="outline" size="sm" @click="chooseAll('sync')">Use all this sync</Button>
@@ -1027,7 +1089,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
           class="flex flex-col items-center gap-2 rounded-md border border-dashed px-6 py-10 text-center"
         >
           <p class="text-sm font-medium">Multiple terminal records</p>
-          <p class="text-sm text-muted-foreground">Select one record, or add a new one.</p>
+          <p class="text-sm text-muted-foreground">{{ showAdd ? 'Select one record, or add a new one.' : 'Select one record.' }}</p>
         </div>
         <div v-else>
           <dl>

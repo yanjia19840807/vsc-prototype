@@ -31,7 +31,7 @@
 | lara_etd | LARA ETD。接口 laraEtd |
 | platform_omit | true 时接口 platformVoyageStatus 为 Omit |
 | platform_matching_status | 匹配状态。同步和审核由服务端写入，请求不带。接口 platformMatchingStatus |
-| terminal_source | SYNC：当前码头值来自同步。USER：手工补录。没有绑定时空。接口用 terminalManual。USER 时，下一次码头同步没有记录则忽略这次结果 |
+| terminal_source | SYNC：当前码头值来自同步。USER：手工补录。没有绑定时空。接口用 terminalManual。当前是 Manual matched 时，下一次码头同步没有记录则忽略这次结果，码头列和匹配状态都保持不变 |
 | terminal_export_voyage | 码头出口航次。接口 terminalExportVoyage |
 | terminal_import_voyage | 码头进口航次。接口 terminalImportVoyage |
 | terminal_vessel_name_cn | 中文船名。接口 terminalVesselNameCn |
@@ -379,11 +379,12 @@ LARA：
 | 不是 Manual matched，也不是 Pending match | 一条且可自动匹配 | 写入最新码头列，platform_matching_status = Auto matched |
 | 不是 Manual matched，也不是 Pending match | 一条，但缺航次或 ETA 差超过 3 天 | 写入这条码头记录，platform_matching_status 为 No external voyage 或 ETA gap > 3 days |
 | 不是 Manual matched，也不是 Pending match | 多条或没有记录 | 清空码头列，platform_matching_status 为 Multiple terminal records 或 No terminal record |
-| Manual matched 或 Pending match，且 terminal_source 不是 USER | 已保存的码头字段与这次同步有差异，或这次会变成缺航次、ETA gap、多条、没有记录 | 不改码头列。platform_matching_status 写成 Pending match |
-| terminal_source 为 USER | 没有记录 | 不改码头列，不改 platform_matching_status。不进入 Review |
+| Manual matched 或 Pending match | 多条，且只有一条的出口航次和进口航次都与当前绑定相同，这条的其余码头字段也与已保存值完全相同 | 不改码头列。platform_matching_status 保持不变。platformTerminalPending 为空。不进入 Review |
+| Manual matched 或 Pending match，且当前码头记录不是人工写入 | 已保存的码头字段与这次同步有差异，或这次会变成缺航次、ETA gap、多条且不能按上一行跳过 | 不改码头列。platform_matching_status 写成 Pending match |
+| Manual matched | 没有记录 | 不改码头列，不改 platform_matching_status。不进入 Review。不看这条码头记录是不是人工写入 |
 | Manual matched 或 Pending match | 已保存的每个码头字段都和这次同步相同，绑定仍是这一条 | 不改码头列。platform_matching_status 保持 Manual matched |
 
-已是 Manual matched 或 Pending match、下一次仍是多条时，不改码头列。出口航次和进口航次都有值、并且只有一条 `terminal_payload` 两个都相同，这一条是比对对象。读取时 `platformTerminalPending` 为 `many`。下一次查询是 NOT_FOUND、且 `terminal_source` 不是 USER 时，码头列保留，读取时 `platformTerminalPending` 为 `none`。
+已是 Manual matched 或 Pending match、下一次仍是多条时，不改码头列。出口航次和进口航次都有值、并且只有一条 `terminal_payload` 两个都相同：这条的其余码头字段也与已保存值完全相同时，`platform_matching_status` 保持不变，`platformTerminalPending` 为空，不进入 Review。其余字段有任何不同时，这一条才是比对对象，读取时 `platformTerminalPending` 为 `many`，状态写成 Pending match。当前是 Manual matched、下一次查询是 NOT_FOUND 时，不改码头列，不改 `platform_matching_status`，`platformTerminalPending` 为空，不进入 Review。不看当前码头记录是不是人工写入。
 
 `changes` 用 `vessel_schedule` 的当前值、`activity_log_change` 里该字段上一笔，以及最新的 `lara_payload`、`terminal_payload` 算出。没有差异时为 `null`。`pending` 为 false 表示已经写上 `vessel_schedule`；`pending` 为 true 表示还在 `terminal_payload` 里、船期码头列没被覆盖。LARA 的差异 `pending` 为 false。
 
@@ -397,13 +398,12 @@ LARA：
 
 确认前不改 `vessel_schedule`，也不写 `activity_log`。候选仍是已有的 `terminal_payload`。页面上的选择、新建，确认前都不插入 `terminal_payload`。
 
-`platform_matching_status` 为 Pending match、Multiple terminal records、ETA gap > 3 days、No external voyage、No terminal record，或读取出的 `platformTerminalPending` 非空，或 `changes` 里有 `pending` 为 true 的字段时，可以进入 Review。
+`platform_matching_status` 为 Pending match、Multiple terminal records、ETA gap > 3 days、No external voyage、No terminal record，或读取出的 `platformTerminalPending` 非空，或 `changes` 里有 `pending` 为 true 的字段时，可以进入 Review。当前是 Manual matched、这次码头同步没有记录时，不进入 Review，下表不适用。
 
 | 条件 | 确认前 | 确认时写 vessel_schedule |
 |---|---|---|
-| platformTerminalPending 为 many，且已有保存的码头记录 | 显示已保存的码头列。有唯一航次相同的 `terminal_payload` 时，只读对照上一版和这次同步。点选另一条只换正在看的 id | 确认当前记录则码头列不变。确认另一条则写入该 `terminal_payload`，terminal_source 仍为 SYNC |
+| platformTerminalPending 为 many，且已有保存的码头记录 | 显示已保存的码头列。有唯一航次相同、但其余字段并不完全相同的 `terminal_payload` 时，只读对照上一版和这次同步。点选另一条只换正在看的 id。航次相同且其余字段也完全相同的那条不产生 `many`，不进入本行 | 确认当前记录则码头列不变。确认另一条则写入该 `terminal_payload`，terminal_source 仍为 SYNC |
 | platformTerminalPending 为 many，且还没有绑定 | 码头区为空，直到选中一条 `terminal_payload` 或在页面上新建 | 写入选中的候选或新建的记录 |
-| platformTerminalPending 为 none | 打开时就是已保存的码头列。也可以在页面上新建 | 确认当前记录则码头列不变。新建则写入新记录，terminal_source 为 USER |
 | No terminal record | 必须在页面上新建一条 | 写入这条手工记录，terminal_source 为 USER |
 | Multiple terminal records，且还没有绑定 | 必须选中一条 `terminal_payload`，或在页面上新建 | 写入选中的候选或新建的记录 |
 | 存在 pending 为 true、且不是多条比对里只读展示的码头字段 | 在 previousValue 和 incomingValue 之间选。全部选完才能确认 | 把选定的值写入对应码头列 |
@@ -472,7 +472,7 @@ GET 没有正文。下面的请求 JSON 是路径参数和查询参数的完整�
 
 GET `/v1/vessel-schedules`
 
-读取船期列表。筛选、排序和分页都是查询参数。隐藏筛选项的默认值也由前端放进参数。不带筛选参数时不附加筛选。返回当前页。船期是一层字段。`laraVesselOperator` 来自 LARA 的 `OPERATOR_CODE`。`laraBrand` 由航次末两位算出，MA/NC/PL/NL 对应 CMA/CNC/APL/ANL。`laraVesselType` 由航次数字、`laraBrand`、`laraVesselOperator` 算出，3 为 3PF，9 再分 Group vsl 与 Partner vsl。`laraTerminal` 是 Terminal 9code。这三项由服务端计算，提交了也忽略。`platformCandidateCount` 是当前待选码头记录条数。`platformSharedLaraCount` 是共用同一港口、码头和出口航次的船期条数。何时进入 Review 见系统关键逻辑。
+读取船期列表。筛选、排序和分页都是查询参数。隐藏筛选项的默认值也由前端放进参数。不带筛选参数时不附加筛选。返回当前页。船期是一层字段。`laraVesselOperator` 来自 LARA 的 `OPERATOR_CODE`。`laraBrand` 由航次末两位算出，MA/NC/PL/NL 对应 CMA/CNC/APL/ANL。`laraVesselType` 由航次数字、`laraBrand`、`laraVesselOperator` 算出，3 为 3PF，9 再分 Group vsl 与 Partner vsl。`laraTerminal` 是 Terminal 9code。这三项由服务端计算，提交了也忽略。`platformCandidateCount` 是当前待选码头记录条数。`platformSharedLaraCount` 是共用同一港口、码头和出口航次的船期条数。`platformLastSyncStatus` 是这条船期最近一次码头同步本身的结果，不入库，取值与匹配状态里由同步直接得出的五项相同，另加 Failed。不使用 Manual matched 和 Pending match，这两项是人工确认之后的匹配状态。FOUND 且一条：进出口航次都有、到港时间都有且相差不超过 3 天为 Auto matched，缺航次为 No external voyage，到港时间为空或相差超过 3 天为 ETA gap > 3 days。FOUND 且多条为 Multiple terminal records。NOT_FOUND 为 No terminal record。FAILED 为 Failed。还没有查询时为 null。当前已是人工匹配、这次没有记录时，`platformMatchingStatus` 仍是 Manual matched，这一列是 No terminal record。何时进入 Review 见系统关键逻辑。
 
 | 参数 | 必填 | 含义 |
 |---|---|---|
@@ -486,6 +486,7 @@ GET `/v1/vessel-schedules`
 |---|---|---|
 | platformRegion | 可重复 | 区域代码，精确匹配，区分大小写 |
 | platformMatchingStatus | 可重复 | 七个匹配状态 |
+| platformLastSyncStatus | 可重复 | Auto matched、Multiple terminal records、ETA gap > 3 days、No external voyage、No terminal record、Failed |
 | platformLastModifiedBy | 单个 | 操作人子串，忽略大小写 |
 | laraVesselName | 可重复 | 英文船名，精确匹配，忽略大小写 |
 | laraVoyage | 可重复 | 航次，精确匹配，忽略大小写 |
@@ -533,6 +534,7 @@ GET `/v1/vessel-schedules`
       "platformVoyageStatus": "Active",
       "platformPointCovered": true,
       "platformMatchingStatus": "Pending match",
+      "platformLastSyncStatus": "ETA gap > 3 days",
       "platformCandidateCount": 1,
       "platformSharedLaraCount": 1,
       "platformTerminalPending": null,
@@ -615,6 +617,7 @@ GET `/v1/vessel-schedules/export`
 | 列 | 取值 |
 |---|---|
 | Mapping status | platformMatchingStatus |
+| Last sync status | platformLastSyncStatus |
 | Last modified by | platformLastModifiedBy |
 | Last modified at | platformLastModifiedAt |
 | Voyage | laraVoyage |
@@ -669,6 +672,7 @@ GET `/v1/vessel-schedules/{scheduleId}`
   "platformVoyageStatus": "Active",
   "platformPointCovered": true,
   "platformMatchingStatus": "Pending match",
+  "platformLastSyncStatus": "ETA gap > 3 days",
   "platformCandidateCount": 1,
   "platformSharedLaraCount": 1,
   "platformTerminalPending": null,

@@ -265,6 +265,8 @@ export type VesselRecord = {
   /** Template: ports of call */
   portsOfCall: string
   matchingStatus: MatchingStatus
+  /** Latest terminal sync result. Empty when no settled terminal query exists. Never Manual matched or Pending match. */
+  lastSyncStatus: '' | 'Auto matched' | 'Multiple terminal records' | 'ETA gap > 3 days' | 'No external voyage' | 'No terminal record' | 'Failed'
   /** How many matched vessel schedules share this port, terminal, and export voyage. */
   sharedLaraCount: number
   /** Null when no terminal row is bound. */

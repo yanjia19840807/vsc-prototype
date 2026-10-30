@@ -39,6 +39,7 @@ const variant = computed<BadgeVariants['variant'] | null>(() => {
       'ETA gap > 3 days',
       'No external voyage',
       'No terminal record',
+      'Failed',
     ].includes(status)
   ) {
     return 'warning'

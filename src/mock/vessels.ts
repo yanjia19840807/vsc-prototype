@@ -365,6 +365,7 @@ function build(seed: Seed): VesselRecord {
   const etb = seed.laraEtb ?? daysFromNow(etbOff, 8)
   const laraEta = seed.laraEta ?? daysBefore(etb, 1, 7)
   const etd = seed.laraEtd ?? daysFromNow(etbOff + 1, 18)
+  // Keep the default terminal ETA on the same day as LARA ETA. A gap is only the examples that set tmlEta.
   const ext = seed.blankVoyages
     ? ''
     : (seed.externalVoyage ??
@@ -374,7 +375,7 @@ function build(seed: Seed): VesselRecord {
   const importVoyage = seed.blankVoyages
     ? ''
     : (seed.externalImportVoyage ?? `E${String((hashId(seed.id) % 900) + 100).padStart(3, '0')}`)
-  const eta = seed.tmlEta ?? daysFromNow(etbOff - 1, 7)
+  const eta = seed.tmlEta ?? laraEta
   const ata = seed.tmlAta ?? ''
   const terminalEtb = seed.tmlEtb ?? etb
   const atb = seed.tmlAtb ?? ''
@@ -479,6 +480,7 @@ function build(seed: Seed): VesselRecord {
     agentCode: seed.agentCode ?? '',
     portsOfCall: seed.portsOfCall ?? '',
     matchingStatus: seed.matchingStatus,
+    lastSyncStatus: '',
     sharedLaraCount: 0,
     terminalSource: selected ? 'freightower' : null,
     voyageStatus: seed.voyageStatus ?? 'Active',
@@ -916,7 +918,7 @@ export function createInitialVessels(): VesselRecord[] {
       pointCode: 'CNXMN',
       region: 'SC',
       matchingStatus: 'Manual matched',
-      remark: '【后续同步 · 多条且航次对上】上一状态已是 Manual matched。这次返回多条，其中一条出口航次和进口航次都与当前绑定相同。这条作为默认比对，不覆盖已保存的码头列。不同的码头字段只展示 Previous 和 This sync，不需要选择用哪一边。匹配状态写成 Pending match。可以用 Select 改选。确认后保留已保存的码头值，状态改回 Manual matched。',
+      remark: '【后续同步 · 多条且航次对上、其余字段相同】上一状态已是 Manual matched。这次返回多条，其中一条出口航次和进口航次都与当前绑定相同，其余码头字段也与已保存值完全相同。不改码头列，匹配状态保持 Manual matched，不进入 Review。',
       manualRemediation: 'selectMatch',
       extraCandidates: [{ evoyage: '044W', ivoyage: 'E045', terminal: 'XMN2' }],
       workflowStatus: 'In Progress',
@@ -1168,7 +1170,7 @@ export function createInitialVessels(): VesselRecord[] {
       region: 'CC',
       laraVoyage: '0SYNC47MA',
       matchingStatus: 'Manual matched',
-      remark: '【后续同步 · 多条且航次对上】上一状态已是 Manual matched。这次返回多条，其中一条出口航次和进口航次都与当前绑定相同，但 ETB、ETD 变了。这条作为默认比对，不覆盖已保存的码头列。不同的字段只展示 Previous 和 This sync，不需要选择用哪一边。匹配状态写成 Pending match。可以用 Select 改选。确认后保留已保存的码头值，状态改回 Manual matched。',
+      remark: '【后续同步 · 多条且航次对上、其余字段不同】上一状态已是 Manual matched。这次返回多条，其中一条出口航次和进口航次都与当前绑定相同，但 ETB、ETD 变了。这条作为默认比对，不覆盖已保存的码头列。不同的字段只展示 Previous 和 This sync，不需要选择用哪一边。匹配状态写成 Pending match。若对上的那一条其余字段也完全相同，则不进入 Review，状态保持不变。可以用 Select 改选。不重新选择就确认时，当前值作为最新值。重新选择一条后确认，采用所选记录作为最新值，状态改回 Manual matched。',
       workflowStatus: 'In Progress',
       owner: CURRENT_USER,
       externalVoyage: '047E',
@@ -1201,7 +1203,7 @@ export function createInitialVessels(): VesselRecord[] {
       region: 'SC',
       laraVoyage: '0SYNC49MA',
       matchingStatus: 'Manual matched',
-      remark: '【后续同步 · 没有记录待处理】上一状态已是 Manual matched。这次没有码头记录。已保存的码头记录先保留，匹配状态写成 Pending match。确认必须保留这条码头记录，或新建一条。不能确认成没有码头记录。确认后为 Manual matched。',
+      remark: '【后续同步 · 人工匹配后没有记录】当前已是人工匹配。这次码头同步没有记录。不论码头记录是手工录入的还是以前同步来的，已保存的码头数据保持不变，匹配状态仍是 Manual matched，不进入 Review。',
       workflowStatus: 'In Progress',
       owner: CURRENT_USER,
       externalVoyage: '049E',
@@ -1231,7 +1233,7 @@ export function createInitialVessels(): VesselRecord[] {
       region: 'SC',
       laraVoyage: '0SYNC51MA',
       matchingStatus: 'Manual matched',
-      remark: '【后续同步 · 多条且航次对不上】上一状态已是 Manual matched。这次返回多条，没有一条的出口航次和进口航次同时与当前绑定相同。没有默认比对，已保存的码头记录仍然显示，匹配状态写成 Pending match。可以用 Select 指定一条来比对，不同字段只展示、不选择。确认后保留已保存的码头值，状态改回 Manual matched。',
+      remark: '【后续同步 · 多条且航次对不上】上一状态已是 Manual matched。这次返回多条，没有一条的出口航次和进口航次同时与当前绑定相同。没有默认比对，已保存的码头记录仍然显示，匹配状态写成 Pending match。可以用 Select 指定一条来比对。不重新选择就确认时，当前值作为最新值。重新选择一条后确认，采用所选记录作为最新值，状态改回 Manual matched。',
       workflowStatus: 'In Progress',
       owner: CURRENT_USER,
       externalVoyage: '051E',
@@ -1264,7 +1266,7 @@ export function createInitialVessels(): VesselRecord[] {
       laraVoyage: '0SYNC53MA',
       matchingStatus: 'Manual matched',
       terminalSource: 'manual',
-      remark: '【后续同步 · 手工补录后没有记录】码头记录是手工新增的。这次码头同步没有记录。系统忽略这次结果，码头列和匹配状态保持 Manual matched，不进入 Review。',
+      remark: '【后续同步 · 人工匹配后没有记录】当前已是人工匹配，这条码头记录是手工新增的。这次码头同步没有记录。不论是否手工录入，都保持已保存的码头数据和 Manual matched，不进入 Review。',
       workflowStatus: 'In Progress',
       owner: CURRENT_USER,
       externalVoyage: '053E',
