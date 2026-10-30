@@ -402,13 +402,15 @@ LARA：
 
 | 条件 | 确认前 | 确认时写 vessel_schedule |
 |---|---|---|
-| platformTerminalPending 为 many，且已有保存的码头记录 | 显示已保存的码头列。有唯一航次相同、但其余字段并不完全相同的 `terminal_payload` 时，只读对照上一版和这次同步。点选另一条只换正在看的 id。航次相同且其余字段也完全相同的那条不产生 `many`，不进入本行 | 确认当前记录则码头列不变。确认另一条则写入该 `terminal_payload`，terminal_source 仍为 SYNC |
-| platformTerminalPending 为 many，且还没有绑定 | 码头区为空，直到选中一条 `terminal_payload` 或在页面上新建 | 写入选中的候选或新建的记录 |
+| platformTerminalPending 为 many，且已有保存的码头记录，并有唯一航次相同、但其余字段并不完全相同的 `terminal_payload` | 页面码头区在选定前不显示已保存列，只提供对照。对照里右边先选定一条，再按字段比较。必须选择 Keep current 或 Use this sync。航次相同且其余字段也完全相同的那条不产生 `many`，不进入本行 | Keep current 则码头列不变。Use this sync 则写入所选 `terminal_payload`，terminal_source 仍为 SYNC。状态都写成 Manual matched |
+| platformTerminalPending 为 many，已有保存的码头记录，且没有一条的出口航次和进口航次同时与当前绑定相同 | 页面码头区在选定前不显示已保存列。对照里右边先选定一条。必须选择 Keep current，或对选中记录使用 Use this sync。两者都没做不能确认 | Keep current 则码头列不变。Use this sync 则写入该 `terminal_payload`，terminal_source 仍为 SYNC。状态都写成 Manual matched |
+| platformTerminalPending 为 many，且还没有绑定 | 码头区为空，直到选中一条 `terminal_payload`。不能在页面上新建 | 写入选中的候选，`terminal_source` 仍为 SYNC |
 | No terminal record | 必须在页面上新建一条 | 写入这条手工记录，terminal_source 为 USER |
-| Multiple terminal records，且还没有绑定 | 必须选中一条 `terminal_payload`，或在页面上新建 | 写入选中的候选或新建的记录 |
-| 存在 pending 为 true、且不是多条比对里只读展示的码头字段 | 在 previousValue 和 incomingValue 之间选。全部选完才能确认 | 把选定的值写入对应码头列 |
+| Multiple terminal records，且还没有绑定 | 必须选中一条 `terminal_payload`。不能新建 | 写入选中的候选，`terminal_source` 仍为 SYNC |
+| 已是 Manual matched，存在 pending 为 true 的码头字段 | 页面码头区在选定前不显示已保存列。对照左边是已保存记录，右边是这次同步。必须选择 Keep current 或 Use this sync，同一次确认不能混用两边的值 | Keep current 则这些字段保持 previousValue。Use this sync 则这些字段都写成 incomingValue，状态写成 Manual matched |
+| 已是 Manual matched，这次只返回一条，且这条不是自动匹配 | 不改码头列。页面码头区在选定前不显示已保存列。对照后必须选择 Keep current 或 Use this sync | Keep current 则码头列不变。Use this sync 则写入这条 `terminal_payload`，`terminal_source` 仍为 SYNC。状态都写成 Manual matched |
 
-其余码头字段只读。LARA 不能手输，始终是 `vessel_schedule` 上的最新值。Pending match 时，列表和明细把码头格子画成 —，Review 显示 `vessel_schedule` 上的码头列。确认之后列表和明细才画出这些值。
+其余码头字段只读。LARA 不能手输，始终是 `vessel_schedule` 上的最新值。Pending match 时，列表和明细把码头格子画成 —。Review 的码头区在对照里选定一边之前不显示码头列；选定后显示所选整条，确认之后列表和明细才画出这些值。还不是 Manual matched 的 Multiple terminal records、No terminal record、ETA gap > 3 days、No external voyage 仍用选择或新建，不走这套对照。
 
 确认必须带上一条码头记录。没有这条时返回 409，八张表都不改。有这条时：
 
@@ -892,7 +894,7 @@ PUT `/v1/vessel-schedules/{scheduleId}/review`
 
 GET `/v1/vessel-schedules/{scheduleId}/terminal-candidates`
 
-打开选择框时读取。没有候选时 data 为空数组。id 是 `terminal_payload.id`。点一行选中并高亮。已有当前记录时，再点这一行仍是当前记录，不会把表单清空。首次尚未绑定、没有当前记录时，选择框可以先不选。确认前必须选中一条或新建一条。
+打开选择框时读取。没有候选时 data 为空数组。id 是 `terminal_payload.id`。点一行选中并高亮。已有当前记录时，再点这一行仍是当前记录，不会把表单清空。首次尚未绑定、没有当前记录时，选择框可以先不选。多条码头记录时确认前必须选中一条，不能新建。没有码头记录时必须新建一条。
 
 请求：
 

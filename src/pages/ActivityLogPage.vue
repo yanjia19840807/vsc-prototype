@@ -2,7 +2,6 @@
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import DataSection from '@/components/DataSection.vue'
 import DataTableColumnHeader from '@/components/DataTableColumnHeader.vue'
 import DataTablePagination from '@/components/DataTablePagination.vue'
 import FilterField from '@/components/FilterField.vue'
@@ -183,37 +182,31 @@ function clearFilters() {
       @update:page-size="(size) => table.setPageSize(size)"
     />
 
-    <div v-if="selected" ref="detailRef" class="space-y-4">
-      <div>
-        <h2 class="text-xl font-semibold">Field Change</h2>
-        <p class="text-sm text-muted-foreground">
-          {{ selected.updatedBy || '—' }} · {{ formatDateTime(selected.at) }}
-          <template v-if="selected.remark"> · {{ selected.remark }}</template>
-        </p>
-      </div>
+    <section v-if="selected" ref="detailRef" class="space-y-3">
+      <p class="text-sm text-muted-foreground">
+        {{ selected.updatedBy || '—' }} · {{ formatDateTime(selected.at) }}
+        <template v-if="selected.remark"> · {{ selected.remark }}</template>
+      </p>
       <p v-if="selected.resultNote" class="text-sm text-muted-foreground">{{ selected.resultNote }}</p>
-
-      <DataSection v-if="selected.changes.length" title="Changes">
-        <div class="overflow-hidden rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Field</TableHead>
-                <TableHead>Original</TableHead>
-                <TableHead>Updated</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              <TableRow v-for="row in selected.changes" :key="row.id">
-                <TableCell class="whitespace-nowrap">{{ row.label }}</TableCell>
-                <TableCell>{{ row.original }}</TableCell>
-                <TableCell>{{ row.value }}</TableCell>
-              </TableRow>
-            </TableBody>
-          </Table>
-        </div>
-      </DataSection>
-    </div>
+      <div v-if="selected.changes.length" class="overflow-hidden rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Field</TableHead>
+              <TableHead>Original</TableHead>
+              <TableHead>Updated</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow v-for="row in selected.changes" :key="row.id">
+              <TableCell class="whitespace-nowrap">{{ row.label }}</TableCell>
+              <TableCell>{{ row.original }}</TableCell>
+              <TableCell>{{ row.value }}</TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
+      </div>
+    </section>
   </div>
   <Alert v-else variant="warning">
     <AlertDescription>This schedule record is no longer available.</AlertDescription>

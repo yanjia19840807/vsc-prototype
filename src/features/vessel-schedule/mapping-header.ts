@@ -1,12 +1,33 @@
+import type { AlertVariants } from '@/components/ui/alert'
 import type { TerminalShape } from '@/domain/schedule-model/sync-diff'
 import { addTerminalAlert, MISMATCH_ALERT } from '@/features/vessel-schedule/mismatch-actions'
 import { candidateCountLabel, sharedLaraRemark } from '@/features/vessel-search/search-columns'
 import type { VesselRecord } from '@/types/vsp'
 
+export type MappingAlertVariant = NonNullable<AlertVariants['variant']>
+
 export type MappingHeaderAlert = {
-  variant: 'warning'
+  variant: MappingAlertVariant
   title: string
   text: string
+}
+
+/** Same meaning as StatusBadge: pending is danger, mismatch statuses are warning. */
+export function mappingAlertVariant(status: string): MappingAlertVariant {
+  if (
+    [
+      'Multiple terminal records',
+      'ETA gap > 3 days',
+      'No external voyage',
+      'No terminal record',
+      'Failed',
+    ].includes(status)
+  ) {
+    return 'warning'
+  }
+  if (status === 'Pending match') return 'destructive'
+  if (status === 'Auto matched' || status === 'Manual matched') return 'success'
+  return 'warning'
 }
 
 export function mappingStatusChangeAlert(
@@ -15,7 +36,7 @@ export function mappingStatusChangeAlert(
   if (!field) return null
   if (field.previousValue === field.incomingValue) return null
   return {
-    variant: 'warning',
+    variant: mappingAlertVariant(field.incomingValue),
     title: 'Mapping status',
     text: `Previous: ${field.previousValue || '—'}. This sync: ${field.incomingValue || '—'}`,
   }
@@ -39,7 +60,7 @@ function multipleTerminalAlert(count: number, previous?: string): MappingHeaderA
   const remark = count === 1 ? '1 candidate' : count > 1 ? `${count} candidates` : ''
   const text = remark ? `${remark}. ${MISMATCH_ALERT.selectMatch}` : MISMATCH_ALERT.selectMatch
   return {
-    variant: 'warning',
+    variant: mappingAlertVariant('Multiple terminal records'),
     title: 'Multiple terminal records',
     text: withPreviousStatus(text, previous, 'Multiple terminal records'),
   }
@@ -47,7 +68,7 @@ function multipleTerminalAlert(count: number, previous?: string): MappingHeaderA
 
 function noTerminalAlert(vessel: VesselRecord, previous?: string): MappingHeaderAlert {
   return {
-    variant: 'warning',
+    variant: mappingAlertVariant('No terminal record'),
     title: 'No terminal record',
     text: withPreviousStatus(addTerminalAlert(vessel), previous, 'No terminal record'),
   }
@@ -62,7 +83,7 @@ export function mappingHeaderAlert(
   if (review?.shape === 'many') return multipleTerminalAlert(review.candidateCount || vessel.terminalCandidates.length, previous)
   if (review?.shape === 'none') {
     return {
-      variant: 'warning',
+      variant: mappingAlertVariant('No terminal record'),
       title: 'No terminal record',
       text: withPreviousStatus(
         'The latest sync has no terminal record. Confirm the current terminal record, or add a new one.',
@@ -76,13 +97,13 @@ export function mappingHeaderAlert(
       return multipleTerminalAlert(vessel.terminalCandidates.length, previous)
     case 'ETA gap > 3 days':
       return {
-        variant: 'warning',
+        variant: mappingAlertVariant('ETA gap > 3 days'),
         title: 'ETA gap > 3 days',
         text: withPreviousStatus(MISMATCH_ALERT.reviewMatch, previous, 'ETA gap > 3 days'),
       }
     case 'No external voyage':
       return {
-        variant: 'warning',
+        variant: mappingAlertVariant('No external voyage'),
         title: 'No external voyage',
         text: withPreviousStatus(
           'A terminal schedule was found, but export and import voyage are missing.',

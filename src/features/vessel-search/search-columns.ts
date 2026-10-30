@@ -46,6 +46,7 @@ export const LOCKED_COLUMN_ID = 'laraVoyage'
 export const SEARCH_COLUMNS: SearchColumn[] = [
   { id: 'mappingStatus', label: 'Mapping status', kind: 'text', source: 'platform' },
   { id: 'lastSyncStatus', label: 'Last sync status', kind: 'text', source: 'platform' },
+  { id: 'lastRefreshTime', label: 'Last sync time', kind: 'datetime', source: 'platform' },
   { id: 'lastUpdateBy', label: 'Last modified by', kind: 'text', source: 'platform' },
   { id: 'lastUpdateAt', label: 'Last modified at', kind: 'datetime', source: 'platform' },
   // LARA fields from the schedule template. Calculated columns stay last.
@@ -140,6 +141,9 @@ export function historyFieldMatches(field: string, columnId: string) {
 }
 
 export const SEARCH_DEFAULT_SORT = [{ id: 'laraEtb', desc: true }]
+
+/** Mapping status through last modified, shown in list, detail, and review headers. */
+export const PLATFORM_HEADER_COLUMNS = SEARCH_COLUMNS.filter((column) => column.source === 'platform')
 
 function brandOf(v: VesselRecord): string {
   return brandFromVoyage(v.laraVoyage) || v.brand || ''

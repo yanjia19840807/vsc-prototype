@@ -13,14 +13,14 @@ const props = defineProps<{
   <section data-slot="data-section" :class="cn('flex min-w-0 flex-col gap-1.5', props.class)">
     <div
       data-slot="data-section-title"
-      :class="cn('flex items-center justify-between gap-2 text-sm font-medium text-foreground', props.titleClass)"
+      :class="cn('flex h-7 items-center justify-between gap-2 text-sm font-medium leading-none text-foreground', props.titleClass)"
     >
-      <div class="min-w-0">
+      <div class="flex min-w-0 items-center">
         <slot name="title">
-          <h2 class="text-sm font-medium">{{ title }}</h2>
+          <h2 class="text-sm font-medium leading-none">{{ title }}</h2>
         </slot>
       </div>
-      <div v-if="$slots.actions" class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+      <div v-if="$slots.actions" class="flex h-7 shrink-0 items-center justify-end gap-2">
         <slot name="actions" />
       </div>
     </div>

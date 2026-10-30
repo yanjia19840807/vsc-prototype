@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/button'
 import SyncFieldAlert from '@/features/vessel-schedule/SyncFieldAlert.vue'
 import { reviewForColumn } from '@/features/vessel-schedule/sync-columns'
 import { syncCellKey, syncPendingKey, showsUnsettledDash } from '@/features/vessel-schedule/sync-review'
-import { mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
+import { mappingAlertVariant, mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
+import SchedulePlatformFields from '@/features/vessel-schedule/SchedulePlatformFields.vue'
 import ScheduleRecordHeading from '@/features/vessel-schedule/ScheduleRecordHeading.vue'
 import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
 import { type ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
@@ -23,7 +24,6 @@ import {
   isWarningCellText,
   manualOverrideFor,
   searchCellText,
-  sharedLaraRemark,
   type ColumnSource,
 } from '@/features/vessel-search/search-columns'
 import { formatDateTime } from '@/lib/vessel-utils'
@@ -50,9 +50,6 @@ provide(syncPendingKey, (scheduleId) => schedule.review(scheduleId).changed)
 const vessel = computed(() => store.byId(String(route.params.id)))
 const quickAction = ref<ScheduleQuickAction | null>(null)
 
-const platformColumns = computed(() =>
-  SEARCH_COLUMNS.filter((column) => column.source === 'platform' && column.id !== 'mappingStatus'),
-)
 const headerAlert = computed(() => {
   const current = vessel.value
   if (!current) return null
@@ -64,6 +61,9 @@ const headerAlert = computed(() => {
     previousStatus: matchField?.previousValue,
   })
 })
+const remarkAlertVariant = computed(() => (
+  vessel.value ? mappingAlertVariant(vessel.value.matchingStatus) : 'info'
+))
 const panes = computed(() => [
   { source: 'lara' as ColumnSource, title: 'LARA', columns: SEARCH_COLUMNS.filter((column) => column.source === 'lara' && column.id !== 'voyageStatus') },
   { source: 'terminal' as ColumnSource, title: 'Terminal', columns: SEARCH_COLUMNS.filter((column) => column.source === 'terminal') },
@@ -117,38 +117,18 @@ function sourceText(columnId: string) {
       </div>
     </div>
     <ScheduleRecordHeading :vessel="vessel" />
+    <SchedulePlatformFields :vessel="vessel" />
 
     <Alert v-if="headerAlert" :variant="headerAlert.variant">
       <AlertTitle>{{ headerAlert.title }}</AlertTitle>
-      <AlertDescription>{{ headerAlert.text }}</AlertDescription>
+      <AlertDescription>
+        <p v-if="vessel.remark">{{ vessel.remark }}</p>
+        <p :class="vessel.remark ? 'mt-1' : undefined">{{ headerAlert.text }}</p>
+      </AlertDescription>
     </Alert>
-
-    <dl v-if="platformColumns.length" class="grid sm:grid-cols-2 sm:gap-x-6">
-      <ReadonlyField v-for="column in platformColumns" :key="column.id" :label="column.label">
-        <StatusBadge v-if="STATUS_COLUMNS.has(column.id)" :status="cellText(column.id)" />
-        <span
-          v-else
-          :class="isWarningCellText(cellText(column.id), column.id) ? 'text-amber-800' : undefined"
-        >
-          {{ cellText(column.id) }}
-        </span>
-        <span
-          v-if="column.id === 'mappingStatus'
-            && vessel.matchingStatus === 'Multiple terminal records'
-            && vessel.terminalCandidates.length"
-          class="ml-2 text-xs text-muted-foreground"
-        >
-          {{ vessel.terminalCandidates.length }} candidates
-        </span>
-        <span
-          v-else-if="column.id === 'mappingStatus' && sharedLaraRemark(vessel.sharedLaraCount)"
-          class="ml-2 text-xs text-muted-foreground"
-        >
-          {{ sharedLaraRemark(vessel.sharedLaraCount) }}
-        </span>
-        <SyncFieldAlert :schedule-id="vessel.id" :column-id="column.id" />
-      </ReadonlyField>
-    </dl>
+    <Alert v-else-if="vessel.remark" :variant="remarkAlertVariant === 'success' ? 'info' : remarkAlertVariant">
+      <AlertDescription>{{ vessel.remark }}</AlertDescription>
+    </Alert>
 
     <div class="grid items-start gap-4 lg:grid-cols-2">
       <DataSection v-for="pane in panes" :key="pane.source" :title="pane.title">

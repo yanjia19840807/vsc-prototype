@@ -102,7 +102,7 @@ export const DEFAULT_VISIBLE_FILTERS = [
   'laraEtb',
 ] as const
 
-const CATALOG_REV = 9
+const CATALOG_REV = 10
 
 /** Within one source, choice lists, then free text, then dates, then the checkbox. */
 const FILTER_KIND_ORDER: FilterControlKind[] = ['multi', 'lines', 'text', 'datetime', 'check']
@@ -727,6 +727,10 @@ export function loadUserSettings(username: string): UserListSettings {
           columns.order = seatSourceColumns(columns.order, 'platform')
         }
         if (catalogRev < 9) filters = restoreDefaultDateFilters(filters)
+        if (catalogRev < 10) {
+          filters = seatSourceFilters(filters, 'platform')
+          columns.order = seatSourceColumns(columns.order, 'platform')
+        }
         return { ...item, filters, columns }
       })
     }
