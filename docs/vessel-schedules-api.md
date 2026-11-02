@@ -302,11 +302,9 @@
 
 ### list_setting
 
-作用：一个登录用户的一份列表方案。每个用户恰好有一份生效。第一次读取时如果还没有方案，建一份名为 Default 并设为生效。
+作用：一个登录用户的一份列表方案。每个用户恰好有一份生效。第一次读取时如果还没有方案，建一份名为 Default 并设为生效。筛选项、列、排序、关注项和冻结列整份放在 `config`，不拆子表。
 
-主键：`id`
-
-外键：无。`owner` 是登录名，不指向别的表
+物理表名：`vsc_list_setting`。主键：`id`。外键：无。`owner` 是登录名，不指向别的表。
 
 | 列 | 说明 |
 |---|---|
@@ -315,87 +313,9 @@
 | name | 方案名称。同一 owner 下不重复 |
 | position | 在该用户方案列表中的顺序，从 0 起 |
 | active | true：当前生效。每个 owner 恰好一行是 true |
-| freeze_field | 左冻结截止列的字段名，含这一列，例如 laraEtb。不冻结时为空，且必须是这份方案里的一列 |
+| config | JSON。含 `freeze`、`filters`、`columns`、`sort`、`watched`，形状与列表方案接口正文相同。改名和切换生效不改这列 |
 
-### list_setting_filter
-
-作用：方案里的一个筛选项，含是否显示和默认值。相对日期存在这里，提交船期搜索前由前端折成绝对日期。隐藏项的默认值仍会提交。
-
-主键：`setting_id`、`field`
-
-外键：`setting_id` → `list_setting.id`
-
-| 列 | 说明 |
-|---|---|
-| setting_id | 所属方案。主键之一，外键 |
-| field | 字段名，例如 laraEtb、platformRegion。主键之一。platformRegion 只有筛选项，不是列表列 |
-| position | 筛选项顺序，从 0 起 |
-| visible | true：搜索页显示。false：不显示，默认值仍提交 |
-| date_mode | 空：不是日期。fixed：用 date_from、date_to。relative：用 from_days、to_days |
-| text_value | 子串默认值。多选和多行不用 |
-| date_from | fixed 的开始日期，可空 |
-| date_to | fixed 的结束日期，可空 |
-| from_days | relative 时，从今天往前的天数。空表示这一端不限制 |
-| to_days | relative 时，从今天往后的天数。空表示这一端不限制 |
-
-### list_setting_filter_value
-
-作用：多选和多行筛选项的一个默认值。
-
-主键：`setting_id`、`field`、`position`
-
-外键：`setting_id`、`field` → `list_setting_filter` 的主键
-
-| 列 | 说明 |
-|---|---|
-| setting_id | 所属方案。主键之一 |
-| field | 与筛选项相同。主键之一 |
-| position | 值的顺序，从 0 起。主键之一 |
-| value | 默认值。多行忽略大小写，代码类区分大小写 |
-
-### list_setting_column
-
-作用：方案里的列表一列。
-
-主键：`setting_id`、`field`
-
-外键：`setting_id` → `list_setting.id`
-
-| 列 | 说明 |
-|---|---|
-| setting_id | 所属方案。主键之一，外键 |
-| field | 字段名。主键之一。laraVoyage 不能隐藏 |
-| position | 列顺序，从 0 起 |
-| hidden | true：列表不显示。laraVoyage 必须是 false |
-
-### list_setting_sort
-
-作用：方案自带的默认排序。搜索页临时改的排序不写回这里，随那一次搜索的 `sort` 参数走。
-
-主键：`setting_id`、`position`
-
-外键：`setting_id` → `list_setting.id`
-
-| 列 | 说明 |
-|---|---|
-| setting_id | 所属方案。主键之一，外键 |
-| position | 排序优先级，从 0 起。主键之一 |
-| field | 字段名，例如 laraEtb |
-| descending | true：降序。false：升序 |
-
-### list_setting_watch
-
-作用：该用户要看到的已写入差异。只决定高亮和提示，不决定同步是否写入、是否进入审核。`platformMatchingStatus` 必须保留。
-
-主键：`setting_id`、`field`
-
-外键：`setting_id` → `list_setting.id`
-
-| 列 | 说明 |
-|---|---|
-| setting_id | 所属方案。主键之一，外键 |
-| field | 字段名。主键之一。platformMatchingStatus 不能删 |
-| day_threshold | 日期列的天数阈值。空或 0：只要不同就提示。非日期列为空 |
+`filters` 含是否显示和默认值。相对日期存在这里，提交船期搜索前由前端折成绝对日期。隐藏项的默认值仍会提交。`platformRegion` 只有筛选项，不是列表列。`columns` 里 `laraVoyage` 不能隐藏。`sort` 是方案自带的默认排序，搜索页临时改的排序不写回这里。`watched` 只决定高亮和提示，`platformMatchingStatus` 必须保留。日期列的 `dayThreshold` 为空或 0 时，只要不同就提示。
 
 ## 系统关键逻辑
 
@@ -449,7 +369,7 @@ LARA：
 
 ### 高亮
 
-不写版本和报文。对比当前版本已经写入的值，和 `activity_log_change` 里该字段上一笔 `updated`。只取该用户 `list_setting_watch` 中的字段，日期再按 `day_threshold` 过滤。关注项不决定版本写不写，也不决定是否进入 Review。LARA 只要和上一笔不同就参与，不要求已经绑上码头。人工确认后留在当前 `terminal_version` 上的码头值，和上一笔不同且被关注时，同样参与。列表行在任一这样的差异上高亮。提示图标只出现在关注的列上。Review 页上这个字段已经展开上一版和这次同步时，不再另放提示图标。`platformMatchingStatus` 本身没有这个提示。
+不写版本和报文。对比当前版本已经写入的值，和 `activity_log_change` 里该字段上一笔 `updated`。只取该用户当前生效方案 `config.watched` 中的字段，日期再按 `dayThreshold` 过滤。关注项不决定版本写不写，也不决定是否进入 Review。LARA 只要和上一笔不同就参与，不要求已经绑上码头。人工确认后留在当前 `terminal_version` 上的码头值，和上一笔不同且被关注时，同样参与。列表行在任一这样的差异上高亮。提示图标只出现在关注的列上。Review 页上这个字段已经展开上一版和这次同步时，不再另放提示图标。`platformMatchingStatus` 本身没有这个提示。
 
 ### Review
 

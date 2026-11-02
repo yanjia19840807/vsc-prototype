@@ -28,6 +28,6 @@ This writes `release/VSC-Vessel-Schedule-Center.html`. Open it directly in a bro
 - Header **role switch**: Post Sailing / Cargo Ops / Transshipment / Logistics / Admin
 - **Reset Demo** restores mock data
 
-There is no backend. All interaction stays in browser memory.
+There is no backend. All interaction stays in browser memory and mock data. The application that calls GROW is `vsc-frontend`.
 
 The UI is English only.

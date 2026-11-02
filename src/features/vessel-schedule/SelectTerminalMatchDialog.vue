@@ -199,11 +199,6 @@ const candidateFeatures = tableFeatures({
 })
 
 const candidateColumns = [
-  {
-    id: 'select',
-    header: '',
-    enableSorting: false,
-  },
   ...CANDIDATE_COLUMN_DEFS.map((column) => ({
     id: column.id,
     header: column.label,
@@ -290,7 +285,6 @@ function close() {
                 <TableHead
                   v-for="header in headerGroup.headers"
                   :key="header.id"
-                  :class="header.column.id === 'select' ? 'w-8' : undefined"
                 >
                   <DataTableColumnHeader
                     v-if="!header.isPlaceholder && header.column.getCanSort()"
@@ -310,31 +304,16 @@ function close() {
                 :key="row.id"
                 class="cursor-pointer data-[state=selected]:!bg-accent"
                 :data-state="values.candidateIndex === row.id ? 'selected' : undefined"
+                :aria-selected="values.candidateIndex === row.id"
                 @click="setFieldValue('candidateIndex', row.id)"
               >
                 <TableCell
                   v-for="cell in row.getAllCells()"
                   :key="cell.id"
-                  :class="
-                    cell.column.id === 'select'
-                      ? 'w-8'
-                      : columnKind[cell.column.id] === 'datetime'
-                        ? 'min-w-[20rem]'
-                        : 'min-w-40'
-                  "
+                  :class="columnKind[cell.column.id] === 'datetime' ? 'min-w-[20rem]' : 'min-w-40'"
                 >
-                  <div v-if="cell.column.id === 'select'" class="flex items-center">
-                    <input
-                      :key="`${row.id}:${values.candidateIndex}`"
-                      type="radio"
-                      class="m-0 size-4 shrink-0"
-                      name="select-match-candidate"
-                      :checked="values.candidateIndex === row.id"
-                      @change="setFieldValue('candidateIndex', row.id)"
-                    />
-                  </div>
                   <DateTimePicker
-                    v-else-if="columnKind[cell.column.id] === 'datetime'"
+                    v-if="columnKind[cell.column.id] === 'datetime'"
                     :model-value="localDateTime(textValue(row.original.index, cell.column.id as CandidateColumnId))"
                     class="w-max shrink-0"
                     @update:model-value="setDateTime(row.original.index, cell.column.id as CandidateColumnId, $event ?? '')"

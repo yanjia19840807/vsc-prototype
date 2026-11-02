@@ -1691,7 +1691,6 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="w-8" />
               <TableHead class="whitespace-nowrap">Match</TableHead>
               <TableHead v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                 {{ column.label }}
@@ -1704,24 +1703,15 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
               :key="row.id"
               class="cursor-pointer data-[state=selected]:!bg-accent"
               :data-state="pendingSelectId === row.id ? 'selected' : undefined"
+              :aria-selected="pendingSelectId === row.id"
               @click="pickSelectRow(row.id)"
             >
-              <TableCell class="w-8">
-                <input
-                  type="radio"
-                  class="pointer-events-none m-0 size-4 shrink-0"
-                  tabindex="-1"
-                  name="review-select-terminal"
-                  :checked="pendingSelectId === row.id"
-                  :aria-label="pendingSelectId === row.id ? 'Selected' : 'Not selected'"
-                />
-              </TableCell>
               <TableCell class="whitespace-nowrap">{{ row.id === initialSelectedId ? 'Previous' : '' }}</TableCell>
               <TableCell v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                 {{ displayDraftValue(row.draft, column.id, column.kind) }}
               </TableCell>
             </TableRow>
-            <TableEmpty v-if="!rows.length" :colspan="CANDIDATE_COLUMN_DEFS.length + 2" />
+            <TableEmpty v-if="!rows.length" :colspan="CANDIDATE_COLUMN_DEFS.length + 1" />
           </TableBody>
         </Table>
       </div>
@@ -1741,7 +1731,6 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead class="w-8" />
               <TableHead class="whitespace-nowrap">Match</TableHead>
               <TableHead v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                 {{ column.label }}
@@ -1754,24 +1743,15 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
               :key="payload.id"
               class="cursor-pointer data-[state=selected]:!bg-accent"
               :data-state="dialogPayloadId === payload.id ? 'selected' : undefined"
+              :aria-selected="dialogPayloadId === payload.id"
               @click="pickDialogPayload(payload.id)"
             >
-              <TableCell class="w-8">
-                <input
-                  type="radio"
-                  class="pointer-events-none m-0 size-4 shrink-0"
-                  tabindex="-1"
-                  name="review-shape-terminal"
-                  :checked="dialogPayloadId === payload.id"
-                  :aria-label="dialogPayloadId === payload.id ? 'Selected' : 'Not selected'"
-                />
-              </TableCell>
               <TableCell class="whitespace-nowrap">{{ payload.id === initialPayloadId ? 'Previous' : '' }}</TableCell>
               <TableCell v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                 {{ payloadText(payload, column.id) }}
               </TableCell>
             </TableRow>
-            <TableEmpty v-if="!shapeCandidates.length" :colspan="CANDIDATE_COLUMN_DEFS.length + 2" />
+            <TableEmpty v-if="!shapeCandidates.length" :colspan="CANDIDATE_COLUMN_DEFS.length + 1" />
           </TableBody>
         </Table>
       </div>
@@ -1815,7 +1795,6 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead class="w-8" />
                   <TableHead v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                     {{ column.label }}
                   </TableHead>
@@ -1827,23 +1806,14 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
                   :key="payload.id"
                   class="cursor-pointer data-[state=selected]:!bg-accent"
                   :data-state="listedPayloadId === payload.id ? 'selected' : undefined"
+                  :aria-selected="listedPayloadId === payload.id"
                   @click="pickComparePayload(payload.id)"
                 >
-                  <TableCell class="w-8">
-                    <input
-                      type="radio"
-                      class="pointer-events-none m-0 size-4 shrink-0"
-                      tabindex="-1"
-                      name="review-compare-terminal"
-                      :checked="listedPayloadId === payload.id"
-                      :aria-label="listedPayloadId === payload.id ? 'Selected' : 'Not selected'"
-                    />
-                  </TableCell>
                   <TableCell v-for="column in CANDIDATE_COLUMN_DEFS" :key="column.id" class="whitespace-nowrap">
                     {{ payloadText(payload, column.id) }}
                   </TableCell>
                 </TableRow>
-                <TableEmpty v-if="!shapeCandidates.length" :colspan="CANDIDATE_COLUMN_DEFS.length + 1" />
+                <TableEmpty v-if="!shapeCandidates.length" :colspan="CANDIDATE_COLUMN_DEFS.length" />
               </TableBody>
             </Table>
           </div>
