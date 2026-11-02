@@ -16,7 +16,7 @@ export const SCHEDULE_COLUMN_META = [
   { id: 'localVoyage', label: 'Local voyage', defaultOn: true },
   { id: 'pointCode', label: 'Point code', defaultOn: true },
   // Terminal / Feituo template
-  { id: 'lastRefreshTime', label: 'Last mapping time', defaultOn: false },
+  { id: 'lastRefreshTime', label: 'Last mapping at', defaultOn: false },
   { id: 'externalExportVoyage', label: 'Export voyage', defaultOn: true },
   { id: 'externalImportVoyage', label: 'Import voyage', defaultOn: true },
   { id: 'externalVoyage', label: 'External voyage', defaultOn: false },
@@ -98,7 +98,7 @@ export const scheduleColumns: ColumnDef<any, any>[] = [
   textCol('visitNo', 'Visit no'),
   textCol('localVoyage', 'Local voyage'),
   textCol('pointCode', 'Point code'),
-  textCol('lastRefreshTime', 'Last mapping time'),
+  textCol('lastRefreshTime', 'Last mapping at'),
   textCol('externalExportVoyage', 'Export voyage'),
   textCol('externalImportVoyage', 'Import voyage'),
   textCol('externalVoyage', 'External voyage'),

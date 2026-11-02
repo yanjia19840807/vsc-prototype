@@ -79,7 +79,7 @@ function payloadCell(payload: TerminalPayload, columnId: string) {
         <Button v-if="query" type="button" size="xs" variant="link" class="h-auto px-0" @click="detailOpen = true">Detail</Button>
       </div>
       <div class="flex items-center gap-2">
-        <dt class="text-muted-foreground">Last mapping time</dt>
+        <dt class="text-muted-foreground">Last mapping at</dt>
         <dd>{{ query ? formatDateTime(query.requestedAt) : '—' }}</dd>
       </div>
     </div>
