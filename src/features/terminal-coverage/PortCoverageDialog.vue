@@ -30,6 +30,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableEmpty,
   TableHead,
   TableHeader,
   TableRow,
@@ -242,11 +243,7 @@ function save() {
                   <Button type="button" size="xs" variant="outline" @click="askRemoveTerminal(terminal.id)">Remove</Button>
                 </TableCell>
               </TableRow>
-              <TableRow v-if="!form.terminals.length">
-                <TableCell colspan="4" class="text-muted-foreground">
-                  No terminals. An API covered port can still be called, and an unknown code will not translate to a 9code.
-                </TableCell>
-              </TableRow>
+              <TableEmpty v-if="!form.terminals.length" :colspan="4" />
             </TableBody>
           </Table>
         </div>

@@ -18,6 +18,7 @@ import {
   keepTerminalField,
   keepTerminalShape,
   laraFieldHistory,
+  laraVersion,
   matchHistory,
   defaultSyncPolicy,
   reviewSchedule,
@@ -207,6 +208,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     const fields: Parameters<typeof vessels.patchDisplay>[1] = {
       lastSyncStatus: schedule.platformLastSyncStatus ?? '',
       lastRefreshTime: schedule.lastSyncAt ?? '',
+      laraSyncTime: laraVersion(state.value, schedule.laraVersionId)?.updatedAt ?? '',
       lastModifiedBy: schedule.lastModifiedBy ?? '',
       lastModifiedAt: schedule.lastModifiedAt ?? '',
       laraVoyage: lara.laraVoyage,

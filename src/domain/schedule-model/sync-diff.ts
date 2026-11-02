@@ -825,7 +825,7 @@ export type ReturnedTerminalQuery = {
   payloads: TerminalPayload[]
 }
 
-/** The query behind Last sync status, with the records it returned. */
+/** The query behind Last mapping status, with the records it returned. */
 export function returnedTerminalQuery(state: ScheduleState, scheduleId: string): ReturnedTerminalQuery | null {
   const query = latestReturnedTerminalQuery(state, scheduleId)
   const status = displayedLastSyncStatus(state, scheduleId)

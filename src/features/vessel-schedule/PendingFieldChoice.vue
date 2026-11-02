@@ -42,7 +42,7 @@ function incomingValueClass() {
       </Button>
     </div>
     <div class="flex flex-wrap items-center gap-1.5">
-      <span class="w-20 shrink-0 text-xs text-amber-800 dark:text-amber-200">This sync</span>
+      <span class="w-20 shrink-0 text-xs text-amber-800 dark:text-amber-200">Current</span>
       <span class="text-sm" :class="incomingValueClass()">{{ incoming }}</span>
       <Button
         v-if="!readonly"

@@ -31,6 +31,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableEmpty,
   TableHead,
   TableHeader,
   TableRow,
@@ -139,15 +140,53 @@ function fieldChanges(before: TerminalSchedule | undefined, after: TerminalSched
   return details
 }
 
+function sameText(left: string | null | undefined, right: string | null | undefined) {
+  return (left ?? '') === (right ?? '')
+}
+
+function sameTime(left: string | null | undefined, right: string | null | undefined) {
+  const a = (left ?? '').replace(' ', 'T')
+  const b = (right ?? '').replace(' ', 'T')
+  if (a === b) return true
+  return Boolean(a && b && a.slice(0, 16) === b.slice(0, 16))
+}
+
 function sameSchedule(row: TerminalSchedule, selected: TerminalSchedule | null | undefined) {
   if (!selected) return false
   return (
-    row.evoyage === selected.evoyage
-    && row.ivoyage === selected.ivoyage
-    && row.terminal === selected.terminal
-    && row.etb === selected.etb
-    && row.etd === selected.etd
+    sameText(row.evoyage, selected.evoyage)
+    && sameText(row.ivoyage, selected.ivoyage)
+    && sameText(row.terminal, selected.terminal)
+    && sameTime(row.etb, selected.etb)
+    && sameTime(row.etd, selected.etd)
   )
+}
+
+const rememberedSelection = ref<{ vesselId: string; index: string } | null>(null)
+
+function matchingCandidateIndex(rows: TerminalSchedule[], selected: TerminalSchedule | null | undefined) {
+  if (!selected) return -1
+  const exact = rows.findIndex((row) => sameSchedule(row, selected))
+  if (exact >= 0) return exact
+  const loose = rows.flatMap((row, index) => (
+    sameText(row.evoyage, selected.evoyage)
+    && sameText(row.ivoyage, selected.ivoyage)
+    && sameText(row.terminal, selected.terminal)
+      ? [index]
+      : []
+  ))
+  return loose.length === 1 ? loose[0]! : -1
+}
+
+function restoredCandidateIndex(rows: TerminalSchedule[]) {
+  const vessel = props.vessel
+  if (!vessel) return ''
+  const saved = matchingCandidateIndex(rows, vessel.terminalSchedule)
+  if (saved >= 0) return String(saved)
+  const remembered = rememberedSelection.value
+  if (!remembered || remembered.vesselId !== vessel.id) return ''
+  const index = Number(remembered.index)
+  return index >= 0 && index < rows.length ? remembered.index : ''
 }
 
 const candidateFeatures = tableFeatures({
@@ -189,13 +228,20 @@ watch(
     const rows = candidates.value.map((row) => ({ ...row }))
     baselines.value = rows
     drafts.value = rows.map((row) => ({ ...row }))
-    const index = rows.findIndex((row) => sameSchedule(row, props.vessel?.terminalSchedule))
     resetForm({
       values: {
-        candidateIndex: index >= 0 ? String(index) : '',
+        candidateIndex: restoredCandidateIndex(rows),
         remark: '',
       },
     })
+  },
+)
+
+watch(
+  () => values.candidateIndex,
+  (index) => {
+    if (!props.open || !props.vessel || !index) return
+    rememberedSelection.value = { vesselId: props.vessel.id, index }
   },
 )
 
@@ -262,8 +308,8 @@ function close() {
               <TableRow
                 v-for="row in candidateTable.getRowModel().rows"
                 :key="row.id"
-                class="cursor-pointer"
-                :class="values.candidateIndex === row.id ? 'bg-accent' : ''"
+                class="cursor-pointer data-[state=selected]:!bg-accent"
+                :data-state="values.candidateIndex === row.id ? 'selected' : undefined"
                 @click="setFieldValue('candidateIndex', row.id)"
               >
                 <TableCell
@@ -279,6 +325,7 @@ function close() {
                 >
                   <div v-if="cell.column.id === 'select'" class="flex items-center">
                     <input
+                      :key="`${row.id}:${values.candidateIndex}`"
                       type="radio"
                       class="m-0 size-4 shrink-0"
                       name="select-match-candidate"
@@ -302,6 +349,7 @@ function close() {
                   />
                 </TableCell>
               </TableRow>
+              <TableEmpty v-if="!candidateTable.getRowModel().rows.length" :colspan="candidateColumns.length" />
             </TableBody>
           </Table>
         </div>

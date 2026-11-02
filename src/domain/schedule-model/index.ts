@@ -28,6 +28,7 @@ export {
   keepTerminalField,
   keepTerminalShape,
   laraFieldHistory,
+  laraVersion,
   matchHistory,
   reviewSchedule,
   settleOpenShape,

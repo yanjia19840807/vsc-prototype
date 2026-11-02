@@ -38,7 +38,7 @@ export function mappingStatusChangeAlert(
   return {
     variant: mappingAlertVariant(field.incomingValue),
     title: 'Mapping status',
-    text: `Previous: ${field.previousValue || '—'}. This sync: ${field.incomingValue || '—'}`,
+    text: `Previous: ${field.previousValue || '—'}. Current: ${field.incomingValue || '—'}`,
   }
 }
 

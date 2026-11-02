@@ -238,7 +238,7 @@ function keepNested(event: Event) {
                 </TableCell>
               </template>
             </TableRow>
-            <TableEmpty v-if="!store.regions.length && mode !== 'create'" :colspan="5">No regions.</TableEmpty>
+            <TableEmpty v-if="!store.regions.length && mode !== 'create'" :colspan="5" />
           </TableBody>
         </Table>
       </div>

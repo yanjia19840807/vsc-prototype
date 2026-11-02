@@ -103,7 +103,7 @@ export const DEFAULT_VISIBLE_FILTERS = [
   'laraEtb',
 ] as const
 
-const CATALOG_REV = 10
+const CATALOG_REV = 12
 
 /** Within one source, choice lists, then free text, then dates, then the checkbox. */
 const FILTER_KIND_ORDER: FilterControlKind[] = ['multi', 'lines', 'text', 'datetime', 'check']
@@ -466,18 +466,34 @@ export function normalizeFilterPrefs(prefs: FilterPref[]): FilterPref[] {
   }
   for (const field of CATALOG) {
     if (seen.has(field.id)) continue
-    const existing = byId.get(field.id)
-    ordered.push(
-      existing
-        ? {
-            id: field.id,
-            visible: existing.visible,
-            default: normalizeStoredFilter(field, existing.default),
-          }
-        : { id: field.id, visible: false, default: defaultFilterState(field) },
-    )
+    const pref: FilterPref = byId.has(field.id)
+      ? {
+          id: field.id,
+          visible: byId.get(field.id)!.visible,
+          default: normalizeStoredFilter(field, byId.get(field.id)!.default),
+        }
+      : { id: field.id, visible: false, default: defaultFilterState(field) }
+    const anchor = CATALOG.slice(CATALOG.findIndex((item) => item.id === field.id) + 1).find((item) => seen.has(item.id))
+    if (!anchor) ordered.push(pref)
+    else ordered.splice(ordered.findIndex((item) => item.id === anchor.id), 0, pref)
+    seen.add(field.id)
   }
   return ordered
+}
+
+/** Put a filter that was appended later back beside the next catalog field. */
+function placeNewFilter(filters: FilterPref[], id: string): FilterPref[] {
+  const pref = filters.find((item) => item.id === id)
+  if (!pref) return filters
+  const rest = filters.filter((item) => item.id !== id)
+  const catalogAt = CATALOG.findIndex((field) => field.id === id)
+  const anchor = CATALOG.slice(catalogAt + 1).find((field) => rest.some((item) => item.id === field.id))
+  if (!anchor) {
+    rest.push(pref)
+    return rest
+  }
+  rest.splice(rest.findIndex((item) => item.id === anchor.id), 0, pref)
+  return rest
 }
 
 export function sessionFromSetting(setting: ListSetting, today = new Date()): Record<string, FilterState> {
@@ -732,6 +748,7 @@ export function loadUserSettings(username: string): UserListSettings {
           filters = seatSourceFilters(filters, 'platform')
           columns.order = seatSourceColumns(columns.order, 'platform')
         }
+        if (catalogRev < 12) filters = placeNewFilter(filters, 'laraSyncTime')
         return { ...item, filters, columns }
       })
     }

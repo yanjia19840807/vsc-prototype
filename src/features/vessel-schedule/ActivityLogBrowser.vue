@@ -193,7 +193,7 @@ function clearFilters() {
             <template v-if="selected.remark"> · {{ selected.remark }}</template>
           </p>
           <p v-if="selected.resultNote" class="text-sm text-muted-foreground">{{ selected.resultNote }}</p>
-          <div v-if="selected.changes.length" class="overflow-hidden rounded-md border">
+          <div class="overflow-hidden rounded-md border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -208,10 +208,10 @@ function clearFilters() {
                   <TableCell>{{ row.original }}</TableCell>
                   <TableCell>{{ row.value }}</TableCell>
                 </TableRow>
+                <TableEmpty v-if="!selected.changes.length" :colspan="3" />
               </TableBody>
             </Table>
           </div>
-          <p v-else class="text-sm text-muted-foreground">This log has no field changes.</p>
         </template>
       </div>
     </section>

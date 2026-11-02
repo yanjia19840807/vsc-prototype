@@ -52,7 +52,7 @@ function display(value: string) {
           :side-offset="6"
           class="z-50 w-72 max-w-(--reka-tooltip-content-available-width) rounded-lg bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10"
         >
-          <p class="mb-2 font-medium">This sync</p>
+          <p class="mb-2 font-medium">Current</p>
           <table class="w-full border-separate border-spacing-0 text-left">
             <thead>
               <tr class="text-xs text-muted-foreground">

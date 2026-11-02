@@ -45,8 +45,8 @@ export const LOCKED_COLUMN_ID = 'laraVoyage'
 
 export const SEARCH_COLUMNS: SearchColumn[] = [
   { id: 'mappingStatus', label: 'Mapping status', kind: 'text', source: 'platform' },
-  { id: 'lastSyncStatus', label: 'Last sync status', kind: 'text', source: 'platform' },
-  { id: 'lastRefreshTime', label: 'Last sync time', kind: 'datetime', source: 'platform' },
+  { id: 'lastSyncStatus', label: 'Last mapping status', kind: 'text', source: 'platform' },
+  { id: 'lastRefreshTime', label: 'Last mapping time', kind: 'datetime', source: 'platform' },
   { id: 'lastUpdateBy', label: 'Last modified by', kind: 'text', source: 'platform' },
   { id: 'lastUpdateAt', label: 'Last modified at', kind: 'datetime', source: 'platform' },
   // LARA fields from the schedule template. Calculated columns stay last.
@@ -59,6 +59,7 @@ export const SEARCH_COLUMNS: SearchColumn[] = [
   { id: 'laraEta', label: 'ETA', kind: 'datetime', source: 'lara' },
   { id: 'laraEtb', label: 'ETB', kind: 'datetime', source: 'lara' },
   { id: 'laraEtd', label: 'ETD', kind: 'datetime', source: 'lara' },
+  { id: 'laraSyncTime', label: 'Last sync time', kind: 'datetime', source: 'lara' },
   { id: 'vesselType', label: 'Vessel type', kind: 'text', source: 'lara' },
   { id: 'terminal9code', label: 'Terminal', kind: 'text', source: 'lara' },
   // Terminal fields written by a sync, in display order.
@@ -427,6 +428,7 @@ function prefixedLabel(prefix: string, label: string): string {
 export function columnHeaderLabel(column: Pick<SearchColumn, 'id' | 'label' | 'source'>): string {
   if (column.id === 'terminal9code') return 'Terminal 9code'
   if (column.id === 'terminalName') return 'Terminal name'
+  if (column.id === 'laraSyncTime') return 'Last sync time'
   if (column.source === 'lara') return prefixedLabel('LARA', column.label)
   if (column.source === 'terminal') return prefixedLabel('Terminal', column.label)
   return column.label

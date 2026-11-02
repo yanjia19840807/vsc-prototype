@@ -15,6 +15,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableEmpty,
   TableHead,
   TableHeader,
   TableRow,
@@ -70,7 +71,7 @@ function payloadCell(payload: TerminalPayload, columnId: string) {
   <dl>
     <div class="flex flex-wrap items-center gap-x-6 gap-y-2 border-b py-2 text-sm">
       <div class="flex items-center gap-2">
-        <dt class="text-muted-foreground">Last sync status</dt>
+        <dt class="text-muted-foreground">Last mapping status</dt>
         <dd>
           <StatusBadge v-if="query" :status="query.status" />
           <template v-else>—</template>
@@ -78,7 +79,7 @@ function payloadCell(payload: TerminalPayload, columnId: string) {
         <Button v-if="query" type="button" size="xs" variant="link" class="h-auto px-0" @click="detailOpen = true">Detail</Button>
       </div>
       <div class="flex items-center gap-2">
-        <dt class="text-muted-foreground">Last sync time</dt>
+        <dt class="text-muted-foreground">Last mapping time</dt>
         <dd>{{ query ? formatDateTime(query.requestedAt) : '—' }}</dd>
       </div>
     </div>
@@ -97,8 +98,8 @@ function payloadCell(payload: TerminalPayload, columnId: string) {
   <Dialog v-if="query" :open="detailOpen" @update:open="detailOpen = $event">
     <DialogContent size="2xl" :class="WIDE_DIALOG_CLASS">
       <DialogHeader>
-        <DialogTitle>Last terminal sync</DialogTitle>
-        <DialogDescription>The latest returned terminal query and the records it brought back.</DialogDescription>
+        <DialogTitle>Last mapping</DialogTitle>
+        <DialogDescription>The latest mapping query and the records it returned.</DialogDescription>
       </DialogHeader>
       <dl class="grid gap-2 sm:grid-cols-2">
         <div>
@@ -118,8 +119,7 @@ function payloadCell(payload: TerminalPayload, columnId: string) {
           <dd class="mt-1">{{ query.failureReason }}</dd>
         </div>
       </dl>
-      <p v-if="query.payloads.length === 0" class="text-sm text-muted-foreground">No terminal record returned.</p>
-      <div v-else class="overflow-x-auto rounded-md border">
+      <div class="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -134,6 +134,7 @@ function payloadCell(payload: TerminalPayload, columnId: string) {
                 {{ payloadCell(payload, column.id) }}
               </TableCell>
             </TableRow>
+            <TableEmpty v-if="!query.payloads.length" :colspan="recordColumns.length" />
           </TableBody>
         </Table>
       </div>
