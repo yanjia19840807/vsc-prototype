@@ -5,6 +5,7 @@ import { ChevronDown, Download, Settings } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { FlexRender, type ColumnVisibilityState } from '@tanstack/vue-table'
 
+import ActivityLogDialog from '@/features/vessel-schedule/ActivityLogDialog.vue'
 import FilterField from '@/components/FilterField.vue'
 import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
 import QueryPanel from '@/components/QueryPanel.vue'
@@ -344,8 +345,10 @@ function openReview(vessel: VesselRecord) {
   void router.push(`/vessels/${vessel.id}/review`)
 }
 
+const historyVessel = ref<VesselRecord | null>(null)
+
 function openHistory(vessel: VesselRecord) {
-  void router.push(`/vessels/${vessel.id}/activity-log`)
+  historyVessel.value = vessel
 }
 
 function activateSetting(id: string) {
@@ -472,5 +475,10 @@ const visibleColCount = computed(
       @update:page-size="(size) => table.setPageSize(size)"
     />
 
+    <ActivityLogDialog
+      :open="historyVessel != null"
+      :vessel="historyVessel"
+      @update:open="(open) => { if (!open) historyVessel = null }"
+    />
   </div>
 </template>

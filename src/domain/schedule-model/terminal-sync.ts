@@ -1,5 +1,5 @@
 import { displayedLara, displayedTerminal } from '@/domain/schedule-model/display'
-import { applyTerminalPayload, hasBoundMatch, laraVersion, settleOpenShape, type SyncPolicy } from '@/domain/schedule-model/sync-diff'
+import { applyTerminalPayload, hasBoundMatch, laraVersion, refreshListProjection, settleOpenShape, type SyncPolicy } from '@/domain/schedule-model/sync-diff'
 import { addDays, nextId, parseTime } from '@/domain/schedule-model/state'
 import type {
   ScheduleState,
@@ -142,7 +142,7 @@ export function completeTerminalQuery(
     })
   }
   if (query.syncRunId) next = settleRun(next, query.syncRunId, input.respondedAt)
-  return next
+  return refreshListProjection(next, query.scheduleId)
 }
 
 function settleRun(state: ScheduleState, runId: string, finishedAt: string) {
@@ -186,7 +186,10 @@ function appendQuery(
     respondedAt: null,
     failureReason: '',
   }
-  return { ...issued.state, terminalQueries: [...issued.state.terminalQueries, query] }
+  return refreshListProjection(
+    { ...issued.state, terminalQueries: [...issued.state.terminalQueries, query] },
+    schedule.id,
+  )
 }
 
 function isDue(state: ScheduleState, schedule: VesselSchedule, runAt: string, etaLeadDays: number, atdLagDays: number) {

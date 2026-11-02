@@ -234,7 +234,7 @@ export const useVesselStore = defineStore('vessels', () => {
 
   function patchDisplay(
     id: string,
-    fields: Partial<Pick<VesselRecord, 'laraVoyage' | 'pointCode' | 'laraPoolLocation' | 'multipleCallNumber' | 'vesselName' | 'vesselOperator' | 'brand' | 'service' | 'acPartner' | 'laraEta' | 'laraEtb' | 'laraEtd' | 'cutoff' | 'tmlEta' | 'tmlAta' | 'tmlEtb' | 'tmlAtb' | 'tmlEtd' | 'tmlAtd' | 'cyOpen' | 'cyCutoff' | 'terminalName' | 'terminalScheduleStatus' | 'externalVoyage' | 'externalExportVoyage' | 'externalImportVoyage' | 'localVoyage' | 'matchingStatus' | 'lastSyncStatus' | 'terminalSource'>> & {
+    fields: Partial<Pick<VesselRecord, 'laraVoyage' | 'pointCode' | 'laraPoolLocation' | 'multipleCallNumber' | 'vesselName' | 'vesselOperator' | 'brand' | 'service' | 'acPartner' | 'laraEta' | 'laraEtb' | 'laraEtd' | 'cutoff' | 'tmlEta' | 'tmlAta' | 'tmlEtb' | 'tmlAtb' | 'tmlEtd' | 'tmlAtd' | 'cyOpen' | 'cyCutoff' | 'terminalName' | 'terminalScheduleStatus' | 'externalVoyage' | 'externalExportVoyage' | 'externalImportVoyage' | 'localVoyage' | 'matchingStatus' | 'lastSyncStatus' | 'lastRefreshTime' | 'lastModifiedBy' | 'lastModifiedAt' | 'terminalSource'>> & {
       vesselNameCn?: string
       terminalUpdateTime?: string
     },

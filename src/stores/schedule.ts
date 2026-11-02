@@ -9,6 +9,8 @@ import {
   confirmReviewedMatch,
   displayedLara,
   displayedTerminal,
+  latestUserModification,
+  returnedTerminalQuery,
   editLaraFields,
   editTerminalFields,
   keepLaraField,
@@ -17,10 +19,7 @@ import {
   keepTerminalShape,
   laraFieldHistory,
   matchHistory,
-  pinTerminalCandidate,
   defaultSyncPolicy,
-  displayedLastSyncStatus,
-  displayedMatchingStatus,
   reviewSchedule,
   terminalFieldHistory,
   watchKey,
@@ -83,6 +82,14 @@ export const useScheduleStore = defineStore('schedule', () => {
     return scheduleNeedsReview(vessel, review(scheduleId))
   }
 
+  function returnedQuery(scheduleId: string) {
+    return returnedTerminalQuery(state.value, scheduleId)
+  }
+
+  function userModification(scheduleId: string) {
+    return latestUserModification(state.value, scheduleId)
+  }
+
   function candidates(scheduleId: string) {
     const queryId = review(scheduleId).queryId
     if (!queryId) return []
@@ -101,15 +108,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     const review = reviewSchedule(state.value, scheduleId, policy())
     const schedule = state.value.schedules.find((item) => item.id === scheduleId)
     const manual = schedule ? state.value.matches.find((item) => item.id === schedule.matchId)?.method === 'USER' : false
-    if (review.shape === 'many' && manual) {
-      state.value = pinTerminalCandidate(state.value, {
-        scheduleId,
-        payloadId,
-        updatedBy: CURRENT_USER,
-        updatedAt: at,
-      })
-      return
-    }
+    if (review.shape === 'many' && manual) return
     state.value = acceptTerminalPayload(state.value, {
       scheduleId,
       payloadId,
@@ -206,7 +205,10 @@ export const useScheduleStore = defineStore('schedule', () => {
     const lara = displayedLara(state.value, schedule)
     const terminal = displayedTerminal(state.value, schedule)
     const fields: Parameters<typeof vessels.patchDisplay>[1] = {
-      lastSyncStatus: displayedLastSyncStatus(state.value, scheduleId) ?? '',
+      lastSyncStatus: schedule.platformLastSyncStatus ?? '',
+      lastRefreshTime: schedule.lastSyncAt ?? '',
+      lastModifiedBy: schedule.lastModifiedBy ?? '',
+      lastModifiedAt: schedule.lastModifiedAt ?? '',
       laraVoyage: lara.laraVoyage,
       pointCode: lara.pointCode,
       laraPoolLocation: lara.laraPoolLocation,
@@ -224,7 +226,7 @@ export const useScheduleStore = defineStore('schedule', () => {
     const match = state.value.matches.find((item) => item.id === schedule.matchId)
     const versionId = match?.terminalVersionId
     const version = versionId ? state.value.terminalVersions.find((item) => item.id === versionId) : undefined
-    const status = displayedMatchingStatus(state.value, scheduleId)
+    const status = schedule.platformMatchingStatus
     if (status === 'Multiple terminal records' || status === 'No terminal record') {
       vessels.patchDisplay(scheduleId, fields)
       if (status === 'Multiple terminal records') vessels.markMultiple(scheduleId)
@@ -279,7 +281,7 @@ export const useScheduleStore = defineStore('schedule', () => {
 
   for (const schedule of state.value.schedules) project(schedule.id)
 
-  return { review, needsReview, history, confirm, candidates, keepShape, adoptCandidate, sealReviewed, payloadState }
+  return { review, needsReview, history, confirm, candidates, returnedQuery, userModification, keepShape, adoptCandidate, sealReviewed, payloadState }
 })
 
 function settleLara(state: ReturnType<typeof seedSchedule>['state'], scheduleId: string, choice: SyncChoice, at: string) {

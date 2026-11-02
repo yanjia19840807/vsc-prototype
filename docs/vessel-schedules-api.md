@@ -10,44 +10,32 @@
 
 ### vessel_schedule
 
-作用：一条船期。LARA 最新值和当前绑定的码头值都在这一行。匹配状态也在这一行。
+作用：一条船期的身份、两个当前指针，以及列表用的五列投影。LARA 当前值在 `lara_version`，当前码头绑定在 `match`。列表和明细里的 LARA 列、码头列、`terminalManual` 按这两个指针读出来。`platformMatchingStatus`、`platformLastSyncStatus`、`lastSyncAt`、`lastModifiedBy`、`lastModifiedAt` 存在这一行，供筛选、排序和分页。版本、匹配或码头查询变化时，同一事务里按同一套规则重写这五列。请求里提交的匹配状态忽略。
 
 主键：`id`
 
-外键：`lara_point_code` → `port.port_code`
+外键：`lara_point_code` → `port.port_code`；`lara_version_id` → `lara_version.id`；`match_id` → `match.id`
 
 | 列 | 说明 |
 |---|---|
 | id | 主键。接口里的船期 id |
-| lara_voyage | LARA 航次。接口 laraVoyage。与 lara_point_code、lara_visit_no 一起识别同一次挂靠 |
-| lara_point_code | 港口。外键，指向 port.port_code。接口 laraPointCode |
-| lara_visit_no | 同一次挂靠的访问序号。只参与身份，不返回 |
-| lara_pool_location | LARA 的 pool location。接口 laraPoolLocation |
-| lara_vessel_name | 英文船名。接口 laraVesselName |
-| lara_vessel_operator | 船公司代码。接口 laraVesselOperator |
-| lara_service | 航线。接口 laraService |
-| lara_eta | LARA ETA。日期和时间合成一个时刻。接口 laraEta |
-| lara_etb | LARA ETB。接口 laraEtb |
-| lara_etd | LARA ETD。接口 laraEtd |
+| created_from | 来源。目前为 LARA |
+| lara_voyage | 身份里的 LARA 航次。与 lara_point_code、lara_visit_no 一起识别同一次挂靠。成功同步时随这次报文更新 |
+| lara_point_code | 身份里的港口。外键，指向 port.port_code |
+| lara_visit_no | 同一次挂靠的访问序号。只在船期上，同步不覆盖。不返回 |
+| lara_pool_location | 身份里的 pool location。成功同步时随这次报文更新 |
 | platform_omit | true 时接口 platformVoyageStatus 为 Omit |
-| platform_matching_status | 匹配状态。同步和审核由服务端写入，请求不带。接口 platformMatchingStatus |
-| terminal_source | SYNC：当前码头值来自同步。USER：手工补录。没有绑定时空。接口用 terminalManual。当前是 Manual matched 时，下一次码头同步没有记录则忽略这次结果，码头列和匹配状态都保持不变 |
-| terminal_export_voyage | 码头出口航次。接口 terminalExportVoyage |
-| terminal_import_voyage | 码头进口航次。接口 terminalImportVoyage |
-| terminal_vessel_name_cn | 中文船名。接口 terminalVesselNameCn |
-| terminal_name | 报文 terminal，例如 YS01。接口 terminalName |
-| terminal_eta | 码头 ETA。接口 terminalEta |
-| terminal_ata | 码头 ATA。接口 terminalAta |
-| terminal_etb | 码头 ETB。接口 terminalEtb |
-| terminal_atb | 码头 ATB。接口 terminalAtb |
-| terminal_etd | 码头 ETD。接口 terminalEtd |
-| terminal_atd | 码头 ATD。接口 terminalAtd |
-| terminal_cy_open | CY open。接口 terminalCyOpen |
-| terminal_cy_cutoff | CY closing。接口 terminalCyCutoff |
-| terminal_vessel_status | 报文 status，例如计划、在港、离港。接口 terminalVesselStatus |
-| terminal_update_time | 报文 updateTime。接口 terminalUpdateTime |
+| lara_version_id | 当前 LARA 版本。没有版本时为空 |
+| match_id | 当前匹配。没有匹配时为空 |
+| platform_matching_status | 列表上的 Mapping status。没有匹配结果时为空 |
+| platform_last_sync_status | 最近一次已结束的码头查询本身的结果。还没有查询时为空。不用 Manual matched 和 Pending match |
+| last_sync_at | 最近一次码头查询的发出时间，含尚未返回的查询。没有查询时为空。接口 lastSyncAt |
+| last_modified_by | 最近一次写入的人。来自当前 LARA 版本、当前匹配，以及该匹配指向的码头版本中最晚的一条。没有这些行时为空。接口 platformLastModifiedBy |
+| last_modified_at | 与 last_modified_by 同一条的时间。接口 platformLastModifiedAt |
 
-`platform_matching_status` 取值：
+读取时，LARA 列取 `lara_version_id` 指向的那一版。码头列取 `match_id` 指向的 `match.terminal_version_id`；该指针为空时，码头列为空。列表筛选、排序和分页直接用上面五列，不再对全表重算。
+
+`platformMatchingStatus` 取值：
 
 | 值 | 含义 |
 |---|---|
@@ -58,6 +46,70 @@
 | No terminal record | 尚未按人工结果处理，码头同步没有记录。码头列已清空。审核确认不能写成这个值，必须选择或新建一条码头记录 |
 | No external voyage | 绑着的记录缺少进口或出口航次 |
 | ETA gap > 3 days | 绑着一条码头记录，LARA ETA 与码头 ETA 的天数差算不出来，或超过 3 天 |
+
+`terminalManual` 为 true 表示当前码头版本是手工录入（`terminal_version.entered_manually`）。采用同步候选时为 false。
+
+### lara_version
+
+作用：一条船期的一份 LARA 值。只追加，不改旧行。`vessel_schedule.lara_version_id` 指向当前这份。字段相对上一版没有变化时不追加。
+
+主键：`id`
+
+外键：`schedule_id` → `vessel_schedule.id`；`payload_id` → `lara_payload.id`，手工改写且不对照某次报文时为空
+
+| 列 | 说明 |
+|---|---|
+| id | 主键 |
+| schedule_id | 所属船期 |
+| seq | 这条船期上的版本序号，从 1 起 |
+| source | SYNC：这次写入来自同步或整份采纳报文。USER：人改过的版本 |
+| payload_id | 这份值采纳自哪一条 LARA 报文。没有对照报文时为空 |
+| reason | 写入原因。同步写入时为空 |
+| updated_by | 写入人。系统写入时为 System |
+| updated_at | 写入时间 |
+| lara_voyage、point_code、lara_pool_location、vessel_name、vessel_operator、brand、service、vessel_type、lara_eta、lara_etb、lara_etd、voyage_status | 这一版的 LARA 快照 |
+
+### terminal_version
+
+作用：一条船期的一份码头值。只追加，不改旧行。当前用的是 `match.terminal_version_id` 指向的那一版，不是序号最大的那一版。手工补录也写在这里，不写 `terminal_payload`。
+
+主键：`id`
+
+外键：`schedule_id` → `vessel_schedule.id`；`payload_id` → `terminal_payload.id`，手工补录时为空
+
+| 列 | 说明 |
+|---|---|
+| id | 主键 |
+| schedule_id | 所属船期 |
+| seq | 这条船期上的版本序号，从 1 起 |
+| source | SYNC 或 USER |
+| payload_id | 这份值采纳自哪一条码头候选。手工补录为空 |
+| entered_manually | true：整份由页面新建，不是从候选采纳。接口 terminalManual 用它 |
+| reason | 写入原因 |
+| updated_by | 写入人 |
+| updated_at | 写入时间 |
+| vessel_operator、export_voyage、import_voyage、vessel_name_cn、terminal_name、eta、ata、etb、atb、etd、atd、cy_open、cy_cutoff、vessel_status、update_time | 这一版的码头快照 |
+
+### match
+
+作用：某一次 LARA 版本和码头版本的绑定，也是对一次码头查询的整份确认。只追加。`vessel_schedule.match_id` 指向当前这次。`terminal_version_id` 为空表示当前没有绑定码头记录。版本、方法、LARA 版本和 `query_id` 都与上一次相同则不追加。确认时要么整份保留当前码头版本，要么整份采用一条码头候选，不按字段混用。
+
+主键：`id`
+
+外键：`schedule_id` → `vessel_schedule.id`；`lara_version_id` → `lara_version.id`；`terminal_version_id` → `terminal_version.id`；`query_id` → `terminal_query.id`
+
+| 列 | 说明 |
+|---|---|
+| id | 主键 |
+| schedule_id | 所属船期 |
+| seq | 这条船期上的匹配序号，从 1 起 |
+| lara_version_id | 绑定时的当前 LARA 版本 |
+| terminal_version_id | 绑上的码头版本。解开或尚未绑定时为空 |
+| query_id | 这次匹配所回答的码头查询。不是在回答某一次查询时为空。当前匹配的 `query_id` 等于最近一次查询时，这次查询已经确认过 |
+| method | AUTO：同步建立。USER：人确认后的绑定。Manual matched 与 Pending match 都要求 method 为 USER，再看最近一次查询是否已由当前匹配回答 |
+| reason | 写入原因 |
+| updated_by | 写入人 |
+| updated_at | 写入时间 |
 
 ### lara_sync_run
 
@@ -78,18 +130,19 @@
 
 ### lara_payload
 
-作用：一条船期保存的最新一次成功 LARA 报文。每次成功同步覆盖这一行。页面上的 LARA 值在 `vessel_schedule`，这一行是报文副本。
+作用：一次成功 LARA 同步里、属于一条船期的报文。只追加，不覆盖。一条船期有多行。页面上的 LARA 值读当前 `lara_version`，不直接读这张表。失败的运行不插入行。
 
 主键：`id`
 
-外键：`run_id` → `lara_sync_run.id`；`schedule_id` → `vessel_schedule.id`，唯一
+外键：`run_id` → `lara_sync_run.id`；`schedule_id` → `vessel_schedule.id`
 
 | 列 | 说明 |
 |---|---|
 | id | 主键 |
 | run_id | 写出这一行的成功运行 |
-| schedule_id | 所属船期。一条船期一行 |
-| payload | 这次成功同步的报文 |
+| schedule_id | 所属船期。可重复 |
+| captured_at | 抓到的时间，等于这次运行的结束时间 |
+| lara_voyage、point_code、lara_pool_location、vessel_name、vessel_operator、brand、service、vessel_type、lara_eta、lara_etb、lara_etd、voyage_status | 这次报文的原样 |
 
 ### terminal_sync_run
 
@@ -109,32 +162,34 @@
 
 ### terminal_query
 
-作用：一条船期的一次码头查询。FOUND 或 NOT_FOUND 先删掉该船期更早的候选，再写入这次的行。FAILED 保留上一次成功查询的候选。
+作用：一条船期的一次码头查询。候选只追加，不删除更早的查询留下的行。选择框和审核读最近一次已结束且不是 FAILED 的查询。FAILED 不产生新候选，读取时仍用上一次成功查询的候选。
 
 主键：`id`
 
-外键：`sync_run_id` → `terminal_sync_run.id`，单笔查询为空；`schedule_id` → `vessel_schedule.id`
+外键：`sync_run_id` → `terminal_sync_run.id`，单笔查询为空；`schedule_id` → `vessel_schedule.id`；`lara_version_id` → `lara_version.id`
 
 | 列 | 说明 |
 |---|---|
 | id | 主键 |
 | sync_run_id | 批量运行。审核页单笔查询为空 |
 | schedule_id | 所属船期 |
+| lara_version_id | 发出这次查询时船期上的当前 LARA 版本 |
 | port_code | 这次查询使用的港口。码头航次筛选用它，不作为航次列表的列 |
-| status | FOUND、NOT_FOUND 或 FAILED |
+| status | PENDING、FOUND、NOT_FOUND 或 FAILED |
 
 ### terminal_payload
 
-作用：最近一次成功码头查询的候选。选择框里的 id 就是这一行的 id。手工补录不插入这张表。同一港口、英文船名、出口航次、进口航次在码头航次列表里合成一行，id 取其中一条。
+作用：某一次码头查询返回的一条候选。只追加。选择框里的 id 就是最近一次成功查询下这些行的 id。手工补录不插入这张表，只追加 `terminal_version`。同一港口、英文船名、出口航次、进口航次在码头航次列表里合成一行，id 取其中一条。
 
 主键：`id`
 
-外键：`query_id` → `terminal_query.id`
+外键：`query_id` → `terminal_query.id`；`schedule_id` → `vessel_schedule.id`
 
 | 列 | 说明 |
 |---|---|
 | id | 主键。候选 id，也是码头航次 id |
 | query_id | 所属查询 |
+| schedule_id | 所属船期。同一次查询的多条候选都指向同一条船期 |
 | vessel_name_en | 英文船名 |
 | vessel_name_cn | 中文船名 |
 | evoyage | 出口航次 |
@@ -344,84 +399,87 @@
 
 ## 系统关键逻辑
 
-下面写 `vessel_schedule`、`lara_sync_run`、`lara_payload`、`terminal_sync_run`、`terminal_query`、`terminal_payload`、`activity_log`、`activity_log_change` 在同步、高亮和 Review 里怎么维护。页面上的选择在确认前不落这几张表。`platformTerminalPending` 和 `changes` 不入库，读取时由这几张表算出来。
+当前 LARA 值和码头值通过 `vessel_schedule.lara_version_id` 和 `match_id` 读取。同步和审核追加 `lara_version`、`terminal_version`、`match`，再把指针移到新行。旧版本不改。报文只追加 `lara_payload`、`terminal_payload`。页面上的选择在确认前不落这些表。`platformTerminalPending` 和 `changes` 不入库。`platform_matching_status`、`platform_last_sync_status`、`last_sync_at`、`last_modified_by`、`last_modified_at` 在同一次写入结束时重写到 `vessel_schedule`。审核确认整份保留或整份采用，不按字段各取一边。
+
+下面的「码头列」指当前 `match.terminal_version_id` 那一版；「LARA 列」指当前 `lara_version`。接口仍返回摊平后的字段。
 
 ### 同步
 
-按 `lara_voyage` + `lara_point_code` + `lara_visit_no` 找到 `vessel_schedule` 就更新原行，找不到就插入。之后从批量里消失，或 LARA 把 `OMIT_FLAG` 改成 `Y`，不删行，只把 `platform_omit` 置为 true。
+按 `lara_voyage` + `lara_point_code` + `lara_visit_no` 找到 `vessel_schedule` 就用原行，找不到就插入。成功同步时更新身份列 `lara_voyage`、`lara_point_code`、`lara_pool_location`。`lara_visit_no` 不覆盖。之后从批量里消失，或 LARA 把 `OMIT_FLAG` 改成 `Y`，不删行，只把 `platform_omit` 置为 true。
 
 LARA：
 
 | 步骤 | 表 |
 |---|---|
 | 开始一次运行 | 插入 `lara_sync_run`。单笔填 `schedule_id`，批量为空 |
-| 成功 | 更新 `vessel_schedule` 的 LARA 列。`lara_payload` 一条船期一行，覆盖 `payload` 和 `run_id`。`lara_sync_run.status` 为 SUCCESS |
-| 失败 | 只把 `lara_sync_run.status` 写成 FAILED，并写 `error`。不改 `lara_payload`，不改 `vessel_schedule` |
-| 船期列有变化 | 插入一条 `activity_log`：`triggered_by` 为 System，`remark` 由服务端写成这次事件，`match` 为空。每个变化的字段插入 `activity_log_change`，`original` 是写入前的值，`updated` 是写入后的值 |
-| 船期列没有变化 | 不写 `activity_log` 和 `activity_log_change` |
+| 成功 | 为每条命中的船期追加一行 `lara_payload`。相对当前 `lara_version` 有字段变化时，再追加 `lara_version`，`payload_id` 指向这行报文，`source` 为 SYNC，并把 `lara_version_id` 指到新版本。`lara_sync_run.status` 为 SUCCESS |
+| 失败 | 只把 `lara_sync_run.status` 写成 FAILED，并写 `error`。不插入 `lara_payload`，不追加版本，不改 `lara_version_id` |
+| 版本有变化 | 插入一条 `activity_log`：`triggered_by` 为 System，`remark` 由服务端写成这次事件，`match` 为空。每个变化的字段插入 `activity_log_change`，`original` 是上一版的值，`updated` 是新版本的值 |
+| 版本没有变化 | 不追加 `lara_version`，不写 `activity_log` 和 `activity_log_change` |
 
 码头：
 
 | 步骤 | 表 |
 |---|---|
-| 批量运行 | 插入 `terminal_sync_run`。每条船期插入 `terminal_query`，`sync_run_id` 指向这次运行 |
+| 批量运行 | 插入 `terminal_sync_run`。每条船期插入 `terminal_query`，`sync_run_id` 指向这次运行，`lara_version_id` 是发出时的当前 LARA 版本 |
 | Review 页单笔查询 | 不插入 `terminal_sync_run`。`terminal_query.sync_run_id` 为空 |
-| FOUND 或 NOT_FOUND | `terminal_query.status` 写成对应值。删掉该船期更早的 `terminal_payload`，再写入这次的行。NOT_FOUND 写零行 |
-| FAILED | `terminal_query.status` 为 FAILED。不删、不插 `terminal_payload`。`vessel_schedule` 的码头列保持上次成功的值 |
-| 要把码头结果写上船期 | 更新 `vessel_schedule` 的码头列、`terminal_source`、`platform_matching_status`。`terminal_source` 为 SYNC |
-| 船期列有变化 | 与 LARA 相同，写 `activity_log` 和 `activity_log_change` |
-| 手工补录 | 不插入 `terminal_payload`。码头值只在 `vessel_schedule`，`terminal_source` 为 USER |
+| FOUND 或 NOT_FOUND | `terminal_query.status` 写成对应值。不删除更早的 `terminal_payload`。FOUND 为这次查询追加候选，每行的 `schedule_id` 都是这条船期。NOT_FOUND 追加零行 |
+| FAILED | `terminal_query.status` 为 FAILED。不插入 `terminal_payload`。`match_id` 和已有 `terminal_version` 保持不变 |
+| 要把码头结果写上当前值 | 追加 `terminal_version`，`payload_id` 指向被采纳的候选，`entered_manually` 为 false，`source` 为 SYNC。再追加 `match`，`method` 为 AUTO，`terminal_version_id` 指向新版本，`vessel_schedule.match_id` 指向这条 match。同时重写船期上的五列投影 |
+| 版本或匹配有变化 | 与 LARA 相同，写 `activity_log` 和 `activity_log_change` |
+| 手工补录 | 不插入 `terminal_payload`。追加 `terminal_version`，`payload_id` 为空，`entered_manually` 为 true，`source` 为 USER。再追加 `match`，`method` 为 USER |
 
-`platform_matching_status` 和码头列是否覆盖，按下表。LARA 列在成功时始终覆盖，不受这张表限制。没写上 `vessel_schedule` 的码头候选只留在 `terminal_payload`。
+码头当前值是否换成这次查询，按下表。LARA 在成功且字段有变化时始终追加新版本，不受这张表限制。没有被采纳的候选只留在 `terminal_payload`。
 
-| 当前状态 | 这次结果 | vessel_schedule |
+| 当前状态 | 这次结果 | 写入 |
 |---|---|---|
-| 不是 Manual matched，也不是 Pending match | 一条且可自动匹配 | 写入最新码头列，platform_matching_status = Auto matched |
-| 不是 Manual matched，也不是 Pending match | 一条，但缺航次或 ETA 差超过 3 天 | 写入这条码头记录，platform_matching_status 为 No external voyage 或 ETA gap > 3 days |
-| 不是 Manual matched，也不是 Pending match | 多条或没有记录 | 清空码头列，platform_matching_status 为 Multiple terminal records 或 No terminal record |
-| Manual matched 或 Pending match | 多条，且只有一条的出口航次和进口航次都与当前绑定相同，这条的其余码头字段也与已保存值完全相同 | 不改码头列。platform_matching_status 保持不变。platformTerminalPending 为空。不进入 Review |
-| Manual matched 或 Pending match，且当前码头记录不是人工写入 | 已保存的码头字段与这次同步有差异，或这次会变成缺航次、ETA gap、多条且不能按上一行跳过 | 不改码头列。platform_matching_status 写成 Pending match |
-| Manual matched | 没有记录 | 不改码头列，不改 platform_matching_status。不进入 Review。不看这条码头记录是不是人工写入 |
-| Manual matched 或 Pending match | 已保存的每个码头字段都和这次同步相同，绑定仍是这一条 | 不改码头列。platform_matching_status 保持 Manual matched |
+| 不是 Manual matched，也不是 Pending match | 一条且可自动匹配 | 追加 terminal_version 和 method 为 AUTO 的 match。读取为 Auto matched |
+| 不是 Manual matched，也不是 Pending match | 一条，但缺航次或 ETA 差超过 3 天 | 追加这条候选对应的 terminal_version 和 AUTO match。读取为 No external voyage 或 ETA gap > 3 days |
+| 不是 Manual matched，也不是 Pending match | 多条或没有记录 | 追加一条 match，`terminal_version_id` 为空。读取为 Multiple terminal records 或 No terminal record |
+| Manual matched 或 Pending match | 多条，且只有一条的出口航次和进口航次都与当前绑定相同，这条的其余码头字段也与已保存值完全相同 | 不追加 terminal_version，不换 match。读取的匹配状态不变。platformTerminalPending 为空。不进入 Review |
+| Manual matched 或 Pending match，且当前码头记录不是人工写入 | 已保存的码头字段与这次同步有差异，或这次会变成缺航次、ETA gap、多条且不能按上一行跳过 | 不追加 terminal_version，不换 match。读取为 Pending match |
+| Manual matched | 没有记录 | 不追加 terminal_version，不换 match，匹配状态仍是 Manual matched。不进入 Review。不看这条码头记录是不是人工写入 |
+| Manual matched 或 Pending match | 已保存的每个码头字段都和这次同步相同，绑定仍是这一条 | 不追加 terminal_version。匹配状态保持 Manual matched。若方法仍需要从 USER 回到 AUTO，只追加 method 为 AUTO 的 match，码头版本沿用当前这份 |
 
-已是 Manual matched 或 Pending match、下一次仍是多条时，不改码头列。出口航次和进口航次都有值、并且只有一条 `terminal_payload` 两个都相同：这条的其余码头字段也与已保存值完全相同时，`platform_matching_status` 保持不变，`platformTerminalPending` 为空，不进入 Review。其余字段有任何不同时，这一条才是比对对象，读取时 `platformTerminalPending` 为 `many`，状态写成 Pending match。当前是 Manual matched、下一次查询是 NOT_FOUND 时，不改码头列，不改 `platform_matching_status`，`platformTerminalPending` 为空，不进入 Review。不看当前码头记录是不是人工写入。
+已是 Manual matched 或 Pending match、下一次仍是多条时，不换当前码头版本。出口航次和进口航次都有值、并且只有一条 `terminal_payload` 两个都相同：这条的其余码头字段也与已保存值完全相同时，匹配状态保持不变，`platformTerminalPending` 为空，不进入 Review。其余字段有任何不同时，这一条才是比对对象，读取时 `platformTerminalPending` 为 `many`，状态写成 Pending match。当前是 Manual matched、下一次查询是 NOT_FOUND 时，不换当前码头版本，匹配状态不变，`platformTerminalPending` 为空，不进入 Review。不看当前码头记录是不是人工写入。
 
-`changes` 用 `vessel_schedule` 的当前值、`activity_log_change` 里该字段上一笔，以及最新的 `lara_payload`、`terminal_payload` 算出。没有差异时为 `null`。`pending` 为 false 表示已经写上 `vessel_schedule`；`pending` 为 true 表示还在 `terminal_payload` 里、船期码头列没被覆盖。LARA 的差异 `pending` 为 false。
+`changes` 用当前版本的值、`activity_log_change` 里该字段上一笔，以及这条船期最新的 `lara_payload`、最近一次成功查询的 `terminal_payload` 算出。没有差异时为 `null`。`pending` 为 false 表示已经写进当前版本；`pending` 为 true 表示还在 `terminal_payload` 里、当前 `terminal_version` 没被换掉。LARA 的差异 `pending` 为 false。
 
-`Multiple terminal records`、`ETA gap > 3 days`、没有绑定、以及港口未覆盖且不是手工补录时，列表和明细的码头字段返回 `null`，库里的码头列仍是清空后的空值。Pending match 返回 `vessel_schedule` 上已保存的码头列。
+`Multiple terminal records`、`ETA gap > 3 days`、没有绑定、以及港口未覆盖且不是手工补录时，列表和明细的码头字段返回 `null`。这时当前 `match.terminal_version_id` 为空，已有的 `terminal_version` 行仍保留。Pending match 返回当前 `terminal_version` 上已保存的码头字段。
 
 ### 高亮
 
-不写这八张表。对比 `vessel_schedule` 上已经写入的值，和 `activity_log_change` 里该字段上一笔 `updated`。只取该用户 `list_setting_watch` 中的字段，日期再按 `day_threshold` 过滤。关注项不决定这八张表写不写，也不决定是否进入 Review。LARA 只要和上一笔不同就参与，不要求已经绑上码头。人工确认后留在 `vessel_schedule` 上的码头值，和上一笔不同且被关注时，同样参与。列表行在任一这样的差异上高亮。提示图标只出现在关注的列上。Review 页上这个字段已经展开上一版和这次同步时，不再另放提示图标。`platformMatchingStatus` 本身没有这个提示。
+不写版本和报文。对比当前版本已经写入的值，和 `activity_log_change` 里该字段上一笔 `updated`。只取该用户 `list_setting_watch` 中的字段，日期再按 `day_threshold` 过滤。关注项不决定版本写不写，也不决定是否进入 Review。LARA 只要和上一笔不同就参与，不要求已经绑上码头。人工确认后留在当前 `terminal_version` 上的码头值，和上一笔不同且被关注时，同样参与。列表行在任一这样的差异上高亮。提示图标只出现在关注的列上。Review 页上这个字段已经展开上一版和这次同步时，不再另放提示图标。`platformMatchingStatus` 本身没有这个提示。
 
 ### Review
 
-确认前不改 `vessel_schedule`，也不写 `activity_log`。候选仍是已有的 `terminal_payload`。页面上的选择、新建，确认前都不插入 `terminal_payload`。
+确认前不追加版本、不改 `match_id`，也不写 `activity_log`。候选仍是最近一次成功查询已有的 `terminal_payload`。页面上的选择、新建，确认前都不插入 `terminal_payload`。
 
-`platform_matching_status` 为 Pending match、Multiple terminal records、ETA gap > 3 days、No external voyage、No terminal record，或读取出的 `platformTerminalPending` 非空，或 `changes` 里有 `pending` 为 true 的字段时，可以进入 Review。当前是 Manual matched、这次码头同步没有记录时，不进入 Review，下表不适用。
+读取出的匹配状态为 Pending match、Multiple terminal records、ETA gap > 3 days、No external voyage、No terminal record，或 `platformTerminalPending` 非空，或 `changes` 里有 `pending` 为 true 的字段时，可以进入 Review。当前是 Manual matched、这次码头同步没有记录时，不进入 Review，下表不适用。
 
-| 条件 | 确认前 | 确认时写 vessel_schedule |
+| 条件 | 确认前 | 确认时写入 |
 |---|---|---|
-| platformTerminalPending 为 many，且已有保存的码头记录，并有唯一航次相同、但其余字段并不完全相同的 `terminal_payload` | 页面码头区在选定前不显示已保存列，只提供对照。对照里右边先选定一条，再按字段比较。必须选择 Keep current 或 Use this sync。航次相同且其余字段也完全相同的那条不产生 `many`，不进入本行 | Keep current 则码头列不变。Use this sync 则写入所选 `terminal_payload`，terminal_source 仍为 SYNC。状态都写成 Manual matched |
-| platformTerminalPending 为 many，已有保存的码头记录，且没有一条的出口航次和进口航次同时与当前绑定相同 | 页面码头区在选定前不显示已保存列。对照里右边先选定一条。必须选择 Keep current，或对选中记录使用 Use this sync。两者都没做不能确认 | Keep current 则码头列不变。Use this sync 则写入该 `terminal_payload`，terminal_source 仍为 SYNC。状态都写成 Manual matched |
-| platformTerminalPending 为 many，且还没有绑定 | 码头区为空，直到选中一条 `terminal_payload`。不能在页面上新建 | 写入选中的候选，`terminal_source` 仍为 SYNC |
-| No terminal record | 必须在页面上新建一条 | 写入这条手工记录，terminal_source 为 USER |
-| Multiple terminal records，且还没有绑定 | 必须选中一条 `terminal_payload`。不能新建 | 写入选中的候选，`terminal_source` 仍为 SYNC |
-| 已是 Manual matched，存在 pending 为 true 的码头字段 | 页面码头区在选定前不显示已保存列。对照左边是已保存记录，右边是这次同步。必须选择 Keep current 或 Use this sync，同一次确认不能混用两边的值 | Keep current 则这些字段保持 previousValue。Use this sync 则这些字段都写成 incomingValue，状态写成 Manual matched |
-| 已是 Manual matched，这次只返回一条，且这条不是自动匹配 | 不改码头列。页面码头区在选定前不显示已保存列。对照后必须选择 Keep current 或 Use this sync | Keep current 则码头列不变。Use this sync 则写入这条 `terminal_payload`，`terminal_source` 仍为 SYNC。状态都写成 Manual matched |
+| platformTerminalPending 为 many，且已有保存的码头记录，并有唯一航次相同、但其余字段并不完全相同的 `terminal_payload` | 页面码头区在选定前不显示已保存列，只提供对照。对照里右边先选定一条，再按整份比较。必须选择 Keep current 或 Use this sync。航次相同且其余字段也完全相同的那条不产生 `many`，不进入本行 | Keep current 则不追加 terminal_version，追加一条 match，码头版本不变，query_id 为这次查询。Use this sync 则按所选候选整份追加 terminal_version，entered_manually 为 false，再追加 method 为 USER 的 match，query_id 为这次查询。读取都是 Manual matched |
+| platformTerminalPending 为 many，已有保存的码头记录，且没有一条的出口航次和进口航次同时与当前绑定相同 | 页面码头区在选定前不显示已保存列。对照里右边先选定一条。必须选择 Keep current，或对选中记录使用 Use this sync。两者都没做不能确认 | Keep current 则码头版本不变。Use this sync 则追加所选候选的 terminal_version，entered_manually 为 false，match.method 为 USER。读取都是 Manual matched |
+| platformTerminalPending 为 many，且还没有绑定 | 码头区为空，直到选中一条 `terminal_payload`。不能在页面上新建 | 追加选中候选的 terminal_version，entered_manually 为 false，match.method 为 USER |
+| No terminal record | 必须在页面上新建一条 | 追加 terminal_version，payload_id 为空，entered_manually 为 true，match.method 为 USER |
+| Multiple terminal records，且还没有绑定 | 必须选中一条 `terminal_payload`。不能新建 | 追加选中候选的 terminal_version，entered_manually 为 false，match.method 为 USER |
+| 已是 Manual matched，存在 pending 为 true 的码头字段 | 页面码头区在选定前不显示已保存列。对照左边是已保存记录，右边是这次同步。必须选择 Keep current 或 Use this sync，同一次确认整份采用一边 | Keep current 则码头版本不变，追加 match，query_id 为这次查询。Use this sync 则按这次候选整份追加 terminal_version，match.method 为 USER，query_id 为这次查询。读取为 Manual matched |
+| 已是 Manual matched，这次只返回一条，且这条不是自动匹配 | 不换当前码头版本。页面码头区在选定前不显示已保存列。对照后必须选择 Keep current 或 Use this sync | Keep current 则码头版本不变。Use this sync 则追加这条候选的 terminal_version，entered_manually 为 false，match.method 为 USER。读取都是 Manual matched |
 
-其余码头字段只读。LARA 不能手输，始终是 `vessel_schedule` 上的最新值。Pending match 时，列表和明细把码头格子画成 —。Review 的码头区在对照里选定一边之前不显示码头列；选定后显示所选整条，确认之后列表和明细才画出这些值。还不是 Manual matched 的 Multiple terminal records、No terminal record、ETA gap > 3 days、No external voyage 仍用选择或新建，不走这套对照。
+其余码头字段只读。LARA 不能手输，始终是当前 `lara_version`。Pending match 时，列表和明细把码头格子画成 —。Review 的码头区在对照里选定一边之前不显示码头列；选定后显示所选整条，确认之后列表和明细才画出这些值。还不是 Manual matched 的 Multiple terminal records、No terminal record、ETA gap > 3 days、No external voyage 仍用选择或新建，不走这套对照。
 
-确认必须带上一条码头记录。没有这条时返回 409，八张表都不改。有这条时：
+确认必须带上一条码头记录。没有这条时返回 409，版本、匹配和报文都不改。有这条时：
 
 | 表 | 写入 |
 |---|---|
-| vessel_schedule | 码头列按上表更新。`platform_matching_status` 写成 Manual matched。确认同步来的记录时 `terminal_source` 仍是 SYNC，只有页面新建的记录才是 USER。请求里的 `platformMatchingStatus` 忽略 |
+| vessel_schedule | 追加了新 match 时把 `match_id` 指到它。不写码头字段。确认结束时重写五列投影，绑上一条后 `platform_matching_status` 为 Manual matched |
+| terminal_version、match | 按上表追加。采纳候选时 `entered_manually` 为 false；只有页面新建才为 true。请求里的 `platformMatchingStatus` 忽略，确认绑上一条后读取为 Manual matched |
 | lara_sync_run、lara_payload、terminal_sync_run、terminal_query、terminal_payload | 不写。新建的手工记录也不插入 `terminal_payload` |
 | activity_log | 插入一条。`remark` 是用户备注，可以为空。保留当前绑定时 `match` 为 confirm。从一条改到另一条时 `match` 为 switch |
-| activity_log_change | 每个实际变化的字段一行，包括 `platformMatchingStatus`。`original` 为确认前的值，`updated` 为确认后的值。没有变化的字段不插 |
+| activity_log_change | 每个实际变化的字段一行，包括匹配状态。`original` 为确认前的值，`updated` 为确认后的值。没有变化的字段不插 |
 
-缺航次或 ETA 相差超过 3 天不阻止确认。Cancel 恢复页面，不写这八张表。Review 页上的单笔同步走上面的同步规则。
+缺航次或 ETA 相差超过 3 天不阻止确认。Cancel 恢复页面，不写版本、匹配和活动日志。Review 页上的单笔同步走上面的同步规则。
 
 ## 接口
 
@@ -474,7 +532,7 @@ GET 没有正文。下面的请求 JSON 是路径参数和查询参数的完整�
 
 GET `/v1/vessel-schedules`
 
-读取船期列表。筛选、排序和分页都是查询参数。隐藏筛选项的默认值也由前端放进参数。不带筛选参数时不附加筛选。返回当前页。船期是一层字段。`laraVesselOperator` 来自 LARA 的 `OPERATOR_CODE`。`laraBrand` 由航次末两位算出，MA/NC/PL/NL 对应 CMA/CNC/APL/ANL。`laraVesselType` 由航次数字、`laraBrand`、`laraVesselOperator` 算出，3 为 3PF，9 再分 Group vsl 与 Partner vsl。`laraTerminal` 是 Terminal 9code。这三项由服务端计算，提交了也忽略。`platformCandidateCount` 是当前待选码头记录条数。`platformSharedLaraCount` 是共用同一港口、码头和出口航次的船期条数。`platformLastSyncStatus` 是这条船期最近一次码头同步本身的结果，不入库，取值与匹配状态里由同步直接得出的五项相同，另加 Failed。不使用 Manual matched 和 Pending match，这两项是人工确认之后的匹配状态。FOUND 且一条：进出口航次都有、到港时间都有且相差不超过 3 天为 Auto matched，缺航次为 No external voyage，到港时间为空或相差超过 3 天为 ETA gap > 3 days。FOUND 且多条为 Multiple terminal records。NOT_FOUND 为 No terminal record。FAILED 为 Failed。还没有查询时为 null。当前已是人工匹配、这次没有记录时，`platformMatchingStatus` 仍是 Manual matched，这一列是 No terminal record。何时进入 Review 见系统关键逻辑。
+读取船期列表。筛选、排序和分页都是查询参数。隐藏筛选项的默认值也由前端放进参数。不带筛选参数时不附加筛选。返回当前页。船期是一层字段。`laraVesselOperator` 来自 LARA 的 `OPERATOR_CODE`。`laraBrand` 由航次末两位算出，MA/NC/PL/NL 对应 CMA/CNC/APL/ANL。`laraVesselType` 由航次数字、`laraBrand`、`laraVesselOperator` 算出，3 为 3PF，9 再分 Group vsl 与 Partner vsl。`laraTerminal` 是 Terminal 9code。这三项由服务端计算，提交了也忽略。`platformCandidateCount` 是当前待选码头记录条数。`platformSharedLaraCount` 是共用同一港口、码头和出口航次的船期条数。`platformLastSyncStatus` 读 `vessel_schedule.platform_last_sync_status`。取值与匹配状态里由同步直接得出的五项相同，另加 Failed。不使用 Manual matched 和 Pending match，这两项是人工确认之后的匹配状态。FOUND 且一条：进出口航次都有、到港时间都有且相差不超过 3 天为 Auto matched，缺航次为 No external voyage，到港时间为空或相差超过 3 天为 ETA gap > 3 days。FOUND 且多条为 Multiple terminal records。NOT_FOUND 为 No terminal record。FAILED 为 Failed。还没有查询时为 null。当前已是人工匹配、这次没有记录时，`platformMatchingStatus` 仍是 Manual matched，这一列是 No terminal record。何时进入 Review 见系统关键逻辑。
 
 | 参数 | 必填 | 含义 |
 |---|---|---|
@@ -482,7 +540,7 @@ GET `/v1/vessel-schedules`
 | page | 否 | 默认 1 |
 | pageSize | 否 | 默认 100，最大 500 |
 
-筛选参数用字段名。多选和多行重复同一个参数。子串只出现一次。日期用字段名加 `From` 或 `To`，包含这一天，可只给一端。
+筛选参数用字段名。多选和多行重复同一个参数。子串只出现一次。日期用字段名加 `From` 或 `To`，包含这一天，可只给一端。`platformMatchingStatus`、`platformLastSyncStatus`、`platformLastModifiedBy`、`lastSyncAt` 以及按修改时间的排序，都用 `vessel_schedule` 上已写入的列，先筛选、排序、计数，再分页。
 
 | 参数 | 形态 | 含义 |
 |---|---|---|

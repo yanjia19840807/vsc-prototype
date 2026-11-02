@@ -310,6 +310,9 @@ export type VesselRecord = {
   laraSyncTime: string
   /** When this platform last synced terminal (Freightower) data for the row. */
   lastRefreshTime: string
+  /** Latest schedule write, copied from vessel_schedule.last_modified_*. */
+  lastModifiedBy?: string
+  lastModifiedAt?: string
   notFoundFields?: string[]
   rowNotFound?: boolean
 }

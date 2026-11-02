@@ -29,6 +29,7 @@ import {
 } from '@/features/vessel-schedule/mismatch-fields'
 import { addTerminalSchema } from '@/features/vessel-schedule/mismatch-schemas'
 import LaraReadonlyPanel from '@/features/vessel-schedule/LaraReadonlyPanel.vue'
+import { WIDE_DIALOG_CLASS } from '@/features/vessel-schedule/wide-dialog'
 import MismatchRemarkField from '@/features/vessel-schedule/MismatchRemarkField.vue'
 import TerminalFieldsPanel from '@/features/vessel-schedule/TerminalFieldsPanel.vue'
 import { useVesselStore } from '@/stores/vessels'
@@ -115,7 +116,7 @@ function close() {
   <Dialog :open="open" @update:open="emit('update:open', $event)">
     <DialogContent
       size="2xl"
-      class="max-h-[calc(100dvh-2rem)] min-w-0 overflow-x-hidden overflow-y-auto"
+      :class="WIDE_DIALOG_CLASS"
     >
       <DialogHeader class="min-w-0">
         <DialogTitle>{{ title }}</DialogTitle>

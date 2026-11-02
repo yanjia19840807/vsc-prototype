@@ -35,11 +35,14 @@ import {
 } from '@/features/vessel-schedule/review-access'
 import { mappingAlertVariant, mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
 import { type ScheduleQuickAction } from '@/features/vessel-schedule/mismatch-actions'
+import ActivityLogDialog from '@/features/vessel-schedule/ActivityLogDialog.vue'
 import SchedulePlatformFields from '@/features/vessel-schedule/SchedulePlatformFields.vue'
 import ScheduleRecordHeading from '@/features/vessel-schedule/ScheduleRecordHeading.vue'
 import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
 import VesselQuickActions from '@/features/vessel-schedule/VesselQuickActions.vue'
+import FieldDiffAlert from '@/features/vessel-schedule/FieldDiffAlert.vue'
 import SyncFieldAlert from '@/features/vessel-schedule/SyncFieldAlert.vue'
+import { WIDE_DIALOG_CLASS } from '@/features/vessel-schedule/wide-dialog'
 import PendingFieldChoice from '@/features/vessel-schedule/PendingFieldChoice.vue'
 import { columnIdForReview, reviewForColumn } from '@/features/vessel-schedule/sync-columns'
 import { syncCellKey } from '@/features/vessel-schedule/sync-review'
@@ -79,8 +82,6 @@ const vessel = computed(() => store.byId(String(route.params.id)))
 
 const CALCULATED_LARA = new Set(['voyageStatus', 'vesselType', 'terminal9code'])
 const HIDDEN_LARA = new Set(['voyageStatus'])
-/** Candidate tables and two-column compare need more than 2xl. */
-const REVIEW_DIALOG_CLASS = 'max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[calc(100%-4rem)]'
 
 const LARA_COLUMNS: { id: string; label: string; kind: 'text' | 'datetime' }[] = [
   { id: 'laraVoyage', label: 'Voyage', kind: 'text' },
@@ -666,10 +667,103 @@ function onLaraInput(columnId: string, value: string) {
   laraValues.value[columnId] = value
 }
 
-function onTerminalInput(key: TerminalDraftKey, value: string) {
+function shownFieldValue(value: string, kind: 'text' | 'datetime') {
+  if (!value.trim()) return '—'
+  return kind === 'datetime' ? formatDateTime(value) : value
+}
+
+function adoptedReference(): TerminalDraft | null {
+  const adopted = rows.value.find((row) => row.id === initialSelectedId.value)
+  if (adopted?.baseline) return adopted.baseline
+  const current = vessel.value
+  if (!current?.terminalSchedule) return null
+  return scheduleToDraft(current.terminalSchedule, current)
+}
+
+function terminalFieldChange(columnId: string) {
+  const row = activeRow.value
+  const key = draftKeyForColumn(columnId)
+  const column = terminalFields.find((item) => item.id === columnId)
+  if (!row || !key || !column) return null
+  const kind = column.kind === 'datetime' ? 'datetime' : 'text'
+  const currentValue = row.draft[key] ?? ''
+  const previousValue = adoptedReference()?.[key] ?? ''
+  if (currentValue === previousValue) return null
+  return {
+    previous: shownFieldValue(previousValue, kind),
+    current: shownFieldValue(currentValue, kind),
+  }
+}
+
+function laraFieldChange(columnId: string) {
+  if (recordChoice.value !== 'sync') return null
+  const offer = offerForColumn(columnId)
+  const column = LARA_COLUMNS.find((item) => item.id === columnId)
+  if (!offer || !column) return null
+  const previous = offerLabel(offer.previousValue, column.kind)
+  const current = offerLabel(offer.incomingValue, column.kind)
+  if (previous === current) return null
+  return { previous, current }
+}
+
+const editOpen = ref(false)
+const editKind = ref<'add' | 'edit'>('add')
+const editDraft = ref(emptyTerminalDraft())
+
+const showTerminalEdit = computed(() => {
+  const row = activeRow.value
+  if (!row || !vessel.value) return false
+  if (manualCompare.value && !recordChoice.value) return false
+  if (row.source === 'manual' && !row.baseline) return true
+  return editMode.value !== 'none'
+})
+
+function modalFieldEditable(key: TerminalDraftKey) {
+  if (editKind.value === 'add') return true
+  return vessel.value ? canEditTerminalDraft(vessel.value, key) : false
+}
+
+function openAddModal() {
+  editKind.value = 'add'
+  editDraft.value = emptyTerminalDraft()
+  editOpen.value = true
+}
+
+function openEditModal() {
   const row = activeRow.value
   if (!row) return
-  row.draft[key] = value
+  editKind.value = 'edit'
+  editDraft.value = cloneDraft(row.draft)
+  editOpen.value = true
+}
+
+function setEditDraft(key: TerminalDraftKey, value: string) {
+  editDraft.value = { ...editDraft.value, [key]: value }
+}
+
+function saveEditModal() {
+  const draft = cloneDraft(editDraft.value)
+  if (!Object.values(draft).some((value) => value.trim())) {
+    toast.error('Enter a terminal record')
+    return
+  }
+  if (editKind.value === 'add') {
+    const row: TerminalRow = {
+      id: `row-${rowSeq++}`,
+      source: 'manual',
+      originIndex: null,
+      draft,
+      baseline: null,
+      editing: false,
+      editSnapshot: null,
+    }
+    rows.value = [...rows.value, row]
+    selectedId.value = row.id
+    formRowId.value = null
+  } else if (activeRow.value) {
+    activeRow.value.draft = draft
+  }
+  editOpen.value = false
 }
 
 function startLaraEdit() {
@@ -1131,10 +1225,11 @@ onBeforeRouteLeave(async () => {
   await nextTick()
 })
 
+const logsOpen = ref(false)
+
 function openHistory() {
-  const current = vessel.value
-  if (!current) return
-  void router.push(`/vessels/${current.id}/activity-log`)
+  if (!vessel.value) return
+  logsOpen.value = true
 }
 
 function cancelEdits() {
@@ -1347,15 +1442,20 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
               <div class="flex items-center gap-1 text-sm text-muted-foreground">
                 {{ column.label }}
                 <SyncFieldAlert v-if="fieldCompare && !offerForColumn(column.id)" :schedule-id="vessel.id" :column-id="column.id" />
+                <FieldDiffAlert
+                  v-if="laraFieldChange(column.id)"
+                  :previous="laraFieldChange(column.id)!.previous"
+                  :current="laraFieldChange(column.id)!.current"
+                />
               </div>
               <PendingFieldChoice
-                v-if="offerForColumn(column.id) && recordChoice !== 'current' && !manualCompare"
+                v-if="offerForColumn(column.id) && recordChoice !== 'current' && !manualCompare && !laraFieldChange(column.id)"
                 readonly
                 :previous="offerLabel(offerForColumn(column.id)!.previousValue, column.kind)"
                 :incoming="offerLabel(offerForColumn(column.id)!.incomingValue, column.kind)"
                 :choice="recordValueChoice()"
               />
-              <p v-else class="text-sm">{{ displayLara(column.id, column.kind) }}</p>
+              <p v-else class="text-sm">{{ laraFieldChange(column.id)?.current ?? displayLara(column.id, column.kind) }}</p>
             </div>
             </template>
           </template>
@@ -1381,6 +1481,14 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
             Compare
           </Button>
           <Button
+            v-if="showTerminalEdit"
+            type="button"
+            size="sm"
+            @click="openEditModal"
+          >
+            Edit
+          </Button>
+          <Button
             v-if="activeRow.source === 'manual' && (editMode === 'all' || !activeRow.baseline)"
             type="button"
             variant="destructive"
@@ -1400,7 +1508,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
             v-if="showAdd"
             type="button"
             size="sm"
-            @click="addRow"
+            @click="openAddModal"
           >
             Add
           </Button>
@@ -1442,45 +1550,36 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
               >
                 <div class="flex items-center gap-1 text-sm text-muted-foreground">
                   {{ column.label }}
-                  <SyncFieldAlert v-if="fieldCompare && !manualCompare && !readonlyDiff(column.id) && !offerForColumn(column.id) && !recordFieldDiff(column.id)" :schedule-id="vessel.id" :column-id="column.id" />
+                  <SyncFieldAlert v-if="fieldCompare && !manualCompare && !readonlyDiff(column.id) && !offerForColumn(column.id) && !recordFieldDiff(column.id) && !terminalFieldChange(column.id)" :schedule-id="vessel.id" :column-id="column.id" />
+                  <FieldDiffAlert
+                    v-if="terminalFieldChange(column.id)"
+                    :previous="terminalFieldChange(column.id)!.previous"
+                    :current="terminalFieldChange(column.id)!.current"
+                  />
                 </div>
                 <PendingFieldChoice
-                  v-if="!manualCompare && recordFieldDiff(column.id) && recordChoice !== 'current'"
+                  v-if="!terminalFieldChange(column.id) && !manualCompare && recordFieldDiff(column.id) && recordChoice !== 'current'"
                   readonly
                   :previous="recordFieldDiff(column.id)!.previous"
                   :incoming="recordFieldDiff(column.id)!.incoming"
                   :choice="recordValueChoice()"
                 />
                 <PendingFieldChoice
-                  v-else-if="!manualCompare && readonlyDiff(column.id) && recordChoice !== 'current'"
+                  v-else-if="!terminalFieldChange(column.id) && !manualCompare && readonlyDiff(column.id) && recordChoice !== 'current'"
                   readonly
                   :previous="readonlyDiff(column.id)!.previous"
                   :incoming="readonlyDiff(column.id)!.incoming"
                   :choice="switchedPayload() ? 'sync' : null"
                 />
                 <PendingFieldChoice
-                  v-else-if="!manualCompare && offerForColumn(column.id) && recordChoice !== 'current'"
+                  v-else-if="!terminalFieldChange(column.id) && !manualCompare && offerForColumn(column.id) && recordChoice !== 'current'"
                   readonly
                   :previous="offerLabel(offerForColumn(column.id)!.previousValue, column.kind)"
                   :incoming="offerLabel(offerForColumn(column.id)!.incomingValue, column.kind)"
                   :choice="recordValueChoice()"
                 />
-                <p v-else-if="manualCompare" class="text-sm">
-                  {{ displayDraftValue(activeRow.draft, draftKeyForColumn(column.id)!, column.kind === 'datetime' ? 'datetime' : 'text') }}
-                </p>
-                <DateTimePicker
-                  v-else-if="draftEditable(draftKeyForColumn(column.id)!) && column.kind === 'datetime'"
-                  :model-value="datetimeInputValue(activeRow.draft[draftKeyForColumn(column.id)!])"
-                  @update:model-value="onTerminalInput(draftKeyForColumn(column.id)!, datetimeToIso($event))"
-                />
-                <Input
-                  v-else-if="draftEditable(draftKeyForColumn(column.id)!)"
-                  :model-value="activeRow.draft[draftKeyForColumn(column.id)!]"
-                  class="h-8"
-                  @update:model-value="onTerminalInput(draftKeyForColumn(column.id)!, String($event))"
-                />
                 <p v-else class="text-sm">
-                  {{ displayDraftValue(activeRow.draft, draftKeyForColumn(column.id)!, column.kind === 'datetime' ? 'datetime' : 'text') }}
+                  {{ terminalFieldChange(column.id)?.current ?? displayDraftValue(activeRow.draft, draftKeyForColumn(column.id)!, column.kind === 'datetime' ? 'datetime' : 'text') }}
                 </p>
               </div>
             </template>
@@ -1535,7 +1634,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
   </Dialog>
 
   <Dialog v-if="selectOpen" :open="true" @update:open="selectOpen = $event">
-    <DialogContent size="2xl" :class="REVIEW_DIALOG_CLASS">
+    <DialogContent size="2xl" :class="WIDE_DIALOG_CLASS">
       <DialogHeader>
         <DialogTitle>Select a terminal record</DialogTitle>
         <DialogDescription>Click a row to use it.</DialogDescription>
@@ -1574,7 +1673,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
   </Dialog>
 
   <Dialog v-if="shapeOpen" :open="true" @update:open="shapeOpen = $event">
-    <DialogContent size="2xl" :class="REVIEW_DIALOG_CLASS">
+    <DialogContent size="2xl" :class="WIDE_DIALOG_CLASS">
       <DialogHeader>
         <DialogTitle>Select a terminal record</DialogTitle>
         <DialogDescription>Click a row to use it.</DialogDescription>
@@ -1613,7 +1712,7 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
   </Dialog>
 
   <Dialog v-if="compareOpen" :open="true" @update:open="compareOpen = $event">
-    <DialogContent size="2xl" :class="REVIEW_DIALOG_CLASS">
+    <DialogContent size="2xl" :class="WIDE_DIALOG_CLASS">
       <DialogHeader>
         <DialogTitle>Compare terminal records</DialogTitle>
         <DialogDescription>
@@ -1722,4 +1821,42 @@ const shapeCandidates = computed(() => (vessel.value ? schedule.candidates(vesse
       </DialogFooter>
     </DialogContent>
   </Dialog>
+
+  <Dialog :open="editOpen" @update:open="editOpen = $event">
+    <DialogContent size="2xl" :class="WIDE_DIALOG_CLASS">
+      <DialogHeader>
+        <DialogTitle>{{ editKind === 'add' ? 'Add terminal record' : editMode === 'voyage' ? 'Edit voyage' : 'Edit terminal record' }}</DialogTitle>
+        <DialogDescription>
+          {{ editKind === 'add' ? 'Enter the terminal record. It stays on the page after you save.' : 'Save to return the values to the page.' }}
+        </DialogDescription>
+      </DialogHeader>
+      <dl class="grid grid-cols-1 gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div v-for="column in terminalFields" :key="column.id" class="min-w-0 border-b py-2">
+          <template v-if="draftKeyForColumn(column.id)">
+            <div class="mb-1 text-sm text-muted-foreground">{{ column.label }}</div>
+            <DateTimePicker
+              v-if="modalFieldEditable(draftKeyForColumn(column.id)!) && column.kind === 'datetime'"
+              :model-value="datetimeInputValue(editDraft[draftKeyForColumn(column.id)!])"
+              @update:model-value="setEditDraft(draftKeyForColumn(column.id)!, datetimeToIso($event))"
+            />
+            <Input
+              v-else-if="modalFieldEditable(draftKeyForColumn(column.id)!)"
+              :model-value="editDraft[draftKeyForColumn(column.id)!]"
+              class="h-8"
+              @update:model-value="setEditDraft(draftKeyForColumn(column.id)!, String($event))"
+            />
+            <p v-else class="text-sm">
+              {{ displayDraftValue(editDraft, draftKeyForColumn(column.id)!, column.kind === 'datetime' ? 'datetime' : 'text') }}
+            </p>
+          </template>
+        </div>
+      </dl>
+      <DialogFooter>
+        <Button type="button" variant="outline" @click="editOpen = false">Cancel</Button>
+        <Button type="button" variant="primary" @click="saveEditModal">Save</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+
+  <ActivityLogDialog :open="logsOpen" :vessel="vessel ?? null" @update:open="logsOpen = $event" />
 </template>

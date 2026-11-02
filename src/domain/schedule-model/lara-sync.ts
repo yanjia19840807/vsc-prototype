@@ -3,14 +3,15 @@ import {
   inRange,
   nextId,
 } from '@/domain/schedule-model/state'
-import type {
-  LaraPayload,
-  LaraPayloadInput,
-  LaraSyncRun,
-  LaraSyncScope,
-  ScheduleState,
-  ScheduleTrigger,
-  VesselSchedule,
+import {
+  emptyListColumns,
+  type LaraPayload,
+  type LaraPayloadInput,
+  type LaraSyncRun,
+  type LaraSyncScope,
+  type ScheduleState,
+  type ScheduleTrigger,
+  type VesselSchedule,
 } from '@/domain/schedule-model/types'
 
 export function openLaraRun(
@@ -87,6 +88,7 @@ export function completeLaraRun(
         platformOmit: false,
         laraVersionId: null,
         matchId: null,
+        ...emptyListColumns(),
       }
       next = { ...issued.state, schedules: [...issued.state.schedules, created] }
       schedule = created

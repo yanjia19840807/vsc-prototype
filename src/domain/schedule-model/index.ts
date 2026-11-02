@@ -17,6 +17,9 @@ export {
   defaultSyncPolicy,
   displayedLastSyncStatus,
   displayedMatchingStatus,
+  latestUserModification,
+  refreshListProjection,
+  returnedTerminalQuery,
   editLaraFields,
   editTerminalFields,
   hasBoundMatch,
@@ -26,18 +29,15 @@ export {
   keepTerminalShape,
   laraFieldHistory,
   matchHistory,
-  pinTerminalCandidate,
   reviewSchedule,
   settleOpenShape,
   terminalFieldHistory,
   watchKey,
 } from '@/domain/schedule-model/sync-diff'
-export type { LastSyncStatus, ScheduleReview, FieldHistoryRow, FieldReview, SyncPolicy, TerminalShape } from '@/domain/schedule-model/sync-diff'
+export type { LastSyncStatus, ReturnedTerminalQuery, ScheduleReview, FieldHistoryRow, FieldReview, SyncPolicy, TerminalShape } from '@/domain/schedule-model/sync-diff'
 export { completeTerminalQuery, openSingleTerminalQuery, openTerminalSync } from '@/domain/schedule-model/terminal-sync'
 export type {
   ScheduleOrigin,
-  DecisionAction,
-  FieldDecision,
   LaraPayload,
   LaraPayloadInput,
   LaraSnapshot,
@@ -45,6 +45,8 @@ export type {
   LaraVersion,
   Match,
   MatchMethod,
+  PlatformLastSyncStatus,
+  PlatformMatchingStatus,
   ScheduleState,
   TerminalPayload,
   TerminalPayloadInput,

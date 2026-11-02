@@ -18,9 +18,22 @@ export type VersionSource = 'SYNC' | 'USER'
 
 export type MatchMethod = 'AUTO' | 'USER'
 
-export type DecisionSide = 'LARA' | 'TERMINAL'
+export type PlatformMatchingStatus =
+  | 'Auto matched'
+  | 'Manual matched'
+  | 'Pending match'
+  | 'Multiple terminal records'
+  | 'No terminal record'
+  | 'No external voyage'
+  | 'ETA gap > 3 days'
 
-export type DecisionAction = 'KEEP' | 'EDIT'
+export type PlatformLastSyncStatus =
+  | 'Auto matched'
+  | 'Multiple terminal records'
+  | 'ETA gap > 3 days'
+  | 'No external voyage'
+  | 'No terminal record'
+  | 'Failed'
 
 export type LaraSyncRun = {
   id: string
@@ -153,6 +166,25 @@ export type VesselSchedule = {
   platformOmit: boolean
   laraVersionId: string | null
   matchId: string | null
+  /** List projection. Rewritten when versions, matches, queries, or decisions change. */
+  platformMatchingStatus: PlatformMatchingStatus | null
+  platformLastSyncStatus: PlatformLastSyncStatus | null
+  lastSyncAt: string | null
+  lastModifiedBy: string | null
+  lastModifiedAt: string | null
+}
+
+export function emptyListColumns(): Pick<
+  VesselSchedule,
+  'platformMatchingStatus' | 'platformLastSyncStatus' | 'lastSyncAt' | 'lastModifiedBy' | 'lastModifiedAt'
+> {
+  return {
+    platformMatchingStatus: null,
+    platformLastSyncStatus: null,
+    lastSyncAt: null,
+    lastModifiedBy: null,
+    lastModifiedAt: null,
+  }
 }
 
 export type Match = {
@@ -162,19 +194,9 @@ export type Match = {
   laraVersionId: string
   terminalVersionId: string | null
   method: MatchMethod
+  /** Terminal query this match answered. Empty when the match is not a review of a query. */
+  queryId: string | null
   reason: string
-  updatedBy: string
-  updatedAt: string
-}
-
-export type FieldDecision = {
-  id: string
-  scheduleId: string
-  side: DecisionSide
-  payloadId: string
-  field: string
-  action: DecisionAction
-  versionId: string | null
   updatedBy: string
   updatedAt: string
 }
@@ -185,7 +207,6 @@ export type ScheduleState = {
   laraVersions: LaraVersion[]
   terminalVersions: TerminalVersion[]
   matches: Match[]
-  fieldDecisions: FieldDecision[]
   laraPayloads: LaraPayload[]
   terminalPayloads: TerminalPayload[]
   laraRuns: LaraSyncRun[]

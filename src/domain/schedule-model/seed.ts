@@ -9,16 +9,18 @@ import {
   keepLaraField,
   keepTerminalField,
   keepTerminalShape,
+  refreshListProjection,
   settleOpenShape,
 } from '@/domain/schedule-model/sync-diff'
 import type { LaraField } from '@/domain/schedule-model/snapshot'
 import { emptyScheduleState, nextId } from '@/domain/schedule-model/state'
-import type {
-  LaraSnapshot,
-  ScheduleState,
-  TerminalQuery,
-  TerminalSnapshot,
-  VesselSchedule,
+import {
+  emptyListColumns,
+  type LaraSnapshot,
+  type ScheduleState,
+  type TerminalQuery,
+  type TerminalSnapshot,
+  type VesselSchedule,
 } from '@/domain/schedule-model/types'
 import { brandFromVoyage } from '@/domain/lara-brand'
 import type { TerminalSchedule, VesselRecord } from '@/types/vsc'
@@ -71,6 +73,7 @@ export function seedSchedule(vessels: VesselRecord[]) {
     const seed = scenarioSeeders[vessel.id]
     state = seed ? seed(state, vessel, patches) : seedAuto(state, vessel, patches)
   }
+  for (const schedule of state.schedules) state = refreshListProjection(state, schedule.id)
   return { state, patches }
 }
 
@@ -496,6 +499,7 @@ function addSchedule(state: ScheduleState, vessel: VesselRecord) {
     platformOmit: false,
     laraVersionId: null,
     matchId: null,
+    ...emptyListColumns(),
   }
   return { ...state, schedules: [...state.schedules, schedule] }
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, provide, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 
 import DataSection from '@/components/DataSection.vue'
 import PageBreadcrumb from '@/components/PageBreadcrumb.vue'
@@ -13,6 +13,7 @@ import SyncFieldAlert from '@/features/vessel-schedule/SyncFieldAlert.vue'
 import { reviewForColumn } from '@/features/vessel-schedule/sync-columns'
 import { syncCellKey, syncPendingKey, showsUnsettledDash } from '@/features/vessel-schedule/sync-review'
 import { mappingAlertVariant, mappingHeaderAlert } from '@/features/vessel-schedule/mapping-header'
+import ActivityLogDialog from '@/features/vessel-schedule/ActivityLogDialog.vue'
 import SchedulePlatformFields from '@/features/vessel-schedule/SchedulePlatformFields.vue'
 import ScheduleRecordHeading from '@/features/vessel-schedule/ScheduleRecordHeading.vue'
 import VesselAdjustMenu from '@/features/vessel-schedule/VesselAdjustMenu.vue'
@@ -34,7 +35,6 @@ import { useVesselStore } from '@/stores/vessels'
 const STATUS_COLUMNS = new Set(['mappingStatus', 'lastSyncStatus'])
 
 const route = useRoute()
-const router = useRouter()
 const store = useVesselStore()
 const schedule = useScheduleStore()
 const listSettings = useListSettingsStore()
@@ -48,6 +48,7 @@ provide(syncCellKey, (scheduleId, columnId) => {
 })
 provide(syncPendingKey, (scheduleId) => schedule.review(scheduleId).changed)
 const vessel = computed(() => store.byId(String(route.params.id)))
+const logsOpen = ref(false)
 const quickAction = ref<ScheduleQuickAction | null>(null)
 
 const headerAlert = computed(() => {
@@ -69,13 +70,9 @@ const panes = computed(() => [
   { source: 'terminal' as ColumnSource, title: 'Terminal', columns: SEARCH_COLUMNS.filter((column) => column.source === 'terminal') },
 ])
 
-function openHistory(fieldId?: string) {
-  const current = vessel.value
-  if (!current) return
-  void router.push({
-    path: `/vessels/${current.id}/activity-log`,
-    query: fieldId ? { field: fieldId } : {},
-  })
+function openHistory() {
+  if (!vessel.value) return
+  logsOpen.value = true
 }
 
 function cellText(columnId: string) {
@@ -113,7 +110,7 @@ function sourceText(columnId: string) {
       />
       <div class="flex flex-wrap items-center gap-2">
         <VesselAdjustMenu :vessel="vessel" size="default" @pick="quickAction = $event" />
-        <Button type="button" variant="outline" @click="openHistory()">Activity logs</Button>
+        <Button type="button" variant="outline" @click="openHistory">Activity logs</Button>
       </div>
     </div>
     <ScheduleRecordHeading :vessel="vessel" />
@@ -160,6 +157,8 @@ function sourceText(columnId: string) {
         </dl>
       </DataSection>
     </div>
+
+    <ActivityLogDialog :open="logsOpen" :vessel="vessel ?? null" @update:open="logsOpen = $event" />
 
     <VesselQuickActions
       :vessel="vessel ?? null"

@@ -7,7 +7,6 @@ export function emptyScheduleState(): ScheduleState {
     laraVersions: [],
     terminalVersions: [],
     matches: [],
-    fieldDecisions: [],
     laraPayloads: [],
     terminalPayloads: [],
     laraRuns: [],

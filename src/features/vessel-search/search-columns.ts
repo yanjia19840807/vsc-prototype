@@ -142,9 +142,6 @@ export function historyFieldMatches(field: string, columnId: string) {
 
 export const SEARCH_DEFAULT_SORT = [{ id: 'laraEtb', desc: true }]
 
-/** Mapping status through last modified, shown in list, detail, and review headers. */
-export const PLATFORM_HEADER_COLUMNS = SEARCH_COLUMNS.filter((column) => column.source === 'platform')
-
 function brandOf(v: VesselRecord): string {
   return brandFromVoyage(v.laraVoyage) || v.brand || ''
 }
@@ -249,6 +246,10 @@ function isSystemActor(by: string) {
 
 /** Latest schedule write, including System syncs. */
 function lastScheduleUpdate(v: VesselRecord) {
+  if (v.lastModifiedAt) {
+    const by = v.lastModifiedBy ?? ''
+    return { by: isSystemActor(by) ? 'System' : by, at: v.lastModifiedAt }
+  }
   let by = ''
   let at = ''
   let time = Number.NEGATIVE_INFINITY
